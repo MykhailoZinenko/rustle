@@ -274,15 +274,76 @@ let r: res<float> = try (1.0 / 0.0)
 
 ---
 
-## shape
+## Shape types
 
-The drawable type. All shape constructors return a `shape`. Push to `out <<` to draw it.
+Shape constructors return concrete typed values — not a generic `shape`. Each type exposes its own geometry fields and can be inspected, stored in typed lists, or used in constraints. All shape types are accepted by `out <<` and `@`, and are assignable to the erased `shape` type.
 
-**Methods:**
+### circle
+
+```rust
+let c = circle(vec2(400, 300), 50)
+c.center   // vec2
+c.radius   // float
+```
+
+| Field/Method | Returns | Description |
+|--------------|---------|-------------|
+| `.center` | `vec2` | Center position (read-only) |
+| `.radius` | `float` | Radius (read-only) |
+| `.in(dx, dy)` | `vec2` | Point offset from center by `dx`, `dy` |
+
+### rect
+
+```rust
+let r = rect(vec2(400, 300), vec2(200, 100))
+r.center   // vec2
+r.size     // vec2 — (width, height)
+```
+
+| Field/Method | Returns | Description |
+|--------------|---------|-------------|
+| `.center` | `vec2` | Center position (read-only) |
+| `.size` | `vec2` | Width and height (read-only) |
+| `.in(dx, dy)` | `vec2` | Point offset from anchor by `dx`, `dy` |
+
+### line
+
+```rust
+let l = line(vec2(0, 0), vec2(100, 100))
+l.from   // vec2
+l.to     // vec2
+```
+
+| Field/Method | Returns | Description |
+|--------------|---------|-------------|
+| `.from` | `vec2` | Start point (read-only) |
+| `.to` | `vec2` | End point (read-only) |
+| `.in(dx, dy)` | `vec2` | Point offset from start by `dx`, `dy` |
+
+### polygon
+
+```rust
+let p = polygon([vec2(0, 0), vec2(50, 100), vec2(100, 0)])
+```
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `.in(dx, dy)` | `vec2` | Point offset from the shape's anchor by `dx`, `dy`. The anchor is typically the center. |
+| `.in(dx, dy)` | `vec2` | Point offset from first vertex by `dx`, `dy` |
+
+### shape (erased)
+
+The erased drawable type. Any concrete shape kind is assignable to `shape`. Used when you need a heterogeneous `list[shape]` or don't need field access:
+
+```rust
+let s: shape = circle(vec2(0, 0), 50)   // erase to shape — fields no longer accessible
+let shapes: list[shape] = []
+shapes.push(circle(vec2(0, 0), 30))
+shapes.push(rect(vec2(100, 100), vec2(50, 50)))
+```
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.in(dx, dy)` | `vec2` | Point offset from the shape's anchor |
 
 ---
 

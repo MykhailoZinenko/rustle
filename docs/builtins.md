@@ -93,32 +93,34 @@ import shapes { circle, rect, line, polygon }
 ### circle
 
 ```rust
-circle(center: vec2, radius: float) -> shape
-circle(center: vec2, radius: float, render: RenderMode) -> shape
+circle(center: vec2, radius: float) -> circle
+circle(center: vec2, radius: float, render: RenderMode) -> circle
 ```
 
-`center` is in canvas coordinates. `radius` is in the same units.
+`center` is in canvas coordinates. `radius` is in the same units. Returns a `circle` with `.center` and `.radius` fields.
 
 ### rect
 
 ```rust
-rect(center: vec2, size: vec2) -> shape
-rect(center: vec2, size: vec2, render: RenderMode) -> shape
-rect(center: vec2, size: vec2, origin: OriginMode) -> shape
+rect(center: vec2, size: vec2) -> rect
+rect(center: vec2, size: vec2, render: RenderMode) -> rect
+rect(center: vec2, size: vec2, origin: OriginMode) -> rect
 ```
 
-Default origin is `center`. With `origin: top_left`, the position becomes the top-left corner of the rectangle.
+Default origin is `center`. With `origin: top_left`, the position becomes the top-left corner. Returns a `rect` with `.center` and `.size` fields.
 
 ### line
 
 ```rust
-line(start: vec2, end: vec2) -> shape
+line(from: vec2, to: vec2) -> line
 ```
+
+Returns a `line` with `.from` and `.to` fields.
 
 ### polygon
 
 ```rust
-polygon(points: list[vec2]) -> shape
+polygon(points: list[vec2]) -> polygon
 ```
 
 Closed polygon through all points in order.

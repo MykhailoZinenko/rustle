@@ -55,10 +55,10 @@ fn update(s: State, input: Input) -> State {
 
 | Section | What it covers |
 |---------|---------------|
-| [Quick Start](quickstart) | Get a script running |
-| [Script Lifecycle](lifecycle) | How init, update, and state work |
-| [Syntax](syntax) | Variables, operators, control flow, functions |
-| [Types](types) | All types — fields, methods, constructors |
-| [Built-ins](builtins) | Math, shapes, rendering, coordinate config |
-| [Examples](examples) | Annotated scripts for common patterns |
-| [Error Reference](errors) | All error codes with explanations |
+| [Quick Start]({{ '/quickstart/' | relative_url }}) | Get a script running |
+| [Script Lifecycle]({{ '/lifecycle/' | relative_url }}) | How init, update, and state work |
+| [Syntax]({{ '/syntax/' | relative_url }}) | Variables, operators, control flow, functions |
+| [Types]({{ '/types/' | relative_url }}) | All types — fields, methods, constructors |
+| [Built-ins]({{ '/builtins/' | relative_url }}) | Math, shapes, rendering, coordinate config |
+| [Examples]({{ '/examples/' | relative_url }}) | Annotated scripts for common patterns |
+| [Error Reference]({{ '/errors/' | relative_url }}) | All error codes with explanations |
