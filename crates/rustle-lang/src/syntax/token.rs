@@ -40,6 +40,10 @@ pub enum TokenKind {
     Star,       // *
     Slash,      // /
     Percent,    // %
+    PlusEq,     // +=
+    MinusEq,    // -=
+    StarEq,     // *=
+    SlashEq,    // /=
     Eq,         // =
     EqEq,       // ==
     BangEq,     // !=

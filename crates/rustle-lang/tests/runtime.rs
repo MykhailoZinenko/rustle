@@ -394,6 +394,19 @@ fn if_condition_expression() {
 }
 
 #[test]
+fn compound_assignment() {
+    let rt = run(r#"
+        state { let x: float = 10.0 }
+        fn on_init(s: State) -> State {
+            s.x += 5.0
+            s.x *= 2.0
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "x"), 30.0);
+}
+
+#[test]
 fn else_if_branches() {
     let rt = run(r#"
         state { let x: float = 0.0 }

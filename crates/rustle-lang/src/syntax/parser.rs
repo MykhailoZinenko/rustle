@@ -207,9 +207,44 @@ impl Parser {
         while self.matches(TokenKind::Dot) {
             target.push(self.expect_ident()?);
         }
-        self.expect(TokenKind::Eq)?;
-        let value = self.parse_expr()?;
+        let value = if self.matches(TokenKind::Eq) {
+            self.parse_expr()?
+        } else {
+            let binop = if self.matches(TokenKind::PlusEq) {
+                BinOp::Add
+            } else if self.matches(TokenKind::MinusEq) {
+                BinOp::Sub
+            } else if self.matches(TokenKind::StarEq) {
+                BinOp::Mul
+            } else if self.matches(TokenKind::SlashEq) {
+                BinOp::Div
+            } else {
+                return Err(Error::new(ErrorCode::P002, self.peek().line, self.peek().column,
+                    "expected `=`, `+=`, `-=`, `*=`, or `/=`"));
+            };
+            let rhs = self.parse_expr()?;
+            let lhs = self.path_to_expr(&target, span.clone());
+            Expr::BinOp {
+                left: Box::new(lhs),
+                op: binop,
+                right: Box::new(rhs),
+                span: span.clone(),
+            }
+        };
         Ok(Stmt::Assign(Assign { target, value, span }))
+    }
+
+    /// Build an Expr that reads the value at the given path (e.g. `x` or `s.x`).
+    fn path_to_expr(&self, path: &[String], span: Span) -> Expr {
+        let mut expr = Expr::Ident(path[0].clone(), span.clone());
+        for part in path.iter().skip(1) {
+            expr = Expr::Field {
+                expr: Box::new(expr),
+                field: part.clone(),
+                span: span.clone(),
+            };
+        }
+        expr
     }
 
     fn parse_out(&mut self) -> Result<Stmt, Error> {
@@ -667,7 +702,7 @@ impl Parser {
     }
 
     /// Returns true when the current position starts a dotted-path assignment:
-    /// `ident (.ident)* =`
+    /// `ident (.ident)* =` or `ident (.ident)* +=` etc.
     fn is_path_assign(&self) -> bool {
         let mut i = self.pos;
         // must start with an ident
@@ -680,8 +715,11 @@ impl Parser {
         {
             i += 2;
         }
-        // must be followed by `=` (not `==`)
-        i < self.tokens.len() && self.tokens[i].kind == TokenKind::Eq
+        // must be followed by `=` or `+=`, `-=`, `*=`, `/=`
+        i < self.tokens.len() && matches!(
+            self.tokens[i].kind,
+            TokenKind::Eq | TokenKind::PlusEq | TokenKind::MinusEq | TokenKind::StarEq | TokenKind::SlashEq
+        )
     }
 
     fn advance(&mut self) -> Token {
@@ -910,6 +948,18 @@ mod tests {
         let p = parse("let x = 0.0\nx = 1.0");
         match &p.items[1] {
             Item::Stmt(Stmt::Assign(a)) => assert_eq!(a.target, vec!["x"]),
+            _ => panic!("expected Assign"),
+        }
+    }
+
+    #[test]
+    fn compound_assignment() {
+        let p = parse("let x = 10.0\nx += 5.0");
+        match &p.items[1] {
+            Item::Stmt(Stmt::Assign(a)) => {
+                assert_eq!(a.target, vec!["x"]);
+                assert!(matches!(&a.value, Expr::BinOp { op: BinOp::Add, .. }));
+            }
             _ => panic!("expected Assign"),
         }
     }

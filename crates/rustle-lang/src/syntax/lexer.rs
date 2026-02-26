@@ -41,8 +41,14 @@ impl<'a> Lexer<'a> {
         let ch = self.advance();
 
         let kind = match ch {
-            b'+' => TokenKind::Plus,
-            b'*' => TokenKind::Star,
+            b'+' => {
+                if self.peek() == b'=' { self.advance(); TokenKind::PlusEq }
+                else { TokenKind::Plus }
+            }
+            b'*' => {
+                if self.peek() == b'=' { self.advance(); TokenKind::StarEq }
+                else { TokenKind::Star }
+            }
             b'%' => TokenKind::Percent,
             b'?' => TokenKind::Question,
             b':' => TokenKind::Colon,
@@ -59,10 +65,12 @@ impl<'a> Lexer<'a> {
 
             b'-' => {
                 if self.peek() == b'>' { self.advance(); TokenKind::Arrow }
+                else if self.peek() == b'=' { self.advance(); TokenKind::MinusEq }
                 else { TokenKind::Minus }
             }
             b'/' => {
                 if self.peek() == b'/' { self.skip_line(); return Ok(None); }
+                else if self.peek() == b'=' { self.advance(); TokenKind::SlashEq }
                 else { TokenKind::Slash }
             }
             b'=' => {
