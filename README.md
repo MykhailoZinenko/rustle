@@ -2,6 +2,8 @@
 
 A statically-typed scripting language for creative graphics programming. Write scripts, see shapes rendered live on a canvas alongside the editor.
 
+**[Documentation →](https://mykhailozinenko.github.io/rustle/)**
+
 ---
 
 ## Table of Contents
