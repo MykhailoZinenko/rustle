@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "crates/rustle-lang",
+    "crates/rustle-renderer",
+    "crates/rustle-app",
+]
+resolver = "2"

@@ -1,0 +1,8 @@
+[package]
+name = "rustle-renderer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rustle-lang = { version = "0.1.0", path = "../rustle-lang" }
+wgpu = "28.0.0"
