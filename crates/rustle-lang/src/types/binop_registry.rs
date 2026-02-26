@@ -57,26 +57,18 @@ use crate::syntax::ast::Type;
 /// Map a `Type` to its BinopRegistry key. Returns `None` for generic/compound types.
 pub fn type_to_key(ty: &Type) -> Option<&'static str> {
     match ty {
-        Type::Float      => Some("float"),
-        Type::Bool       => Some("bool"),
-        Type::Named(n)   => match n.as_str() {
-            "vec2" | "vec3" | "vec4" | "color" | "mat3" | "mat4" |
-            "transform" | "shape" => {
-                // SAFETY: these are interned string literals in the registry
-                // We need to return the same &'static str the registry uses.
-                Some(match n.as_str() {
-                    "vec2"      => "vec2",
-                    "vec3"      => "vec3",
-                    "vec4"      => "vec4",
-                    "color"     => "color",
-                    "mat3"      => "mat3",
-                    "mat4"      => "mat4",
-                    "transform" => "transform",
-                    "shape"     => "shape",
-                    _           => return None,
-                })
-            }
-            _ => None,
+        Type::Float                          => Some("float"),
+        Type::Bool                           => Some("bool"),
+        Type::Named(n) => match n.as_str() {
+            "vec2"      => Some("vec2"),
+            "vec3"      => Some("vec3"),
+            "vec4"      => Some("vec4"),
+            "color"     => Some("color"),
+            "mat3"      => Some("mat3"),
+            "mat4"      => Some("mat4"),
+            "transform" => Some("transform"),
+            "shape"     => Some("shape"),
+            _           => None,
         },
         _ => None,
     }

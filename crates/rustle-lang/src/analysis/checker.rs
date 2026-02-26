@@ -576,7 +576,7 @@ impl<'a> TypeResolver<'a> {
         }
         Err(vec![Error::new(
             ErrorCode::S008, span.line, span.column,
-            format!("operator `{op:?}` not applicable to `{}` and `{}`", type_name(l), type_name(r)),
+            format!("operator `{op}` not applicable to `{}` and `{}`", type_name(l), type_name(r)),
         )])
     }
 

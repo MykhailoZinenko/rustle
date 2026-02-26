@@ -284,6 +284,27 @@ pub enum BinOp {
     And, Or,
 }
 
+impl std::fmt::Display for BinOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            BinOp::Add   => "+",
+            BinOp::Sub   => "-",
+            BinOp::Mul   => "*",
+            BinOp::Div   => "/",
+            BinOp::Mod   => "%",
+            BinOp::Eq    => "==",
+            BinOp::NotEq => "!=",
+            BinOp::Lt    => "<",
+            BinOp::LtEq  => "<=",
+            BinOp::Gt    => ">",
+            BinOp::GtEq  => ">=",
+            BinOp::And   => "and",
+            BinOp::Or    => "or",
+        };
+        write!(f, "{s}")
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnOp {
     Neg,
