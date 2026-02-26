@@ -463,7 +463,7 @@ impl Parser {
                         self.expect(TokenKind::RParen)?;
                         ts
                     } else {
-                        vec![self.parse_primary()?]
+                        vec![self.parse_postfix()?]
                     };
                     expr = Expr::Transform { expr: Box::new(expr), transforms, span };
                 }
@@ -1601,15 +1601,16 @@ mod tests {
 
     #[test]
     fn method_on_transform_result() {
-        // s@t.field — @  binds tighter than .
-        // parsed as (s@t).field
+        // s@t.x — . binds tighter than @
+        // parsed as s@(t.x), i.e. Transform{ expr: s, transforms: [Field{t, x}] }
         let expr = parse_expr_src("s@t.x");
         match expr {
-            Expr::Field { expr, field, .. } => {
-                assert_eq!(field, "x");
-                assert!(matches!(*expr, Expr::Transform { .. }));
+            Expr::Transform { expr, transforms, .. } => {
+                assert!(matches!(*expr, Expr::Ident(ref n, _) if n == "s"));
+                assert_eq!(transforms.len(), 1);
+                assert!(matches!(transforms[0], Expr::Field { ref field, .. } if field == "x"));
             }
-            _ => panic!("expected Field on Transform"),
+            _ => panic!("expected Transform with field RHS"),
         }
     }
 
