@@ -107,10 +107,30 @@ pub struct VarDecl {
     pub span: Span,
 }
 
+/// Assignable target: dotted path or indexed (arr[i], s.arr[i]).
+#[derive(Debug, Clone)]
+pub enum AssignTarget {
+    /// `x` or `s.x` — dotted path only
+    Path(Vec<String>),
+    /// `arr[i]` or `s.arr[i]` — path plus index expressions
+    Indexed {
+        path: Vec<String>,
+        indices: Vec<Expr>,
+    },
+}
+
+impl AssignTarget {
+    pub fn path(&self) -> &[String] {
+        match self {
+            AssignTarget::Path(p) => p,
+            AssignTarget::Indexed { path, .. } => path,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Assign {
-    /// Dotted path: `["x"]` for `x = …`, `["s", "t"]` for `s.t = …`
-    pub target: Vec<String>,
+    pub target: AssignTarget,
     pub value: Expr,
     pub span: Span,
 }

@@ -372,6 +372,13 @@ fn s008_index_non_collection() {
 }
 
 #[test]
+fn s002_index_assign_not_float() {
+    let errs = err("let xs: list[float] = [1.0, 2.0]\nxs[true] = 3.0");
+    assert!(has(&errs, ErrorCode::S002));
+    assert!(has_msg(&errs, "float"));
+}
+
+#[test]
 fn s008_compare_vec2_with_float() {
     let errs = err("let a = vec2(1.0, 0.0)\nlet c = a == 1.0");
     assert!(has(&errs, ErrorCode::S008));
@@ -618,6 +625,11 @@ fn ok_list_len() {
 #[test]
 fn ok_list_index() {
     ok("let xs: list[float] = [1.0, 2.0, 3.0]\nlet first = xs[0]");
+}
+
+#[test]
+fn ok_list_index_assign() {
+    ok("let xs: list[float] = [1.0, 2.0, 3.0]\nxs[1] = 99.0");
 }
 
 #[test]

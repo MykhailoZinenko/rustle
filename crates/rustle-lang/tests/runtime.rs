@@ -745,6 +745,34 @@ fn list_pop_empty_runtime_error() {
 }
 
 #[test]
+fn list_index_assignment() {
+    let rt = run(r#"
+        state { let x: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let xs: list[float] = [10.0, 20.0, 30.0]
+            xs[1] = 99.0
+            s.x = xs[1]
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "x"), 99.0);
+}
+
+#[test]
+fn list_index_compound_assignment() {
+    let rt = run(r#"
+        state { let x: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let xs: list[float] = [10.0, 20.0, 30.0]
+            xs[1] += 5.0
+            s.x = xs[1]
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "x"), 25.0);
+}
+
+#[test]
 fn list_index_access() {
     let rt = run(r#"
         state { let x: float = 0.0 }

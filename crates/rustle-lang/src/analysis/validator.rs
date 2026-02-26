@@ -97,7 +97,7 @@ impl<'a> Validator<'a> {
     fn scan_stmt_for_const_assign(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Assign(a) => {
-                let root = &a.target[0];
+                let root = &a.target.path()[0];
                 if let Some(sym) = self.table.lookup(root) {
                     if sym.kind == super::symbols::SymbolKind::Const {
                         self.errors.push(Error::new(

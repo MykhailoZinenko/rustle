@@ -2,7 +2,7 @@
 //! All domain-specific calls are dispatched through the NamespaceRegistry.
 //! The interpreter itself contains no hardcoded function implementations.
 
-use crate::syntax::ast::{self, BinOp, Expr, Item, Param, Span, Stmt, UnOp};
+use crate::syntax::ast::{self, AssignTarget, BinOp, Expr, Item, Param, Span, Stmt, UnOp};
 use crate::types::draw::DrawCommand;
 use crate::types::binop_registry::BinopRegistry;
 use crate::types::registry::TypeRegistry;
@@ -500,22 +500,26 @@ impl<'a> Interpreter<'a> {
 
             Stmt::Assign(a) => {
                 let val = self.eval_expr(&a.value)?;
-                if a.target.len() == 1 {
-                    let name = &a.target[0];
-                    if !self.env.set(name, val) {
-                        return Err(self.err(a.span.line, format!("undefined: `{name}`")));
+                match &a.target {
+                    AssignTarget::Path(p) if p.len() == 1 => {
+                        let name = &p[0];
+                        if !self.env.set(name, val) {
+                            return Err(self.err(a.span.line, format!("undefined: `{name}`")));
+                        }
                     }
-                } else {
-                    let root = &a.target[0];
-                    let obj = self.env.get(root)
-                        .ok_or_else(|| self.err(a.span.line, format!("undefined: `{root}`")))?;
-                    if let Value::State(rc) = &obj {
-                        // State uses Rc for in-place mutation.
-                        assign_state_path(rc, &a.target[1..], val, a.span.line, &self.types)?;
-                    } else {
-                        // Local vars (vec2, color, …): produce new value, write back.
-                        let updated = set_field_path(&self.types, obj, &a.target[1..], val, a.span.line)?;
-                        self.env.set(root, updated);
+                    AssignTarget::Path(p) => {
+                        let root = &p[0];
+                        let obj = self.env.get(root)
+                            .ok_or_else(|| self.err(a.span.line, format!("undefined: `{root}`")))?;
+                        if let Value::State(rc) = &obj {
+                            assign_state_path(rc, &p[1..], val, a.span.line, &self.types)?;
+                        } else {
+                            let updated = set_field_path(&self.types, obj, &p[1..], val, a.span.line)?;
+                            self.env.set(root, updated);
+                        }
+                    }
+                    AssignTarget::Indexed { path: p, indices } => {
+                        self.exec_indexed_assign(p, indices, val, a.span.line)?;
                     }
                 }
             }
@@ -618,6 +622,49 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::Expr(e) => { self.eval_expr(e)?; }
+        }
+        Ok(())
+    }
+
+    fn exec_indexed_assign(
+        &mut self,
+        path: &[String],
+        indices: &[Expr],
+        val: Value,
+        line: usize,
+    ) -> Result<(), RuntimeError> {
+        let root = &path[0];
+        let mut coll = self.env.get(root)
+            .ok_or_else(|| self.err(line, format!("undefined: `{root}`")))?
+            .clone();
+        for p in path.iter().skip(1) {
+            coll = eval_field(&self.types, &coll, p, line)?;
+        }
+        for idx_expr in &indices[..indices.len().saturating_sub(1)] {
+            let idx = self.eval_expr(idx_expr)?;
+            let i = as_float(&idx, line)? as usize;
+            coll = match &coll {
+                Value::List(items) => items.borrow().get(i).cloned()
+                    .ok_or_else(|| self.err(line, "index out of bounds")),
+                _ => Err(self.err(line, format!(
+                    "cannot index `{}`", value_type_name(&coll)
+                ))),
+            }?;
+        }
+        let last_idx = indices.last().unwrap();
+        let idx = self.eval_expr(last_idx)?;
+        let i = as_float(&idx, line)? as usize;
+        match &coll {
+            Value::List(items) => {
+                let mut guard = items.borrow_mut();
+                if i >= guard.len() {
+                    return Err(self.err(line, "index out of bounds"));
+                }
+                guard[i] = val;
+            }
+            _ => return Err(self.err(line, format!(
+                "cannot assign to index of `{}`", value_type_name(&coll)
+            ))),
         }
         Ok(())
     }

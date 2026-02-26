@@ -203,10 +203,20 @@ impl Parser {
 
     fn parse_assign(&mut self) -> Result<Stmt, Error> {
         let span = self.span();
-        let mut target = vec![self.expect_ident()?];
+        let mut path = vec![self.expect_ident()?];
         while self.matches(TokenKind::Dot) {
-            target.push(self.expect_ident()?);
+            path.push(self.expect_ident()?);
         }
+        let mut indices = Vec::new();
+        while self.matches(TokenKind::LBracket) {
+            indices.push(self.parse_expr()?);
+            self.expect(TokenKind::RBracket)?;
+        }
+        let target = if indices.is_empty() {
+            AssignTarget::Path(path.clone())
+        } else {
+            AssignTarget::Indexed { path: path.clone(), indices: indices.clone() }
+        };
         let value = if self.matches(TokenKind::Eq) {
             self.parse_expr()?
         } else {
@@ -223,7 +233,7 @@ impl Parser {
                     "expected `=`, `+=`, `-=`, `*=`, or `/=`"));
             };
             let rhs = self.parse_expr()?;
-            let lhs = self.path_to_expr(&target, span.clone());
+            let lhs = self.path_to_expr(&path, &indices, span.clone());
             Expr::BinOp {
                 left: Box::new(lhs),
                 op: binop,
@@ -234,13 +244,20 @@ impl Parser {
         Ok(Stmt::Assign(Assign { target, value, span }))
     }
 
-    /// Build an Expr that reads the value at the given path (e.g. `x` or `s.x`).
-    fn path_to_expr(&self, path: &[String], span: Span) -> Expr {
+    /// Build an Expr that reads the value at the given path (e.g. `x`, `s.x`, or `arr[i]`).
+    fn path_to_expr(&self, path: &[String], indices: &[Expr], span: Span) -> Expr {
         let mut expr = Expr::Ident(path[0].clone(), span.clone());
         for part in path.iter().skip(1) {
             expr = Expr::Field {
                 expr: Box::new(expr),
                 field: part.clone(),
+                span: span.clone(),
+            };
+        }
+        for idx in indices {
+            expr = Expr::Index {
+                expr: Box::new(expr),
+                index: Box::new(idx.clone()),
                 span: span.clone(),
             };
         }
@@ -701,25 +718,47 @@ impl Parser {
         }
     }
 
-    /// Returns true when the current position starts a dotted-path assignment:
-    /// `ident (.ident)* =` or `ident (.ident)* +=` etc.
+    /// Returns true when the current position starts an assignment:
+    /// `ident (.ident)* ([expr])* =` or `+=` etc.
     fn is_path_assign(&self) -> bool {
         let mut i = self.pos;
-        // must start with an ident
         if !matches!(self.tokens[i].kind, TokenKind::Ident(_)) { return false; }
         i += 1;
-        // skip zero or more `.ident` segments
-        while i + 1 < self.tokens.len()
-            && self.tokens[i].kind == TokenKind::Dot
-            && matches!(self.tokens[i + 1].kind, TokenKind::Ident(_))
-        {
-            i += 2;
+        loop {
+            if i >= self.tokens.len() { return false; }
+            match &self.tokens[i].kind {
+                TokenKind::Dot => {
+                    if i + 1 >= self.tokens.len() || !matches!(self.tokens[i + 1].kind, TokenKind::Ident(_)) {
+                        return false;
+                    }
+                    i += 2;
+                }
+                TokenKind::LBracket => {
+                    i = self.skip_to_matching_bracket(i);
+                    if i > self.tokens.len() { return false; }
+                }
+                TokenKind::Eq | TokenKind::PlusEq | TokenKind::MinusEq | TokenKind::StarEq | TokenKind::SlashEq =>
+                    return true,
+                _ => return false,
+            }
         }
-        // must be followed by `=` or `+=`, `-=`, `*=`, `/=`
-        i < self.tokens.len() && matches!(
-            self.tokens[i].kind,
-            TokenKind::Eq | TokenKind::PlusEq | TokenKind::MinusEq | TokenKind::StarEq | TokenKind::SlashEq
-        )
+    }
+
+    /// Advance past `[ ... ]` and return index after `]`. Returns tokens.len()+1 on mismatch.
+    fn skip_to_matching_bracket(&self, start: usize) -> usize {
+        let mut i = start;
+        if i >= self.tokens.len() || self.tokens[i].kind != TokenKind::LBracket { return i; }
+        i += 1;
+        let mut depth = 1;
+        while i < self.tokens.len() && depth > 0 {
+            match self.tokens[i].kind {
+                TokenKind::LBracket => depth += 1,
+                TokenKind::RBracket => depth -= 1,
+                _ => {}
+            }
+            i += 1;
+        }
+        i
     }
 
     fn advance(&mut self) -> Token {
@@ -947,7 +986,7 @@ mod tests {
     fn assignment() {
         let p = parse("let x = 0.0\nx = 1.0");
         match &p.items[1] {
-            Item::Stmt(Stmt::Assign(a)) => assert_eq!(a.target, vec!["x"]),
+            Item::Stmt(Stmt::Assign(a)) => assert_eq!(a.target.path(), &["x"][..]),
             _ => panic!("expected Assign"),
         }
     }
@@ -957,8 +996,19 @@ mod tests {
         let p = parse("let x = 10.0\nx += 5.0");
         match &p.items[1] {
             Item::Stmt(Stmt::Assign(a)) => {
-                assert_eq!(a.target, vec!["x"]);
+                assert_eq!(a.target.path(), &["x"][..]);
                 assert!(matches!(&a.value, Expr::BinOp { op: BinOp::Add, .. }));
+            }
+            _ => panic!("expected Assign"),
+        }
+    }
+
+    #[test]
+    fn index_assignment() {
+        let p = parse("let xs: list[float] = [1.0, 2.0, 3.0]\nxs[1] = 99.0");
+        match &p.items[1] {
+            Item::Stmt(Stmt::Assign(a)) => {
+                assert!(matches!(&a.target, AssignTarget::Indexed { path, indices } if path == &["xs"] && indices.len() == 1));
             }
             _ => panic!("expected Assign"),
         }

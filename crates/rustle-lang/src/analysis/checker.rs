@@ -156,7 +156,8 @@ impl<'a> TypeResolver<'a> {
     }
 
     fn check_assign(&mut self, a: &Assign) {
-        let root = &a.target[0];
+        let path = a.target.path();
+        let root = &path[0];
         let sym = self.lookup_symbol(root, &a.span);
 
         if let Some(sym) = sym {
@@ -168,8 +169,24 @@ impl<'a> TypeResolver<'a> {
                 return;
             }
             let mut ty = sym.ty.clone();
-            for segment in &a.target[1..] {
+            for segment in &path[1..] {
                 ty = ty.and_then(|t| self.lookup.resolve_field(&t, segment));
+            }
+            // For indexed target, drill down to element type and check index is float
+            if let AssignTarget::Indexed { indices, .. } = &a.target {
+                for idx in indices {
+                    match self.infer_expr(idx) {
+                        Ok(idx_ty) if idx_ty != Type::Float => {
+                            self.errors.push(Error::new(
+                                ErrorCode::S002, idx.span().line, idx.span().column,
+                                format!("index must be `float`, found `{}`", type_name(&idx_ty)),
+                            ));
+                        }
+                        Err(e) => self.errors.extend(e),
+                        _ => {}
+                    }
+                    ty = ty.and_then(|t| self.indexed_type(&t));
+                }
             }
             match self.infer_expr(&a.value) {
                 Ok(val_ty) => {
@@ -179,6 +196,13 @@ impl<'a> TypeResolver<'a> {
                 }
                 Err(e) => self.errors.extend(e),
             }
+        }
+    }
+
+    fn indexed_type(&self, ty: &Type) -> Option<Type> {
+        match ty {
+            Type::List(elem) | Type::Array(elem, _) => Some(*elem.clone()),
+            _ => None,
         }
     }
 
