@@ -1,0 +1,34 @@
+title: Rustle
+description: A statically-typed scripting language for creative graphics programming.
+
+theme: just-the-docs
+
+color_scheme: dark
+
+search_enabled: true
+search:
+  heading_level: 3
+
+# Permalink style
+permalink: pretty
+
+# Footer
+footer_content: "Rustle language &mdash; documentation"
+
+# Back to top
+back_to_top: true
+back_to_top_text: "Back to top"
+
+# Code copy button
+enable_copy_code_button: true
+
+# Callouts
+callouts_level: quiet
+callouts:
+  note:
+    color: blue
+  warning:
+    color: yellow
+
+plugins:
+  - jekyll-seo-tag
