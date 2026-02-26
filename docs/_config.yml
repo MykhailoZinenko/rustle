@@ -1,6 +1,9 @@
 title: Rustle
 description: A statically-typed scripting language for creative graphics programming.
 
+baseurl: "/rustle"
+url: "https://mykhailozinenko.github.io"
+
 theme: just-the-docs
 
 color_scheme: dark
