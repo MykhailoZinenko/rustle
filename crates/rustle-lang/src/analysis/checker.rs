@@ -185,11 +185,11 @@ impl<'a> TypeResolver<'a> {
     fn check_out(&mut self, o: &OutStmt) {
         for expr in &o.shapes {
             match self.infer_expr(expr) {
-                Ok(ty) if ty != Type::Named("shape".into()) => {
+                Ok(ty) if !is_drawable(&ty) => {
                     self.errors.push(Error::new(
                         ErrorCode::S002,
                         expr.span().line, expr.span().column,
-                        format!("out << expects `shape`, found `{}`", type_name(&ty)),
+                        format!("out << expects a shape type, found `{}`", type_name(&ty)),
                     ));
                 }
                 Err(e) => self.errors.extend(e),
@@ -434,10 +434,10 @@ impl<'a> TypeResolver<'a> {
 
             Expr::Transform { expr, transforms, span } => {
                 let shape_ty = self.infer_expr(expr)?;
-                if shape_ty != Type::Named("shape".into()) {
+                if !is_drawable(&shape_ty) {
                     self.errors.push(Error::new(
                         ErrorCode::S002, span.line, span.column,
-                        format!("`@` expects `shape` on the left, found `{}`", type_name(&shape_ty)),
+                        format!("`@` expects a shape type on the left, found `{}`", type_name(&shape_ty)),
                     ));
                 }
                 for t in transforms {
@@ -450,7 +450,8 @@ impl<'a> TypeResolver<'a> {
                         }
                     }
                 }
-                Ok(Type::Named("shape".into()))
+                // Preserve the specific shape type through a transform.
+                Ok(shape_ty)
             }
 
             Expr::List(items, span) => {
@@ -670,13 +671,29 @@ impl<'a> TypeResolver<'a> {
     }
 
     fn expect_type(&mut self, expected: &Type, actual: &Type, span: &Span) {
-        if expected != actual {
+        if !types_compatible(expected, actual) {
             self.errors.push(Error::new(
                 ErrorCode::S002, span.line, span.column,
                 format!("expected `{}`, found `{}`", type_name(expected), type_name(actual)),
             ));
         }
     }
+}
+
+// ─── Shape helpers ────────────────────────────────────────────────────────────
+
+/// True for any type that can be pushed to `out <<` or used with `@`.
+pub fn is_drawable(ty: &Type) -> bool {
+    matches!(ty, Type::Named(n) if matches!(n.as_str(), "shape" | "circle" | "rect" | "line" | "polygon"))
+}
+
+/// True if `actual` is compatible where `expected` is required.
+/// Adds coercion: any concrete shape kind is assignable to `shape`.
+pub fn types_compatible(expected: &Type, actual: &Type) -> bool {
+    if expected == actual { return true; }
+    // Concrete shape kind → erased shape
+    if expected == &Type::Named("shape".into()) && is_drawable(actual) { return true; }
+    false
 }
 
 // ─── Type display ─────────────────────────────────────────────────────────────

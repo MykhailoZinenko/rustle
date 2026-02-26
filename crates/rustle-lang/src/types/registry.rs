@@ -202,6 +202,10 @@ impl Default for TypeRegistry {
         // Domain types
         r.register(transform_desc());
         r.register(shape_desc());
+        r.register(circle_desc());
+        r.register(rect_desc());
+        r.register(line_desc());
+        r.register(polygon_desc());
         r.register(list_desc());
         r.register(res_desc());
         r.register(input_desc());
@@ -226,7 +230,12 @@ pub fn value_type_key(v: &Value) -> &'static str {
         Value::Mat3(_)              => "mat3",
         Value::Mat4(_)              => "mat4",
         Value::Transform(_)         => "transform",
-        Value::Shape(_)             => "shape",
+        Value::Shape(data)          => match &data.desc {
+            crate::types::draw::ShapeDesc::Circle { .. } => "circle",
+            crate::types::draw::ShapeDesc::Rect   { .. } => "rect",
+            crate::types::draw::ShapeDesc::Line   { .. } => "line",
+            crate::types::draw::ShapeDesc::Polygon(_)    => "polygon",
+        },
         Value::List(_)              => "list",
         Value::ResOk(_)
         | Value::ResErr(_)          => "res",
@@ -763,11 +772,152 @@ fn transform_desc() -> TypeDesc {
     }
 }
 
-// ─── shape ────────────────────────────────────────────────────────────────────
+// ─── shape (erased) ───────────────────────────────────────────────────────────
 
 fn shape_desc() -> TypeDesc {
     TypeDesc {
         name: "shape",
+        fields: vec![],
+        methods: vec![
+            MethodDesc {
+                name: "in", params: vec![float(), float()], ret: Some(named("vec2")),
+                call: |v, args, line| {
+                    let Value::Shape(shape) = v else { unreachable!() };
+                    let dx = expect_float(&args[0], "in dx", line)?;
+                    let dy = expect_float(&args[1], "in dy", line)?;
+                    let (ax, ay) = shape.desc.anchor();
+                    Ok(Value::Vec2(ax + dx, ay + dy))
+                },
+            },
+        ],
+    }
+}
+
+// ─── circle ───────────────────────────────────────────────────────────────────
+
+fn circle_desc() -> TypeDesc {
+    TypeDesc {
+        name: "circle",
+        fields: vec![
+            FieldDesc {
+                name: "center", ty: named("vec2"),
+                get: |v| {
+                    let Value::Shape(s) = v else { unreachable!() };
+                    let crate::types::draw::ShapeDesc::Circle { center, .. } = s.desc else { unreachable!() };
+                    Value::Vec2(center.0, center.1)
+                },
+                set: None,
+            },
+            FieldDesc {
+                name: "radius", ty: float(),
+                get: |v| {
+                    let Value::Shape(s) = v else { unreachable!() };
+                    let crate::types::draw::ShapeDesc::Circle { radius, .. } = s.desc else { unreachable!() };
+                    Value::Float(radius)
+                },
+                set: None,
+            },
+        ],
+        methods: vec![
+            MethodDesc {
+                name: "in", params: vec![float(), float()], ret: Some(named("vec2")),
+                call: |v, args, line| {
+                    let Value::Shape(shape) = v else { unreachable!() };
+                    let dx = expect_float(&args[0], "in dx", line)?;
+                    let dy = expect_float(&args[1], "in dy", line)?;
+                    let (ax, ay) = shape.desc.anchor();
+                    Ok(Value::Vec2(ax + dx, ay + dy))
+                },
+            },
+        ],
+    }
+}
+
+// ─── rect ─────────────────────────────────────────────────────────────────────
+
+fn rect_desc() -> TypeDesc {
+    TypeDesc {
+        name: "rect",
+        fields: vec![
+            FieldDesc {
+                name: "center", ty: named("vec2"),
+                get: |v| {
+                    let Value::Shape(s) = v else { unreachable!() };
+                    let crate::types::draw::ShapeDesc::Rect { center, .. } = s.desc else { unreachable!() };
+                    Value::Vec2(center.0, center.1)
+                },
+                set: None,
+            },
+            FieldDesc {
+                name: "size", ty: named("vec2"),
+                get: |v| {
+                    let Value::Shape(s) = v else { unreachable!() };
+                    let crate::types::draw::ShapeDesc::Rect { size, .. } = s.desc else { unreachable!() };
+                    Value::Vec2(size.0, size.1)
+                },
+                set: None,
+            },
+        ],
+        methods: vec![
+            MethodDesc {
+                name: "in", params: vec![float(), float()], ret: Some(named("vec2")),
+                call: |v, args, line| {
+                    let Value::Shape(shape) = v else { unreachable!() };
+                    let dx = expect_float(&args[0], "in dx", line)?;
+                    let dy = expect_float(&args[1], "in dy", line)?;
+                    let (ax, ay) = shape.desc.anchor();
+                    Ok(Value::Vec2(ax + dx, ay + dy))
+                },
+            },
+        ],
+    }
+}
+
+// ─── line ─────────────────────────────────────────────────────────────────────
+
+fn line_desc() -> TypeDesc {
+    TypeDesc {
+        name: "line",
+        fields: vec![
+            FieldDesc {
+                name: "from", ty: named("vec2"),
+                get: |v| {
+                    let Value::Shape(s) = v else { unreachable!() };
+                    let crate::types::draw::ShapeDesc::Line { from, .. } = s.desc else { unreachable!() };
+                    Value::Vec2(from.0, from.1)
+                },
+                set: None,
+            },
+            FieldDesc {
+                name: "to", ty: named("vec2"),
+                get: |v| {
+                    let Value::Shape(s) = v else { unreachable!() };
+                    let crate::types::draw::ShapeDesc::Line { to, .. } = s.desc else { unreachable!() };
+                    Value::Vec2(to.0, to.1)
+                },
+                set: None,
+            },
+        ],
+        methods: vec![
+            MethodDesc {
+                name: "in", params: vec![float(), float()], ret: Some(named("vec2")),
+                call: |v, args, line| {
+                    let Value::Shape(shape) = v else { unreachable!() };
+                    let dx = expect_float(&args[0], "in dx", line)?;
+                    let dy = expect_float(&args[1], "in dy", line)?;
+                    let (ax, ay) = shape.desc.anchor();
+                    Ok(Value::Vec2(ax + dx, ay + dy))
+                },
+            },
+        ],
+    }
+}
+
+// ─── polygon ──────────────────────────────────────────────────────────────────
+
+fn polygon_desc() -> TypeDesc {
+    TypeDesc {
+        name: "polygon",
         fields: vec![],
         methods: vec![
             MethodDesc {

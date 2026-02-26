@@ -22,15 +22,15 @@ impl NamespaceInfo for ShapesNamespace {
     fn exports(&self) -> Vec<Export> {
         vec![
             Export { name: "circle",  kind: ExportKind::Function,
-                ty: Type::Fn(vec![named("vec2"), Type::Float], Some(Box::new(named("shape")))) },
+                ty: Type::Fn(vec![named("vec2"), Type::Float], Some(Box::new(named("circle")))) },
             Export { name: "rect",    kind: ExportKind::Function,
-                ty: Type::Fn(vec![named("vec2"), named("vec2")], Some(Box::new(named("shape")))) },
+                ty: Type::Fn(vec![named("vec2"), named("vec2")], Some(Box::new(named("rect")))) },
             Export { name: "line",    kind: ExportKind::Function,
-                ty: Type::Fn(vec![named("vec2"), named("vec2")], Some(Box::new(named("shape")))) },
+                ty: Type::Fn(vec![named("vec2"), named("vec2")], Some(Box::new(named("line")))) },
             Export { name: "polygon", kind: ExportKind::Function,
-                ty: Type::Fn(vec![Type::List(Box::new(named("vec2")))], Some(Box::new(named("shape")))) },
+                ty: Type::Fn(vec![Type::List(Box::new(named("vec2")))], Some(Box::new(named("polygon")))) },
             Export { name: "shape",   kind: ExportKind::Function,
-                ty: Type::Fn(vec![Type::List(Box::new(named("vec2")))], Some(Box::new(named("shape")))) },
+                ty: Type::Fn(vec![Type::List(Box::new(named("vec2")))], Some(Box::new(named("polygon")))) },
             // Origin constants
             origin_const("center"),
             origin_const("top_left"), origin_const("top_right"),
