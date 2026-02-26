@@ -80,7 +80,7 @@ state {
 }
 
 fn on_update(s: State, input: Input) -> State {
-    s.t = s.t + input.dt
+    s.t += input.dt
     out << circle(vec2(sin(s.t) * 200.0 + 400.0, 300.0), 50)
     return s
 }
@@ -155,7 +155,9 @@ points.push(1.0)         // mutates in-place, void
 let v = points.pop()     // removes and returns last element
 let n = points.len       // field: float
 let n = points.len()     // method: same
-let first = points[0]    // index access
+let first = points[0]    // index read
+points[i] = 5.0          // index assignment
+points[i] += 1.0         // compound assignment
 ```
 
 Lists are **reference types** — all copies of a list variable point to the same data. Mutations through any copy are immediately visible everywhere.
@@ -214,6 +216,15 @@ Reassignment:
 x = 1.0
 s.speed = s.speed + 1.0   // state field assignment
 v.x = 5.0                 // vector component assignment
+xs[i] = value             // list index assignment
+```
+
+Compound assignment (`+=`, `-=`, `*=`, `/=`):
+
+```
+x += 5.0                  // same as x = x + 5.0
+s.speed += 1.0            // state field
+xs[i] += 1.0              // list index
 ```
 
 ---
@@ -257,7 +268,9 @@ let x = some_expr as float
 ### List Index
 
 ```
-let v = list[0]
+let v = list[0]           // read
+list[i] = value           // write
+list[i] += 1.0            // compound assignment
 ```
 
 Indices are truncated to whole numbers at runtime.
@@ -281,21 +294,23 @@ out << bg << s1 << s2     // chained — rendered bottom to top
 ## Control Flow
 
 ```
-// if / else
-if x > 0.0 {
+// if / else / else if
+if x > 1.0 {
     out << circle(vec2(x, 0.0), 0.1)
-} else {
+} else if x > 0.0 {
     out << rect(vec2(x, 0.0), vec2(0.2, 0.2))
+} else {
+    out << line(vec2(0.0, 0.0), vec2(x, 0.0))
 }
 
 // while
 let i = 0.0
 while i < 10.0 {
-    i = i + 1.0
+    i += 1.0
 }
 
 // for — loop variable declared with let inside the header
-for let i = 0.0; i < 10.0; i = i + 1.0 {
+for let i = 0.0; i < 10.0; i += 1.0 {
     out << circle(vec2(i * 0.1, 0.0), 0.05)
 }
 
@@ -545,7 +560,7 @@ Called every frame. Receives current state and input, returns new state.
 
 ```
 fn on_update(s: State, input: Input) -> State {
-    s.t = s.t + input.dt
+    s.t += input.dt
     out << circle(vec2(sin(s.t) * 200.0 + 400.0, 300.0), 50)
     return s
 }
@@ -559,7 +574,7 @@ Called once at startup, after state field initializers. Use it for setup logic t
 fn on_init(s: State) -> State {
     resolution(800, 600)
     origin(top_left)
-    for let i = 1.0; i <= 10.0; i = i + 1.0 {
+    for let i = 1.0; i <= 10.0; i += 1.0 {
         s.points.push(i)
     }
     return s
@@ -753,6 +768,8 @@ Color constants: `red`, `green`, `blue`, `white`, `black`, `transparent`
 | `.len()` | `float` | Number of elements (method) |
 | `.push(T)` | void | Append element — mutates in-place |
 | `.pop()` | `T` | Remove and return last element — mutates in-place. Runtime error if empty. |
+| `list[i]` | `T` | Index read. Index must be float. |
+| `list[i] = value` | — | Index assignment. Supports compound: `list[i] += 1`. |
 
 ### shape Methods
 
@@ -784,8 +801,8 @@ import coords { resolution, origin, top_left }
 resolution(800, 600)
 origin(top_left)
 
-for let row = 0.0; row < 5.0; row = row + 1.0 {
-    for let col = 0.0; col < 8.0; col = col + 1.0 {
+    for let row = 0.0; row < 5.0; row += 1.0 {
+    for let col = 0.0; col < 8.0; col += 1.0 {
         out << circle(vec2(50.0 + col * 100.0, 60.0 + row * 120.0), 30.0)
     }
 }
@@ -804,7 +821,7 @@ state {
 }
 
 fn on_update(s: State, input: Input) -> State {
-    s.t = s.t + input.dt
+    s.t += input.dt
     let x = sin(s.t) * 300.0 + 400.0
     let y = abs(sin(s.t * 1.3)) * 400.0 + 100.0
     out << circle(vec2(x, y), 30.0)
@@ -827,7 +844,7 @@ state {
 fn on_init(s: State) -> State {
     resolution(800, 600)
     origin(top_left)
-    for let i = 1.0; i <= 8.0; i = i + 1.0 {
+    for let i = 1.0; i <= 8.0; i += 1.0 {
         s.widths.push(i * 20.0)
     }
     return s

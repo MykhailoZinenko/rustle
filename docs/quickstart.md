@@ -86,7 +86,7 @@ state {
 }
 
 fn on_update(s: State, input: Input) -> State {
-    s.t = s.t + input.dt
+    s.t += input.dt
     let x = sin(s.t) * 300.0 + 400.0
     out << circle(vec2(x, 300.0), 40.0)
     return s
@@ -112,7 +112,7 @@ state {
 fn on_init(s: State) -> State {
     resolution(800, 600)
     origin(top_left)
-    for let i = 1.0; i <= 6.0; i = i + 1.0 {
+    for let i = 1.0; i <= 6.0; i += 1.0 {
         s.sizes.push(i * 30.0)
     }
     return s

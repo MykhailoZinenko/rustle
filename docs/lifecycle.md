@@ -78,7 +78,7 @@ Called exactly once at startup, after state field initializers have run. Use it 
 fn on_init(s: State) -> State {
     resolution(800, 600)
     origin(top_left)
-    for let i = 0.0; i < 10.0; i = i + 1.0 {
+    for let i = 0.0; i < 10.0; i += 1.0 {
         s.points.push(i * 50.0)
     }
     return s
@@ -99,7 +99,7 @@ Called every frame. Receives current state and per-frame input. Returns updated 
 
 ```rust
 fn on_update(s: State, input: Input) -> State {
-    s.t = s.t + input.dt
+    s.t += input.dt
 
     out << circle(vec2(sin(s.t) * 300.0 + 400.0, 300.0), 40.0)
 
@@ -180,7 +180,7 @@ on stop (Run/Stop → Stop pressed):
 
 ```rust
 fn on_update(s: State, input: Input) -> State {
-    s.t = s.t + input.dt
+    s.t += input.dt
     // ❌ missing return s — compiler error
 }
 ```

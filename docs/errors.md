@@ -47,6 +47,8 @@ fn f() -> float { return true }      // ❌ S002: bool is not float
 let x: float = true                  // ❌ S002: annotation mismatch
 out << 3.14                          // ❌ S002: out << expects shape
 let v = true ? 1.0 : false           // ❌ S002: branches must have same type
+let xs: list[float] = [1.0, 2.0]
+xs[true] = 3.0                       // ❌ S002: index must be float
 ```
 
 ---

@@ -40,6 +40,15 @@ Reassignment:
 x = 1.0
 s.field = value           // state field assignment
 v.x = 5.0                 // vector component assignment
+xs[i] = value             // list index assignment
+```
+
+Compound assignment (`+=`, `-=`, `*=`, `/=`) works on variables, state fields, and list indices:
+
+```rust
+x += 5.0                  // same as x = x + 5.0
+s.speed *= 2.0            // state field
+xs[i] += 1.0              // list index
 ```
 
 Variables must be declared before use (within the same scope). Functions are visible anywhere in the file regardless of declaration order.
@@ -109,7 +118,9 @@ let x = expr as float
 ### Index
 
 ```rust
-let v = list[0]
+let v = list[0]           // read
+list[i] = value           // write
+list[i] += 1.0            // compound assignment
 ```
 
 Indices are float — truncated to whole number at runtime.
@@ -142,21 +153,25 @@ if x > 0.0 {
 }
 ```
 
-The condition must be `bool`. `else if` is written as a nested `else { if ... }`.
+The condition must be `bool`. `else if` chains are supported:
+
+```rust
+if x > 1.0 { out << a } else if x > 0.0 { out << b } else { out << c }
+```
 
 ### while
 
 ```rust
 let i = 0.0
 while i < 10.0 {
-    i = i + 1.0
+    i += 1.0
 }
 ```
 
 ### for
 
 ```rust
-for let i = 0.0; i < 10.0; i = i + 1.0 {
+for let i = 0.0; i < 10.0; i += 1.0 {
     out << circle(vec2(i * 0.1, 0.0), 0.05)
 }
 ```

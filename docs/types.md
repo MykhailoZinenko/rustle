@@ -237,6 +237,7 @@ let xs: list[vec2]  = [vec2(0.0, 0.0), vec2(1.0, 1.0)]
 | `.push(T)` | void | Append an element — mutates in-place |
 | `.pop()` | `T` | Remove and return the last element — mutates in-place. **Runtime error** if empty. |
 | `list[i]` | `T` | Index access. Index is a float, truncated to whole number. **Runtime error** if out of bounds. |
+| `list[i] = value` | — | Index assignment. Replaces element at `i`. Supports compound assignment: `list[i] += 1`. |
 
 ---
 

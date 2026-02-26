@@ -37,8 +37,8 @@ import coords { resolution, origin, top_left }
 resolution(800, 600)
 origin(top_left)
 
-for let row = 0.0; row < 5.0; row = row + 1.0 {
-    for let col = 0.0; col < 8.0; col = col + 1.0 {
+for let row = 0.0; row < 5.0; row += 1.0 {
+    for let col = 0.0; col < 8.0; col += 1.0 {
         out << circle(vec2(50.0 + col * 100.0, 60.0 + row * 120.0), 30.0)
     }
 }
@@ -59,7 +59,7 @@ state {
 }
 
 fn on_update(s: State, input: Input) -> State {
-    s.t = s.t + input.dt
+    s.t += input.dt
     let x = sin(s.t) * 300.0 + 400.0
     let y = abs(sin(s.t * 1.3)) * 400.0 + 100.0
     out << circle(vec2(x, y), 30.0)
@@ -82,7 +82,7 @@ state {
 fn on_init(s: State) -> State {
     resolution(800, 600)
     origin(top_left)
-    for let i = 1.0; i <= 8.0; i = i + 1.0 {
+    for let i = 1.0; i <= 8.0; i += 1.0 {
         s.widths.push(i * 20.0)
     }
     return s
@@ -196,7 +196,7 @@ state {
 }
 
 fn on_update(s: State, input: Input) -> State {
-    s.t = s.t + input.dt
+    s.t += input.dt
     let r: res<float> = try (1.0 / sin(s.t))   // sin(t) passes through 0
     if r.ok {
         out << circle(vec2(clamp(r.value * 50.0 + 400.0, 0.0, 800.0), 300.0), 20.0)
@@ -232,7 +232,7 @@ state {
 }
 
 fn on_init(s: State) -> State {
-    for let i = 0.0; i < 8.0; i = i + 1.0 {
+    for let i = 0.0; i < 8.0; i += 1.0 {
         s.xs.push(100.0 + i * 90.0)
     }
     return s
@@ -240,7 +240,7 @@ fn on_init(s: State) -> State {
 
 fn on_update(s: State, input: Input) -> State {
     let ys = apply_to_all(s.xs, wave)
-    for let i = 0.0; i < s.xs.len; i = i + 1.0 {
+    for let i = 0.0; i < s.xs.len; i += 1.0 {
         out << circle(vec2(s.xs[i], ys[i]), 15.0)
     }
     return s

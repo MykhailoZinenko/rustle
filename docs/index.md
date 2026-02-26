@@ -43,7 +43,7 @@ state {
 }
 
 fn on_update(s: State, input: Input) -> State {
-    s.t = s.t + input.dt
+    s.t += input.dt
     out << circle(vec2(sin(s.t) * 300.0 + 400.0, 300.0), 40.0)
     return s
 }
