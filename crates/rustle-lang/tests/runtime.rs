@@ -394,6 +394,19 @@ fn if_condition_expression() {
 }
 
 #[test]
+fn else_if_branches() {
+    let rt = run(r#"
+        state { let x: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let v = 2.0
+            if v < 1.0 { s.x = 1.0 } else if v < 3.0 { s.x = 2.0 } else { s.x = 3.0 }
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "x"), 2.0);
+}
+
+#[test]
 fn while_runs_correct_iterations() {
     let rt = run(r#"
         state { let count: float = 0.0 }

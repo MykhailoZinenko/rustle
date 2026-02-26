@@ -230,7 +230,11 @@ impl Parser {
         let condition = self.parse_expr()?;
         let then_block = self.parse_block()?;
         let else_block = if self.matches(TokenKind::Else) {
-            Some(self.parse_block()?)
+            Some(if self.check(TokenKind::If) {
+                vec![self.parse_if()?]
+            } else {
+                self.parse_block()?
+            })
         } else {
             None
         };
@@ -961,6 +965,26 @@ mod tests {
         let p = parse("if x > 0.0 { out << a } else { out << b }");
         match &p.items[0] {
             Item::Stmt(Stmt::If(i)) => assert!(i.else_block.is_some()),
+            _ => panic!("expected If"),
+        }
+    }
+
+    #[test]
+    fn else_if() {
+        let p = parse("if a { out << 1 } else if b { out << 2 } else { out << 3 }");
+        match &p.items[0] {
+            Item::Stmt(Stmt::If(outer)) => {
+                assert!(outer.else_block.is_some());
+                let else_block = outer.else_block.as_ref().unwrap();
+                assert_eq!(else_block.len(), 1);
+                match &else_block[0] {
+                    Stmt::If(inner) => {
+                        assert!(inner.else_block.is_some());
+                        assert_eq!(inner.else_block.as_ref().unwrap().len(), 1);
+                    }
+                    _ => panic!("expected If in else block"),
+                }
+            }
             _ => panic!("expected If"),
         }
     }
