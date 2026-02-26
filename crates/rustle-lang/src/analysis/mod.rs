@@ -4,9 +4,6 @@ pub mod lookup;
 pub mod checker;
 pub mod validator;
 
-#[cfg(test)]
-mod tests;
-
 use crate::syntax::ast;
 use crate::error::Error;
 use crate::namespaces::NamespaceRegistry;

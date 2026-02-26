@@ -212,6 +212,17 @@ impl<'a> Interpreter<'a> {
             Expr::Ident(name, span) => {
                 self.env.get(name)
                     .or_else(|| self.registry.get_constant(name))
+                    .or_else(|| {
+                        // User-defined function used as a first-class value.
+                        self.program.items.iter().find_map(|i| match i {
+                            Item::FnDef(f) if f.name == *name => Some(Value::Closure {
+                                params: f.params.clone(),
+                                body: f.body.clone(),
+                                captured: HashMap::new(),
+                            }),
+                            _ => None,
+                        })
+                    })
                     .ok_or_else(|| self.err(span.line, format!("undefined: `{name}`")))
             }
 

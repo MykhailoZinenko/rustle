@@ -423,7 +423,13 @@ impl Parser {
                 TokenKind::Dot => {
                     let span = expr.span().clone();
                     self.advance();
-                    let field = self.expect_ident()?;
+                    // Allow keyword `in` as a method name (used by shape.in()).
+                    let field = if self.check(TokenKind::In) {
+                        self.advance();
+                        "in".to_string()
+                    } else {
+                        self.expect_ident()?
+                    };
                     if self.check(TokenKind::LParen) {
                         self.advance();
                         let (args, named_args) = self.parse_mixed_arg_list()?;

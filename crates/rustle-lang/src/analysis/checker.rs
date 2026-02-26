@@ -317,8 +317,17 @@ impl<'a> TypeResolver<'a> {
                         ErrorCode::S002, span.line, span.column,
                         format!("`fn {name} = …` requires a function value, found `{}`", type_name(&ty)),
                     ));
-                } else {
+                } else if self.table.current_scope_kind() == &ScopeKind::Global {
                     self.table.update_type(name, ty);
+                } else {
+                    // Local fn-var (inside a function body) — declare in the current scope.
+                    let sym = Symbol::new(name.to_string(), Some(ty), SymbolKind::Function, span.clone());
+                    if !self.table.declare(sym) {
+                        self.errors.push(Error::new(
+                            ErrorCode::S003, span.line, span.column,
+                            format!("`{name}` already declared"),
+                        ));
+                    }
                 }
             }
             Err(e) => self.errors.extend(e),
