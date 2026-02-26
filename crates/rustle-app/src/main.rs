@@ -195,6 +195,8 @@ struct App {
     result: RunResult,
     tab: Tab,
     show_builtins: bool,
+    runtime: Option<Runtime>,
+    last_tick: std::time::Instant,
 }
 
 impl Default for App {
@@ -207,7 +209,8 @@ let s = circle(vec2(0.5, 0.5), 0.2)
 out << s
 ");
         let result = run(&source, false);
-        Self { source, result, tab: Tab::Canvas, show_builtins: false }
+        let runtime = compile(&source).ok().and_then(|p| Runtime::new(p).ok());
+        Self { source, result, tab: Tab::Canvas, show_builtins: false, runtime, last_tick: std::time::Instant::now() }
     }
 }
 
@@ -229,7 +232,6 @@ struct RunResult {
 
 fn run(source: &str, _show_builtins: bool) -> RunResult {
     let mut errors: Vec<String> = Vec::new();
-    let mut draw_commands: Vec<DrawCommand> = vec![];
 
     // ── Lex ───────────────────────────────────────────────────────────────────
     let tokens = match Lexer::new(source).tokenize() {
@@ -277,18 +279,6 @@ fn run(source: &str, _show_builtins: bool) -> RunResult {
 
     errors.extend(resolve_errors);
 
-    // ── Run (when no errors) ───────────────────────────────────────────────────
-    let has_errors = errors.iter().any(|e| !e.starts_with("[warn]"));
-    if !has_errors {
-        if let Ok(prog) = compile(source) {
-            let input = Input { dt: 0.016 };
-            match Runtime::new(prog).and_then(|mut rt| rt.tick(&input)) {
-                Ok(cmds) => draw_commands = cmds,
-                Err(e) => errors.push(format!("[runtime] {}", e.message)),
-            }
-        }
-    }
-
     // ── Build symbol rows ─────────────────────────────────────────────────────
     let symbol_rows = symbols.global_symbols().into_iter()
         .filter(|s| !s.name.starts_with("__state__") || s.kind == SymbolKind::StateField)
@@ -314,13 +304,30 @@ fn run(source: &str, _show_builtins: bool) -> RunResult {
         })
         .collect();
 
-    RunResult { errors, symbols: symbol_rows, ast, draw_commands }
+    RunResult { errors, symbols: symbol_rows, ast, draw_commands: vec![] }
 }
 
 // ─── UI ───────────────────────────────────────────────────────────────────────
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // ── Tick runtime every frame ──────────────────────────────────────────
+        let now = std::time::Instant::now();
+        let dt = now.duration_since(self.last_tick).as_secs_f64().min(0.1);
+        self.last_tick = now;
+
+        if let Some(rt) = &mut self.runtime {
+            let input = Input { dt };
+            match rt.tick(&input) {
+                Ok(cmds) => self.result.draw_commands = cmds,
+                Err(e) => {
+                    self.result.errors.push(format!("[runtime] {}", e.message));
+                    self.runtime = None;
+                }
+            }
+            ctx.request_repaint();
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.columns(2, |cols| {
                 // ── Left: editor ──────────────────────────────────────────────
@@ -334,6 +341,8 @@ impl eframe::App for App {
                     );
                     if response.changed() {
                         self.result = run(&self.source, self.show_builtins);
+                        self.runtime = compile(&self.source).ok().and_then(|p| Runtime::new(p).ok());
+                        self.last_tick = std::time::Instant::now();
                     }
                 });
 
@@ -353,6 +362,8 @@ impl eframe::App for App {
                             ui.checkbox(&mut self.show_builtins, "show builtins");
                             if ui.button("run").clicked() {
                                 self.result = run(&self.source, self.show_builtins);
+                                self.runtime = compile(&self.source).ok().and_then(|p| Runtime::new(p).ok());
+                                self.last_tick = std::time::Instant::now();
                             }
                         });
                     });
