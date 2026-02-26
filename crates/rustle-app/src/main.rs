@@ -202,15 +202,36 @@ struct App {
 impl Default for App {
     fn default() -> Self {
         let source = String::from(
-"// write rustle code here
-import shapes { circle, rect }
+"// Rustle — full lifecycle example
+import shapes { circle }
+import coords { resolution, origin, center }
 
-let s = circle(vec2(0.5, 0.5), 0.2)
-out << s
+resolution(600, 600)
+origin(center)
+
+state {
+    let t: float = 0.0
+}
+
+fn on_init(s: State) -> State {
+    s.t = 0.0
+    return s
+}
+
+fn on_update(s: State, input: Input) -> State {
+    s.t = s.t + input.dt
+    let x = cos(s.t) * 200.0
+    let y = sin(s.t) * 200.0
+    out << circle(vec2(x, y), 50.0)
+    return s
+}
+
+fn on_exit(s: State) -> State {
+    return s
+}
 ");
         let result = run(&source, false);
-        let runtime = compile(&source).ok().and_then(|p| Runtime::new(p).ok());
-        Self { source, result, tab: Tab::Canvas, show_builtins: false, runtime, last_tick: std::time::Instant::now() }
+        Self { source, result, tab: Tab::Canvas, show_builtins: false, runtime: None, last_tick: std::time::Instant::now() }
     }
 }
 
@@ -333,17 +354,12 @@ impl eframe::App for App {
                 // ── Left: editor ──────────────────────────────────────────────
                 cols[0].vertical(|ui| {
                     ui.label("Source");
-                    let response = ui.add(
+                    ui.add(
                         egui::TextEdit::multiline(&mut self.source)
                             .font(egui::TextStyle::Monospace)
                             .desired_width(f32::INFINITY)
                             .desired_rows(44),
                     );
-                    if response.changed() {
-                        self.result = run(&self.source, self.show_builtins);
-                        self.runtime = compile(&self.source).ok().and_then(|p| Runtime::new(p).ok());
-                        self.last_tick = std::time::Instant::now();
-                    }
                 });
 
                 // ── Right: output ─────────────────────────────────────────────
@@ -360,10 +376,19 @@ impl eframe::App for App {
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.checkbox(&mut self.show_builtins, "show builtins");
-                            if ui.button("run").clicked() {
-                                self.result = run(&self.source, self.show_builtins);
-                                self.runtime = compile(&self.source).ok().and_then(|p| Runtime::new(p).ok());
-                                self.last_tick = std::time::Instant::now();
+                            let running = self.runtime.is_some();
+                            if running {
+                                if ui.button("Stop").clicked() {
+                                    if let Some(mut rt) = self.runtime.take() {
+                                        let _ = rt.exit();
+                                    }
+                                }
+                            } else {
+                                if ui.button("Run").clicked() {
+                                    self.result = run(&self.source, self.show_builtins);
+                                    self.runtime = compile(&self.source).ok().and_then(|p| Runtime::new(p).ok());
+                                    self.last_tick = std::time::Instant::now();
+                                }
                             }
                         });
                     });
@@ -407,8 +432,10 @@ impl App {
         if self.result.draw_commands.is_empty() {
             let msg = if self.result.errors.iter().any(|e| !e.starts_with("[warn]")) {
                 "Fix errors to run."
+            } else if self.runtime.is_none() {
+                "Press Run to execute."
             } else {
-                "No draw commands — add out << shape"
+                "No draw commands this frame."
             };
             ui.label(RichText::new(msg).color(Color32::GRAY));
             return;
@@ -499,8 +526,10 @@ impl App {
         if self.result.draw_commands.is_empty() {
             let msg = if self.result.errors.iter().any(|e| !e.starts_with("[warn]")) {
                 "Fix errors to run."
+            } else if self.runtime.is_none() {
+                "Press Run to execute."
             } else {
-                "No draw commands — add out << shape"
+                "No draw commands this frame."
             };
             ui.label(RichText::new(msg).color(Color32::GRAY));
             return;

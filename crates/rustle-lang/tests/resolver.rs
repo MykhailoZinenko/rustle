@@ -474,7 +474,7 @@ fn s010_call_bool() {
 fn s012_update_wrong_param_count() {
     let errs = err(r#"
         state { let t: float = 0.0 }
-        fn update(s: State) -> State { return s }
+        fn on_update(s: State) -> State { return s }
     "#);
     assert!(has(&errs, ErrorCode::S012));
 }
@@ -483,7 +483,7 @@ fn s012_update_wrong_param_count() {
 fn s012_update_wrong_first_param() {
     let errs = err(r#"
         state { let t: float = 0.0 }
-        fn update(s: float, input: Input) -> State { return s }
+        fn on_update(s: float, input: Input) -> State { return s }
     "#);
     assert!(has(&errs, ErrorCode::S012));
 }
@@ -492,7 +492,16 @@ fn s012_update_wrong_first_param() {
 fn s012_update_wrong_return_type() {
     let errs = err(r#"
         state { let t: float = 0.0 }
-        fn update(s: State, input: Input) -> float { return 1.0 }
+        fn on_update(s: State, input: Input) -> float { return 1.0 }
+    "#);
+    assert!(has(&errs, ErrorCode::S012));
+}
+
+#[test]
+fn s012_on_exit_wrong_signature() {
+    let errs = err(r#"
+        state { let t: float = 0.0 }
+        fn on_exit(s: State, input: Input) -> State { return s }
     "#);
     assert!(has(&errs, ErrorCode::S012));
 }
@@ -695,7 +704,7 @@ fn ok_animated_update() {
     ok(r#"
         import shapes { circle }
         state { let t: float = 0.0 }
-        fn update(s: State, input: Input) -> State {
+        fn on_update(s: State, input: Input) -> State {
             s.t = s.t + input.dt
             out << circle(vec2(sin(s.t), 0.0), 0.3)
             return s
@@ -710,7 +719,7 @@ fn ok_state_inferred_type() {
             let t = 0.0
             let active = true
         }
-        fn update(s: State, input: Input) -> State { return s }
+        fn on_update(s: State, input: Input) -> State { return s }
     "#);
 }
 
@@ -718,13 +727,13 @@ fn ok_state_inferred_type() {
 fn ok_init_fn() {
     ok(r#"
         state { let xs: list[float] = [] }
-        fn init(s: State) -> State {
+        fn on_init(s: State) -> State {
             for let i = 0.0; i < 5.0; i = i + 1.0 {
                 s.xs.push(i)
             }
             return s
         }
-        fn update(s: State, input: Input) -> State { return s }
+        fn on_update(s: State, input: Input) -> State { return s }
     "#);
 }
 
@@ -732,7 +741,7 @@ fn ok_init_fn() {
 fn ok_update_uses_input_dt() {
     ok(r#"
         state { let t: float = 0.0 }
-        fn update(s: State, input: Input) -> State {
+        fn on_update(s: State, input: Input) -> State {
             s.t = s.t + input.dt
             return s
         }

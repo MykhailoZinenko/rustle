@@ -3,7 +3,7 @@
 //! Final checks that don't fit neatly into type inference:
 //! - `const` never reassigned (cross-check against symbol table)
 //! - `state {}` appears at most once (caught by parser, double-checked here)
-//! - `update` function has the correct signature if defined
+//! - `on_update`, `on_init`, `on_exit` have correct signatures if defined
 
 use crate::syntax::ast::*;
 use crate::error::{Error, ErrorCode};
@@ -20,33 +20,61 @@ impl<'a> Validator<'a> {
     }
 
     pub fn validate(mut self, program: &Program) -> Vec<Error> {
-        self.check_update_signature(program);
+        self.check_on_update_signature(program);
+        self.check_on_init_signature(program);
+        self.check_on_exit_signature(program);
         self.check_const_reassignment(program);
         self.errors
     }
 
-    // ── update() signature ────────────────────────────────────────────────────
-
-    /// If an `update` function is defined, it must have the signature:
-    /// `fn update(s: State, input: Input) -> State`
-    fn check_update_signature(&mut self, program: &Program) {
-        let update_fn = program.items.iter().find_map(|item| match item {
-            Item::FnDef(f) if f.name == "update" => Some(f),
+    fn check_on_update_signature(&mut self, program: &Program) {
+        let f = program.items.iter().find_map(|item| match item {
+            Item::FnDef(f) if f.name == "on_update" => Some(f),
             _ => None,
         });
-
-        let Some(f) = update_fn else { return };
-
+        let Some(f) = f else { return };
         let ok = f.params.len() == 2
             && matches!(&f.params[0].ty, Type::Named(n) if n == "State")
             && matches!(&f.params[1].ty, Type::Named(n) if n == "Input")
             && matches!(&f.return_ty, Some(Type::Named(n)) if n == "State");
-
         if !ok {
             self.errors.push(Error::new(
-                ErrorCode::S012,
-                f.span.line, f.span.column,
-                "`update` must have signature: fn update(s: State, input: Input) -> State",
+                ErrorCode::S012, f.span.line, f.span.column,
+                "`on_update` must have signature: fn on_update(s: State, input: Input) -> State",
+            ));
+        }
+    }
+
+    fn check_on_init_signature(&mut self, program: &Program) {
+        let f = program.items.iter().find_map(|item| match item {
+            Item::FnDef(f) if f.name == "on_init" => Some(f),
+            _ => None,
+        });
+        let Some(f) = f else { return };
+        let ok = f.params.len() == 1
+            && matches!(&f.params[0].ty, Type::Named(n) if n == "State")
+            && matches!(&f.return_ty, Some(Type::Named(n)) if n == "State");
+        if !ok {
+            self.errors.push(Error::new(
+                ErrorCode::S012, f.span.line, f.span.column,
+                "`on_init` must have signature: fn on_init(s: State) -> State",
+            ));
+        }
+    }
+
+    fn check_on_exit_signature(&mut self, program: &Program) {
+        let f = program.items.iter().find_map(|item| match item {
+            Item::FnDef(f) if f.name == "on_exit" => Some(f),
+            _ => None,
+        });
+        let Some(f) = f else { return };
+        let ok = f.params.len() == 1
+            && matches!(&f.params[0].ty, Type::Named(n) if n == "State")
+            && matches!(&f.return_ty, Some(Type::Named(n)) if n == "State");
+        if !ok {
+            self.errors.push(Error::new(
+                ErrorCode::S012, f.span.line, f.span.column,
+                "`on_exit` must have signature: fn on_exit(s: State) -> State",
             ));
         }
     }

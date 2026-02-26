@@ -1090,7 +1090,7 @@ mod tests {
 
     #[test]
     fn named_type_in_fn() {
-        let p = parse("fn update(s: State, i: Input) -> State { return s }");
+        let p = parse("fn on_update(s: State, i: Input) -> State { return s }");
         match &p.items[0] {
             Item::FnDef(f) => {
                 assert_eq!(f.params[0].ty, Type::Named("State".to_string()));
@@ -1640,7 +1640,7 @@ state {
     let speed = 1.0
 }
 
-fn update(s: State, input: Input) -> State {
+fn on_update(s: State, input: Input) -> State {
     s.t = s.t + input.dt * s.speed
     let c = circle(vec2(0.0, 0.0), 0.3)
     out << c
@@ -1656,7 +1656,7 @@ fn update(s: State, input: Input) -> State {
         assert_eq!(p.items.len(), 1);
         match &p.items[0] {
             Item::FnDef(f) => {
-                assert_eq!(f.name, "update");
+                assert_eq!(f.name, "on_update");
                 assert_eq!(f.params[0].ty, Type::Named("State".into()));
                 assert_eq!(f.params[1].ty, Type::Named("Input".into()));
                 assert_eq!(f.return_ty, Some(Type::Named("State".into())));

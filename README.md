@@ -48,8 +48,9 @@ A script has four optional sections, in this order:
 ```
 imports          — bring namespace members into scope
 state {}         — declare persistent inter-frame variables
-fn init(s) -> s  — one-time setup (optional)
-fn update(s, input) -> s  — per-frame logic (optional)
+fn on_init(s) -> s  — one-time setup (optional)
+fn on_update(s, input) -> s  — per-frame logic (optional)
+fn on_exit(s) -> s  — runs when app stops (optional)
 top-level stmts  — run every frame if no update, or once if update present
 ```
 
@@ -78,7 +79,7 @@ state {
     let t: float = 0.0
 }
 
-fn update(s: State, input: Input) -> State {
+fn on_update(s: State, input: Input) -> State {
     s.t = s.t + input.dt
     out << circle(vec2(sin(s.t) * 200.0 + 400.0, 300.0), 50)
     return s
@@ -538,24 +539,24 @@ state {
 }
 ```
 
-### The `fn update` Function
+### The `fn on_update` Function
 
 Called every frame. Receives current state and input, returns new state.
 
 ```
-fn update(s: State, input: Input) -> State {
+fn on_update(s: State, input: Input) -> State {
     s.t = s.t + input.dt
     out << circle(vec2(sin(s.t) * 200.0 + 400.0, 300.0), 50)
     return s
 }
 ```
 
-### The `fn init` Function
+### The `fn on_init` Function
 
 Called once at startup, after state field initializers. Use it for setup logic that requires loops, conditionals, or `push` — things that can't be written as a plain expression initializer.
 
 ```
-fn init(s: State) -> State {
+fn on_init(s: State) -> State {
     resolution(800, 600)
     origin(top_left)
     for let i = 1.0; i <= 10.0; i = i + 1.0 {
@@ -802,7 +803,7 @@ state {
     let t: float = 0.0
 }
 
-fn update(s: State, input: Input) -> State {
+fn on_update(s: State, input: Input) -> State {
     s.t = s.t + input.dt
     let x = sin(s.t) * 300.0 + 400.0
     let y = abs(sin(s.t * 1.3)) * 400.0 + 100.0
@@ -823,7 +824,7 @@ state {
     let widths: list[float] = []
 }
 
-fn init(s: State) -> State {
+fn on_init(s: State) -> State {
     resolution(800, 600)
     origin(top_left)
     for let i = 1.0; i <= 8.0; i = i + 1.0 {
@@ -832,7 +833,7 @@ fn init(s: State) -> State {
     return s
 }
 
-fn update(s: State, input: Input) -> State {
+fn on_update(s: State, input: Input) -> State {
     foreach w in s.widths {
         out << rect(vec2(400.0, 300.0), vec2(w, w))
     }

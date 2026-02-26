@@ -140,7 +140,7 @@ impl<'a> Interpreter<'a> {
 
     pub fn run_update(&mut self, state: State, input: &Input) -> Result<State, RuntimeError> {
         let f = self.program.items.iter().find_map(|i| match i {
-            Item::FnDef(f) if f.name == "update" => Some(f.clone()),
+            Item::FnDef(f) if f.name == "on_update" => Some(f.clone()),
             _ => None,
         });
         let Some(f) = f else { return Ok(state); };
@@ -171,7 +171,34 @@ impl<'a> Interpreter<'a> {
 
     pub fn run_init(&mut self, state: State) -> Result<State, RuntimeError> {
         let f = self.program.items.iter().find_map(|i| match i {
-            Item::FnDef(f) if f.name == "init" => Some(f.clone()),
+            Item::FnDef(f) if f.name == "on_init" => Some(f.clone()),
+            _ => None,
+        });
+        let Some(f) = f else { return Ok(state); };
+
+        let state_rc = Rc::new(RefCell::new(state.0));
+        let state_val = Value::State(state_rc.clone());
+
+        self.env.push_scope();
+        if let Some(p) = f.params.first() { self.env.declare(&p.name, state_val); }
+
+        self.return_value = None;
+        for stmt in &f.body {
+            self.exec_stmt(stmt)?;
+            if self.return_value.is_some() { break; }
+        }
+        self.env.pop_scope();
+
+        let new_map = match self.return_value.take() {
+            Some(Value::State(rc)) => rc.borrow().clone(),
+            _ => state_rc.borrow().clone(),
+        };
+        Ok(State(new_map))
+    }
+
+    pub fn run_on_exit(&mut self, state: State) -> Result<State, RuntimeError> {
+        let f = self.program.items.iter().find_map(|i| match i {
+            Item::FnDef(f) if f.name == "on_exit" => Some(f.clone()),
             _ => None,
         });
         let Some(f) = f else { return Ok(state); };

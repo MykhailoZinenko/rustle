@@ -97,7 +97,7 @@ impl Runtime {
         let mut interp = Interpreter::new(&self.program.ast, &self.program.registry)
             .with_runtime_state(self.runtime_state.clone());
 
-        if self.program.ast.items.iter().any(|i| matches!(i, Item::FnDef(f) if f.name == "update")) {
+        if self.program.ast.items.iter().any(|i| matches!(i, Item::FnDef(f) if f.name == "on_update")) {
             self.state = interp.run_update(self.state.clone(), input)?;
         } else {
             interp.run_top_level()?;
@@ -108,4 +108,17 @@ impl Runtime {
     }
 
     pub fn state(&self) -> &State { &self.state }
+
+    /// Run `on_exit(s)` if defined, then drop. Call when the app stops.
+    pub fn exit(&mut self) -> Result<(), RuntimeError> {
+        use runtime::interpreter::Interpreter;
+        use syntax::ast::Item;
+
+        if self.program.ast.items.iter().any(|i| matches!(i, Item::FnDef(f) if f.name == "on_exit")) {
+            let mut interp = Interpreter::new(&self.program.ast, &self.program.registry)
+                .with_runtime_state(self.runtime_state.clone());
+            self.state = interp.run_on_exit(self.state.clone())?;
+        }
+        Ok(())
+    }
 }

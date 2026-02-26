@@ -85,7 +85,7 @@ state {
     let t: float = 0.0
 }
 
-fn update(s: State, input: Input) -> State {
+fn on_update(s: State, input: Input) -> State {
     s.t = s.t + input.dt
     let x = sin(s.t) * 300.0 + 400.0
     out << circle(vec2(x, 300.0), 40.0)
@@ -99,7 +99,7 @@ fn update(s: State, input: Input) -> State {
 
 ## One-time setup with `init`
 
-If you need loops or conditionals to initialize state, use `fn init`:
+If you need loops or conditionals to initialize state, use `fn on_init`:
 
 ```rust
 import shapes { rect }
@@ -109,7 +109,7 @@ state {
     let sizes: list[float] = []
 }
 
-fn init(s: State) -> State {
+fn on_init(s: State) -> State {
     resolution(800, 600)
     origin(top_left)
     for let i = 1.0; i <= 6.0; i = i + 1.0 {
@@ -118,7 +118,7 @@ fn init(s: State) -> State {
     return s
 }
 
-fn update(s: State, input: Input) -> State {
+fn on_update(s: State, input: Input) -> State {
     foreach sz in s.sizes {
         out << rect(vec2(400.0, 300.0), vec2(sz, sz))
     }

@@ -160,16 +160,16 @@ let x = f()           // ❌ S010: `float` is not callable
 
 ```rust
 // ❌ S012 — update must accept (State, Input) and return State
-fn update(s: State) -> State { ... }
-fn update(s: float, input: Input) -> State { ... }
-fn update(s: State, input: Input) -> float { ... }
+fn on_update(s: State) -> State { ... }
+fn on_update(s: float, input: Input) -> State { ... }
+fn on_update(s: State, input: Input) -> float { ... }
 ```
 
 Correct signatures:
 
 ```rust
-fn update(s: State, input: Input) -> State { ... }
-fn init(s: State) -> State { ... }
+fn on_update(s: State, input: Input) -> State { ... }
+fn on_init(s: State) -> State { ... }
 ```
 
 ---

@@ -201,5 +201,5 @@ origin(top_left)
 
 `resolution()` and `origin()` can be called:
 - At **top level** — applies every frame (fine for static scripts)
-- In **`fn init`** — applies once, persists for all subsequent frames (preferred for animated scripts)
-- In **`fn update`** — re-applies every frame (same result if values don't change)
+- In **`fn on_init`** — applies once, persists for all subsequent frames (preferred for animated scripts)
+- In **`fn on_update`** — re-applies every frame (same result if values don't change)

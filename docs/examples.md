@@ -58,7 +58,7 @@ state {
     let t: float = 0.0
 }
 
-fn update(s: State, input: Input) -> State {
+fn on_update(s: State, input: Input) -> State {
     s.t = s.t + input.dt
     let x = sin(s.t) * 300.0 + 400.0
     let y = abs(sin(s.t * 1.3)) * 400.0 + 100.0
@@ -79,7 +79,7 @@ state {
     let widths: list[float] = []
 }
 
-fn init(s: State) -> State {
+fn on_init(s: State) -> State {
     resolution(800, 600)
     origin(top_left)
     for let i = 1.0; i <= 8.0; i = i + 1.0 {
@@ -88,7 +88,7 @@ fn init(s: State) -> State {
     return s
 }
 
-fn update(s: State, input: Input) -> State {
+fn on_update(s: State, input: Input) -> State {
     foreach w in s.widths {
         out << rect(vec2(400.0, 300.0), vec2(w, w))
     }
@@ -110,7 +110,7 @@ state {
     let angle: float = 0.0
 }
 
-fn update(s: State, input: Input) -> State {
+fn on_update(s: State, input: Input) -> State {
     s.angle = s.angle + 60.0 * input.dt
     let spin = transform().rotate(s.angle).scale(1.5)
     out << rect(vec2(400.0, 300.0), vec2(150.0, 80.0))@spin
@@ -195,7 +195,7 @@ state {
     let t: float = 0.0
 }
 
-fn update(s: State, input: Input) -> State {
+fn on_update(s: State, input: Input) -> State {
     s.t = s.t + input.dt
     let r: res<float> = try (1.0 / sin(s.t))   // sin(t) passes through 0
     if r.ok {
@@ -231,14 +231,14 @@ state {
     let xs: list[float] = []
 }
 
-fn init(s: State) -> State {
+fn on_init(s: State) -> State {
     for let i = 0.0; i < 8.0; i = i + 1.0 {
         s.xs.push(100.0 + i * 90.0)
     }
     return s
 }
 
-fn update(s: State, input: Input) -> State {
+fn on_update(s: State, input: Input) -> State {
     let ys = apply_to_all(s.xs, wave)
     for let i = 0.0; i < s.xs.len; i = i + 1.0 {
         out << circle(vec2(s.xs[i], ys[i]), 15.0)
