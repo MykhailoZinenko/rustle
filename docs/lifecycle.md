@@ -26,7 +26,7 @@ state { }            — declare persistent inter-frame fields
 fn on_init(s) -> s   — one-time startup logic (optional)
 fn on_update(s, i) -> s — per-frame logic (optional)
 fn on_exit(s) -> s   — runs when app stops (optional)
-top-level statements — run if no update, or for non-animated static setup
+top-level statements — run if no on_update, or for non-animated static setup
 ```
 
 All sections are optional. The simplest valid script is a single `out <<` statement.
@@ -35,7 +35,7 @@ All sections are optional. The simplest valid script is a single `out <<` statem
 
 ## Static scripts
 
-No `update` function — top-level statements run every frame:
+No `on_update` function — top-level statements run every frame:
 
 ```rust
 import shapes { circle }
@@ -63,7 +63,7 @@ state {
 }
 ```
 
-Fields are accessed as `s.field` inside `update` and `init`.
+Fields are accessed as `s.field` inside `on_update` and `on_init`.
 
 {: .note }
 State field initializers must be plain expressions — no loops, conditionals, or function calls that require iteration. Use `fn on_init` for complex initialization.
@@ -89,7 +89,7 @@ Rules:
 - Signature must be exactly `fn on_init(s: State) -> State`
 - `return s` is required — always return the (modified) state
 - `resolution()` and `origin()` called here persist for all subsequent frames
-- Called before the first `update`
+- Called before the first `on_update`
 
 ---
 
@@ -185,7 +185,7 @@ fn on_update(s: State, input: Input) -> State {
 }
 ```
 
-**Calling `resolution()` in `update` without `init`**
+**Calling `resolution()` in `on_update` without `on_init`**
 
 ```rust
 fn on_update(s: State, input: Input) -> State {

@@ -51,10 +51,10 @@ state {}         — declare persistent inter-frame variables
 fn on_init(s) -> s  — one-time setup (optional)
 fn on_update(s, input) -> s  — per-frame logic (optional)
 fn on_exit(s) -> s  — runs when app stops (optional)
-top-level stmts  — run every frame if no update, or once if update present
+top-level stmts  — run every frame if no on_update, or once if on_update present
 ```
 
-**Static script** — no `update`, top-level code runs every frame:
+**Static script** — no `on_update`, top-level code runs every frame:
 
 ```
 import shapes { rect, circle }
@@ -67,7 +67,7 @@ out << rect(vec2(400, 300), vec2(800, 600))
 out << circle(vec2(400, 300), 100)
 ```
 
-**Animated script** — `update` runs every frame:
+**Animated script** — `on_update` runs every frame:
 
 ```
 import shapes { circle }
@@ -190,7 +190,7 @@ Methods:
 
 ### State and Input
 
-`State` — the script's persistent state object, passed into and returned from `update` and `init`.
+`State` — the script's persistent state object, passed into and returned from `on_update` and `on_init`.
 
 `Input` — per-frame input data.
 
@@ -395,8 +395,8 @@ These calls set the coordinate context for all shapes created after them. They p
 ### Where to Call Them
 
 - At **top-level** — applied once, persists
-- In **`init(s)`** — applied once at startup, persists
-- In **`update(s, input)`** — re-applied every frame (same result if values don't change)
+- In **`on_init(s)`** — applied once at startup, persists
+- In **`on_update(s, input)`** — re-applied every frame (same result if values don't change)
 
 ---
 
@@ -566,7 +566,7 @@ fn on_init(s: State) -> State {
 }
 ```
 
-`resolution()` and `origin()` called in `init` persist for all subsequent frames.
+`resolution()` and `origin()` called in `on_init` persist for all subsequent frames.
 
 `return s` is required — the state is passed through.
 

@@ -73,7 +73,7 @@ out << rect(vec2(400.0, 300.0), vec2(800.0, 600.0)) << circle(vec2(400.0, 300.0)
 
 ## Animation
 
-Add a `state {}` block for values that persist between frames, and an `update` function that runs every frame:
+Add a `state {}` block for values that persist between frames, and an `on_update` function that runs every frame:
 
 ```rust
 import shapes { circle }
@@ -93,11 +93,11 @@ fn on_update(s: State, input: Input) -> State {
 }
 ```
 
-`input.dt` is the time in seconds since the last frame. `return s` is required — always return the state at the end of `update`.
+`input.dt` is the time in seconds since the last frame. `return s` is required — always return the state at the end of `on_update`.
 
 ---
 
-## One-time setup with `init`
+## One-time setup with `on_init`
 
 If you need loops or conditionals to initialize state, use `fn on_init`:
 
@@ -126,13 +126,13 @@ fn on_update(s: State, input: Input) -> State {
 }
 ```
 
-`init` runs exactly once at startup. `resolution()` and `origin()` called inside `init` persist for all subsequent frames.
+`on_init` runs exactly once at startup. `resolution()` and `origin()` called inside `on_init` persist for all subsequent frames.
 
 ---
 
 ## What's next
 
-- [Script Lifecycle](lifecycle) — understand init, update, and state in depth
+- [Script Lifecycle](lifecycle) — understand on_init, on_update, and state in depth
 - [Syntax](syntax) — full language syntax reference
 - [Types](types) — all types with fields and methods
 - [Built-ins](builtins) — shapes, math, rendering options

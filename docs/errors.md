@@ -156,10 +156,10 @@ let x = f()           // ❌ S010: `float` is not callable
 
 ### S012 — Invalid lifecycle function signature
 
-`update` or `init` has the wrong signature.
+`on_update`, `on_init`, or `on_exit` has the wrong signature.
 
 ```rust
-// ❌ S012 — update must accept (State, Input) and return State
+// ❌ S012 — on_update must accept (State, Input) and return State
 fn on_update(s: State) -> State { ... }
 fn on_update(s: float, input: Input) -> State { ... }
 fn on_update(s: State, input: Input) -> float { ... }

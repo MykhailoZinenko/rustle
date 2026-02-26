@@ -376,7 +376,7 @@ out << circle(vec2(0.0, 0.0), 0.3)@(t1, t2)   // multiple, left to right
 
 ## State and Input
 
-`State` is the type of the `s` parameter in `update` and `init`. Its fields are whatever you declared in the `state {}` block. Accessed via `s.field`.
+`State` is the type of the `s` parameter in `on_update` and `on_init`. Its fields are whatever you declared in the `state {}` block. Accessed via `s.field`.
 
 `Input` is the per-frame input object.
 

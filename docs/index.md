@@ -25,7 +25,7 @@ Write scripts, see shapes rendered live on a canvas alongside the editor. No boi
 source → compile → Runtime::new → Runtime::tick → Vec<DrawCommand> → renderer
 ```
 
-Each `tick` runs the `update` function (or top-level code for static scripts) and returns all shapes pushed to `out <<` that frame.
+Each `tick` runs the `on_update` function (or top-level code for static scripts) and returns all shapes pushed to `out <<` that frame.
 
 ---
 
@@ -56,7 +56,7 @@ fn on_update(s: State, input: Input) -> State {
 | Section | What it covers |
 |---------|---------------|
 | [Quick Start]({{ '/quickstart/' | relative_url }}) | Get a script running |
-| [Script Lifecycle]({{ '/lifecycle/' | relative_url }}) | How init, update, and state work |
+| [Script Lifecycle]({{ '/lifecycle/' | relative_url }}) | How on_init, on_update, and state work |
 | [Syntax]({{ '/syntax/' | relative_url }}) | Variables, operators, control flow, functions |
 | [Types]({{ '/types/' | relative_url }}) | All types — fields, methods, constructors |
 | [Built-ins]({{ '/builtins/' | relative_url }}) | Math, shapes, rendering, coordinate config |
