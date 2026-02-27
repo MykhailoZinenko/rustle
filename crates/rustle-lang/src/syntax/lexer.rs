@@ -42,7 +42,8 @@ impl<'a> Lexer<'a> {
 
         let kind = match ch {
             b'+' => {
-                if self.peek() == b'=' { self.advance(); TokenKind::PlusEq }
+                if self.peek() == b'+' { self.advance(); TokenKind::PlusPlus }
+                else if self.peek() == b'=' { self.advance(); TokenKind::PlusEq }
                 else { TokenKind::Plus }
             }
             b'*' => {
@@ -64,7 +65,8 @@ impl<'a> Lexer<'a> {
             b'@' => TokenKind::At,
 
             b'-' => {
-                if self.peek() == b'>' { self.advance(); TokenKind::Arrow }
+                if self.peek() == b'-' { self.advance(); TokenKind::MinusMinus }
+                else if self.peek() == b'>' { self.advance(); TokenKind::Arrow }
                 else if self.peek() == b'=' { self.advance(); TokenKind::MinusEq }
                 else { TokenKind::Minus }
             }
@@ -305,6 +307,12 @@ mod tests {
         assert_eq!(lex("color"),     vec![TokenKind::Ident("color".into()),     TokenKind::Eof]);
         assert_eq!(lex("shape"),     vec![TokenKind::Ident("shape".into()),     TokenKind::Eof]);
         assert_eq!(lex("transform"), vec![TokenKind::Ident("transform".into()), TokenKind::Eof]);
+    }
+
+    #[test]
+    fn inc_dec_tokens() {
+        assert_eq!(lex("++"), vec![TokenKind::PlusPlus,   TokenKind::Eof]);
+        assert_eq!(lex("--"), vec![TokenKind::MinusMinus, TokenKind::Eof]);
     }
 
     #[test]

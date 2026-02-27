@@ -80,6 +80,10 @@ true  false  // bool
 | `/` | float, vec2 / float | |
 | `%` | float | modulo |
 | `-x` | float | unary negation |
+| `++x`, `x++` | float | increment (prefix returns new value, postfix returns old) |
+| `--x`, `x--` | float | decrement (prefix returns new value, postfix returns old) |
+
+Operands for `++` and `--` must be assignable (variable, state field, or list index).
 
 ```rust
 let v = vec2(1.0, 2.0) + vec2(3.0, 4.0)   // (4.0, 6.0)

@@ -784,6 +784,23 @@ fn ok_for_loop() {
 }
 
 #[test]
+fn ok_inc_dec() {
+    ok(r#"
+        state { let x: float = 0.0 }
+        fn on_init(s: State) -> State {
+            s.x++
+            return s
+        }
+    "#);
+}
+
+#[test]
+fn s008_inc_dec_requires_assignable() {
+    let errs = err("let x = 1.0 + 2.0++");
+    assert!(has(&errs, ErrorCode::S008));
+}
+
+#[test]
 fn ok_foreach_with_type_annotation() {
     ok(r#"
         let xs: list[float] = [1.0, 2.0]

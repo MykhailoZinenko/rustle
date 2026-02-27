@@ -260,8 +260,15 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::UnOp { op, operand, span } => {
-                let v = self.eval_expr(operand)?;
-                eval_unop(op, v, span.line)
+                match op {
+                    UnOp::PrefixInc | UnOp::PrefixDec | UnOp::PostfixInc | UnOp::PostfixDec => {
+                        self.eval_inc_dec(op, operand, span)
+                    }
+                    _ => {
+                        let v = self.eval_expr(operand)?;
+                        eval_unop(op, v, span.line)
+                    }
+                }
             }
 
             Expr::Ternary { condition, then_expr, else_expr, span } => {
@@ -626,6 +633,85 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
+    fn eval_inc_dec(&mut self, op: &UnOp, operand: &Expr, span: &Span) -> Result<Value, RuntimeError> {
+        let target = expr_to_assign_target(operand)
+            .ok_or_else(|| self.err(span.line, "`++`/`--` require an assignable expression"))?;
+        let old = self.read_assign_target(&target, span.line)?;
+        let x = as_float(&old, span.line)?;
+        let new_val = Value::Float(match op {
+            UnOp::PrefixInc | UnOp::PostfixInc => x + 1.0,
+            UnOp::PrefixDec | UnOp::PostfixDec => x - 1.0,
+            _ => unreachable!(),
+        });
+        self.write_assign_target(&target, new_val.clone(), span.line)?;
+        Ok(match op {
+            UnOp::PrefixInc | UnOp::PrefixDec => new_val,
+            UnOp::PostfixInc | UnOp::PostfixDec => old,
+            _ => unreachable!(),
+        })
+    }
+
+    fn read_assign_target(&mut self, target: &AssignTarget, line: usize) -> Result<Value, RuntimeError> {
+        match target {
+            AssignTarget::Path(p) if p.len() == 1 => self.env.get(&p[0])
+                .ok_or_else(|| self.err(line, format!("undefined: `{}`", p[0]))),
+            AssignTarget::Path(p) => {
+                let root = self.env.get(&p[0])
+                    .ok_or_else(|| self.err(line, format!("undefined: `{}`", p[0])))?;
+                let mut v = root;
+                for seg in &p[1..] {
+                    v = eval_field(&self.types, &v, seg, line)?;
+                }
+                Ok(v)
+            }
+            AssignTarget::Indexed { path: p, indices } => {
+                let mut coll = self.env.get(&p[0])
+                    .ok_or_else(|| self.err(line, format!("undefined: `{}`", p[0])))?
+                    .clone();
+                for seg in &p[1..] {
+                    coll = eval_field(&self.types, &coll, seg, line)?;
+                }
+                for idx_expr in indices {
+                    let idx = self.eval_expr(idx_expr)?;
+                    let i = as_float(&idx, line)? as usize;
+                    coll = match &coll {
+                        Value::List(items) => items.borrow().get(i).cloned()
+                            .ok_or_else(|| self.err(line, "index out of bounds")),
+                        _ => Err(self.err(line, format!(
+                            "cannot index `{}`", value_type_name(&coll)
+                        ))),
+                    }?;
+                }
+                Ok(coll)
+            }
+        }
+    }
+
+    fn write_assign_target(&mut self, target: &AssignTarget, val: Value, line: usize) -> Result<(), RuntimeError> {
+        match target {
+            AssignTarget::Path(p) if p.len() == 1 => {
+                if !self.env.set(&p[0], val) {
+                    return Err(self.err(line, format!("undefined: `{}`", p[0])));
+                }
+            }
+            AssignTarget::Path(p) => {
+                let root = &p[0];
+                let obj = self.env.get(root)
+                    .ok_or_else(|| self.err(line, format!("undefined: `{root}`")))?;
+                if let Value::State(rc) = &obj {
+                    assign_state_path(rc, &p[1..], val, line, &self.types)?;
+                } else {
+                    let updated = set_field_path(&self.types, obj, &p[1..], val, line)?;
+                    self.env.set(root, updated);
+                }
+            }
+            AssignTarget::Indexed { path: p, indices } => {
+                self.exec_indexed_assign(p, indices, val, line)?;
+            }
+        }
+        Ok(())
+    }
+
     fn exec_indexed_assign(
         &mut self,
         path: &[String],
@@ -667,6 +753,32 @@ impl<'a> Interpreter<'a> {
             ))),
         }
         Ok(())
+    }
+}
+
+/// Convert an assignable Expr (Ident, Field, Index) to AssignTarget.
+fn expr_to_assign_target(expr: &Expr) -> Option<AssignTarget> {
+    match expr {
+        Expr::Ident(name, _) => Some(AssignTarget::Path(vec![name.clone()])),
+        Expr::Field { expr: base, field, .. } => {
+            let mut p = expr_to_assign_target(base)?.path().to_vec();
+            p.push(field.clone());
+            Some(AssignTarget::Path(p))
+        }
+        Expr::Index { expr: base, index, .. } => {
+            let base_target = expr_to_assign_target(base)?;
+            match base_target {
+                AssignTarget::Path(p) => Some(AssignTarget::Indexed {
+                    path: p,
+                    indices: vec![(**index).clone()],
+                }),
+                AssignTarget::Indexed { path, mut indices } => {
+                    indices.push((**index).clone());
+                    Some(AssignTarget::Indexed { path, indices })
+                }
+            }
+        }
+        _ => None,
     }
 }
 
@@ -769,6 +881,9 @@ fn eval_binop(op: &BinOp, l: Value, r: Value, line: usize, binops: &BinopRegistr
 
 fn eval_unop(op: &UnOp, v: Value, line: usize) -> Result<Value, RuntimeError> {
     match op {
+        UnOp::PrefixInc | UnOp::PrefixDec | UnOp::PostfixInc | UnOp::PostfixDec => {
+            unreachable!("inc/dec handled in eval_expr")
+        }
         UnOp::Neg => match v {
             Value::Float(x)   => Ok(Value::Float(-x)),
             Value::Vec2(x, y) => Ok(Value::Vec2(-x, -y)),

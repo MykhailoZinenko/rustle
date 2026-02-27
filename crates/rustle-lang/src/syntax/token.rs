@@ -42,6 +42,8 @@ pub enum TokenKind {
     Percent,    // %
     PlusEq,     // +=
     MinusEq,    // -=
+    PlusPlus,   // ++
+    MinusMinus, // --
     StarEq,     // *=
     SlashEq,    // /=
     Eq,         // =

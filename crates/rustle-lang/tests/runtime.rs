@@ -407,6 +407,34 @@ fn compound_assignment() {
 }
 
 #[test]
+fn inc_dec_prefix_postfix() {
+    let rt = run(r#"
+        state { let x: float = 5.0 }
+        fn on_init(s: State) -> State {
+            let a = s.x++   // a = 5, s.x = 6
+            let b = ++s.x   // b = 7, s.x = 7
+            s.x--           // s.x = 6
+            let c = --s.x   // c = 5, s.x = 5
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "x"), 5.0);
+}
+
+#[test]
+fn inc_dec_on_list_index() {
+    let rt = run(r#"
+        state { let xs: list[float] = [10.0, 20.0] }
+        fn on_init(s: State) -> State {
+            s.xs[0]++
+            s.xs[1]--
+            return s
+        }
+    "#);
+    assert_eq!(list_floats(&rt, "xs"), [11.0, 19.0]);
+}
+
+#[test]
 fn else_if_branches() {
     let rt = run(r#"
         state { let x: float = 0.0 }

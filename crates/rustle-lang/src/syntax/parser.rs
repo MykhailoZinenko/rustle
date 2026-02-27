@@ -467,6 +467,14 @@ impl Parser {
             let operand = self.parse_unary()?;
             return Ok(Expr::UnOp { op: UnOp::Not, operand: Box::new(operand), span });
         }
+        if self.matches(TokenKind::PlusPlus) {
+            let operand = self.parse_unary()?;
+            return Ok(Expr::UnOp { op: UnOp::PrefixInc, operand: Box::new(operand), span });
+        }
+        if self.matches(TokenKind::MinusMinus) {
+            let operand = self.parse_unary()?;
+            return Ok(Expr::UnOp { op: UnOp::PrefixDec, operand: Box::new(operand), span });
+        }
         self.parse_postfix()
     }
 
@@ -530,6 +538,18 @@ impl Parser {
                     self.advance();
                     let ty = self.parse_type()?;
                     expr = Expr::Cast { expr: Box::new(expr), ty, span };
+                }
+
+                // postfix ++ and --
+                TokenKind::PlusPlus => {
+                    let span = expr.span().clone();
+                    self.advance();
+                    expr = Expr::UnOp { op: UnOp::PostfixInc, operand: Box::new(expr), span };
+                }
+                TokenKind::MinusMinus => {
+                    let span = expr.span().clone();
+                    self.advance();
+                    expr = Expr::UnOp { op: UnOp::PostfixDec, operand: Box::new(expr), span };
                 }
 
                 _ => break,

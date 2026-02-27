@@ -383,7 +383,7 @@ impl<'a> TypeResolver<'a> {
 
             Expr::UnOp { op, operand, span } => {
                 let ty = self.infer_expr(operand)?;
-                self.check_unop(op, &ty, span)
+                self.check_unop(op, operand, &ty, span)
             }
 
             Expr::Ternary { condition, then_expr, else_expr, span } => {
@@ -614,7 +614,7 @@ impl<'a> TypeResolver<'a> {
         )])
     }
 
-    fn check_unop(&mut self, op: &UnOp, ty: &Type, span: &Span) -> Result<Type, Vec<Error>> {
+    fn check_unop(&mut self, op: &UnOp, operand: &Expr, ty: &Type, span: &Span) -> Result<Type, Vec<Error>> {
         match op {
             UnOp::Neg => {
                 if *ty != Type::Float {
@@ -636,6 +636,42 @@ impl<'a> TypeResolver<'a> {
                     Ok(Type::Bool)
                 }
             }
+            UnOp::PrefixInc | UnOp::PrefixDec | UnOp::PostfixInc | UnOp::PostfixDec => {
+                if *ty != Type::Float {
+                    return Err(vec![Error::new(
+                        ErrorCode::S008, span.line, span.column,
+                        format!("`++`/`--` require `float`, found `{}`", type_name(ty)),
+                    )]);
+                }
+                self.check_assignable_lvalue(operand, span)?;
+                Ok(Type::Float)
+            }
+        }
+    }
+
+    fn check_assignable_lvalue(&mut self, expr: &Expr, span: &Span) -> Result<(), Vec<Error>> {
+        match expr {
+            Expr::Ident(name, _) => {
+                let sym = self.lookup_symbol(name, span);
+                match sym {
+                    Some(s) if s.kind == SymbolKind::Const => Err(vec![Error::new(
+                        ErrorCode::S004, span.line, span.column,
+                        format!("cannot modify const `{name}`"),
+                    )]),
+                    Some(_) => Ok(()),
+                    None => Err(vec![Error::new(
+                        ErrorCode::S001, span.line, span.column,
+                        format!("undefined: `{name}`"),
+                    )]),
+                }
+            }
+            Expr::Field { expr: base, .. } | Expr::Index { expr: base, .. } => {
+                self.check_assignable_lvalue(base, span)
+            }
+            _ => Err(vec![Error::new(
+                ErrorCode::S008, span.line, span.column,
+                "`++`/`--` require an assignable expression (variable, field, or index)",
+            )]),
         }
     }
 

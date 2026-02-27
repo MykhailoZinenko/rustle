@@ -329,6 +329,10 @@ impl std::fmt::Display for BinOp {
 pub enum UnOp {
     Neg,
     Not,
+    PrefixInc,   // ++x
+    PrefixDec,   // --x
+    PostfixInc,  // x++
+    PostfixDec,  // x--
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
