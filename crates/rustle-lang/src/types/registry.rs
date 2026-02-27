@@ -123,10 +123,9 @@ impl TypeRegistry {
                 "len"  => Some((vec![], Some(Type::Float))),
                 _ => None,
             },
-            // array<T, N>: same idea.
-            Type::Array(elem, _) => match method {
+            // array<T, N>: fixed size — only len and index read, no push/pop.
+            Type::Array(_elem, _) => match method {
                 "len" => Some((vec![], Some(Type::Float))),
-                "pop" => Some((vec![], Some(*elem.clone()))),
                 _ => None,
             },
             // Named types and primitives — delegate to static descriptor table.
