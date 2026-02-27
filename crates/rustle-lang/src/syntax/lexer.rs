@@ -70,6 +70,7 @@ impl<'a> Lexer<'a> {
             }
             b'/' => {
                 if self.peek() == b'/' { self.skip_line(); return Ok(None); }
+                else if self.peek() == b'*' { self.skip_block_comment(); return Ok(None); }
                 else if self.peek() == b'=' { self.advance(); TokenKind::SlashEq }
                 else { TokenKind::Slash }
             }
@@ -144,6 +145,18 @@ impl<'a> Lexer<'a> {
 
     fn skip_line(&mut self) {
         while !self.is_at_end() && self.peek() != b'\n' { self.advance(); }
+    }
+
+    fn skip_block_comment(&mut self) {
+        self.advance(); // consume *
+        while !self.is_at_end() {
+            if self.peek() == b'*' && self.peek_next() == b'/' {
+                self.advance(); // *
+                self.advance(); // /
+                break;
+            }
+            self.advance();
+        }
     }
 
     // ─── Readers ─────────────────────────────────────────────────────────────
@@ -307,6 +320,12 @@ mod tests {
     #[test]
     fn line_comment_skipped() {
         assert_eq!(lex("// comment\n42"), vec![TokenKind::Float(42.0), TokenKind::Eof]);
+    }
+
+    #[test]
+    fn block_comment_skipped() {
+        assert_eq!(lex("/* comment */42"), vec![TokenKind::Float(42.0), TokenKind::Eof]);
+        assert_eq!(lex("/* a\nb */42"), vec![TokenKind::Float(42.0), TokenKind::Eof]);
     }
 
     #[test]

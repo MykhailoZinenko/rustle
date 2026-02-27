@@ -20,9 +20,10 @@ nav_order: 4
 
 ```rust
 // single-line comment
+/* block comment */
+/* can span
+   multiple lines */
 ```
-
-Block comments are not supported.
 
 ---
 
