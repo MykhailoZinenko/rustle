@@ -86,6 +86,8 @@ pub enum Stmt {
     For(ForStmt),
     /// `foreach v in list { }` or `foreach v: float in list { }`
     Foreach(ForeachStmt),
+    /// `match expr { val1, val2 => { } else => { } }`
+    Match(MatchStmt),
     /// `return expr` or bare `return`
     Return(Option<Expr>, Span),
     /// `fn f = add` or `fn g = (a: float) -> float { ... }`
@@ -138,6 +140,21 @@ pub struct Assign {
 #[derive(Debug, Clone)]
 pub struct OutStmt {
     pub shapes: Vec<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchStmt {
+    pub expr: Expr,
+    pub arms: Vec<MatchArm>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    /// Patterns to match (empty for `else`).
+    pub values: Vec<Expr>,
+    pub body: Vec<Stmt>,
     pub span: Span,
 }
 

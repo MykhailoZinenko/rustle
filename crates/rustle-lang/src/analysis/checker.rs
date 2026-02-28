@@ -113,6 +113,7 @@ impl<'a> TypeResolver<'a> {
             Stmt::Assign(a)  => self.check_assign(a),
             Stmt::Out(o)     => self.check_out(o),
             Stmt::If(i)      => self.check_if(i),
+            Stmt::Match(m)   => self.check_match(m),
             Stmt::While(w)   => self.check_while(w),
             Stmt::For(f)     => self.check_for(f),
             Stmt::Foreach(f) => self.check_foreach(f),
@@ -219,6 +220,34 @@ impl<'a> TypeResolver<'a> {
                 Err(e) => self.errors.extend(e),
                 _ => {}
             }
+        }
+    }
+
+    fn check_match(&mut self, m: &MatchStmt) {
+        let scrut_ty = match self.infer_expr(&m.expr) {
+            Ok(t) => t,
+            Err(e) => { self.errors.extend(e); return; }
+        };
+        if !is_matchable(&scrut_ty) {
+            self.errors.push(Error::new(
+                ErrorCode::S008, m.expr.span().line, m.expr.span().column,
+                format!("match scrutinee must be a comparable type (float, bool, string, vec2, vec3, vec4, color), found `{}`", type_name(&scrut_ty)),
+            ));
+        }
+        for arm in &m.arms {
+            for val in &arm.values {
+                match self.infer_expr(val) {
+                    Ok(val_ty) if !types_compatible(&scrut_ty, &val_ty) => {
+                        self.errors.push(Error::new(
+                            ErrorCode::S002, val.span().line, val.span().column,
+                            format!("match arm value must match scrutinee type `{}`, found `{}`", type_name(&scrut_ty), type_name(&val_ty)),
+                        ));
+                    }
+                    Err(e) => self.errors.extend(e),
+                    _ => {}
+                }
+            }
+            self.check_block(&arm.body);
         }
     }
 
@@ -741,6 +770,15 @@ impl<'a> TypeResolver<'a> {
 }
 
 // ─── Shape helpers ────────────────────────────────────────────────────────────
+
+/// True for types that support equality (usable in match).
+pub fn is_matchable(ty: &Type) -> bool {
+    match ty {
+        Type::Float | Type::Bool => true,
+        Type::Named(n) => matches!(n.as_str(), "string" | "vec2" | "vec3" | "vec4" | "color"),
+        _ => false,
+    }
+}
 
 /// True for any type that can be pushed to `out <<` or used with `@`.
 pub fn is_drawable(ty: &Type) -> bool {

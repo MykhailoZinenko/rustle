@@ -114,6 +114,11 @@ impl<'a> Validator<'a> {
                     self.scan_stmts_for_const_assign(e);
                 }
             }
+            Stmt::Match(m) => {
+                for arm in &m.arms {
+                    self.scan_stmts_for_const_assign(&arm.body);
+                }
+            }
             Stmt::While(w) => self.scan_stmts_for_const_assign(&w.body),
             Stmt::For(f)   => {
                 self.scan_stmt_for_const_assign(&f.init);

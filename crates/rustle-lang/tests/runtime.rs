@@ -407,6 +407,53 @@ fn compound_assignment() {
 }
 
 #[test]
+fn match_float_with_else() {
+    let rt = run(r#"
+        state { let x: float = 2.0 }
+        fn on_init(s: State) -> State {
+            match s.x {
+                1.0 => { s.x = 10.0 }
+                2.0 => { s.x = 20.0 }
+                else => { s.x = 99.0 }
+            }
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "x"), 20.0);
+}
+
+#[test]
+fn match_no_match_no_else() {
+    let rt = run(r#"
+        state { let x: float = 99.0 }
+        fn on_init(s: State) -> State {
+            match s.x {
+                1.0 => { s.x = 10.0 }
+                2.0 => { s.x = 20.0 }
+            }
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "x"), 99.0);
+}
+
+#[test]
+fn match_multi_value_arm() {
+    let rt = run(r#"
+        state { let x: float = 3.0 }
+        fn on_init(s: State) -> State {
+            match s.x {
+                1.0, 2.0 => { s.x = 12.0 }
+                3.0, 4.0 => { s.x = 34.0 }
+                else => { s.x = 0.0 }
+            }
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "x"), 34.0);
+}
+
+#[test]
 fn inc_dec_prefix_postfix() {
     let rt = run(r#"
         state { let x: float = 5.0 }

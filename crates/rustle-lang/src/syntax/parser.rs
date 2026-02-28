@@ -168,6 +168,7 @@ impl Parser {
             TokenKind::Const => self.parse_var_decl(true),
             TokenKind::Fn    => self.parse_fn_var_stmt(),
             TokenKind::If    => self.parse_if(),
+            TokenKind::Match => self.parse_match(),
             TokenKind::While => self.parse_while(),
             TokenKind::For   => self.parse_for(),
             TokenKind::Foreach => self.parse_foreach(),
@@ -291,6 +292,33 @@ impl Parser {
             None
         };
         Ok(Stmt::If(IfStmt { condition, then_block, else_block, span }))
+    }
+
+    fn parse_match(&mut self) -> Result<Stmt, Error> {
+        let span = self.span();
+        self.expect(TokenKind::Match)?;
+        let expr = self.parse_expr()?;
+        self.expect(TokenKind::LBrace)?;
+        let mut arms = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            let arm_span = self.span();
+            let (values, body) = if self.matches(TokenKind::Else) {
+                self.expect(TokenKind::FatArrow)?;
+                (Vec::new(), self.parse_block()?)
+            } else {
+                let mut values = Vec::new();
+                values.push(self.parse_expr()?);
+                while self.matches(TokenKind::Comma) {
+                    values.push(self.parse_expr()?);
+                }
+                self.expect(TokenKind::FatArrow)?;
+                let body = self.parse_block()?;
+                (values, body)
+            };
+            arms.push(MatchArm { values, body, span: arm_span });
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(Stmt::Match(MatchStmt { expr, arms, span }))
     }
 
     fn parse_while(&mut self) -> Result<Stmt, Error> {
@@ -1079,6 +1107,20 @@ mod tests {
     }
 
     // ── control flow ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn match_stmt() {
+        let p = parse("match x { 1.0 => { } 2.0, 3.0 => { } else => { } }");
+        match &p.items[0] {
+            Item::Stmt(Stmt::Match(m)) => {
+                assert_eq!(m.arms.len(), 3);
+                assert_eq!(m.arms[0].values.len(), 1);
+                assert_eq!(m.arms[1].values.len(), 2);
+                assert!(m.arms[2].values.is_empty());
+            }
+            _ => panic!("expected Match"),
+        }
+    }
 
     #[test]
     fn if_else() {

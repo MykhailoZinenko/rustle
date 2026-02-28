@@ -78,6 +78,7 @@ impl<'a> Lexer<'a> {
             }
             b'=' => {
                 if self.peek() == b'=' { self.advance(); TokenKind::EqEq }
+                else if self.peek() == b'>' { self.advance(); TokenKind::FatArrow }
                 else { TokenKind::Eq }
             }
             b'!' => {
@@ -307,6 +308,11 @@ mod tests {
         assert_eq!(lex("color"),     vec![TokenKind::Ident("color".into()),     TokenKind::Eof]);
         assert_eq!(lex("shape"),     vec![TokenKind::Ident("shape".into()),     TokenKind::Eof]);
         assert_eq!(lex("transform"), vec![TokenKind::Ident("transform".into()), TokenKind::Eof]);
+    }
+
+    #[test]
+    fn match_fat_arrow_tokens() {
+        assert_eq!(lex("=>"), vec![TokenKind::FatArrow, TokenKind::Eof]);
     }
 
     #[test]

@@ -795,6 +795,33 @@ fn ok_inc_dec() {
 }
 
 #[test]
+fn ok_match() {
+    ok(r#"
+        state { let x: float = 1.0 }
+        fn on_init(s: State) -> State {
+            match s.x {
+                1.0 => { }
+                2.0, 3.0 => { }
+                else => { }
+            }
+            return s
+        }
+    "#);
+}
+
+#[test]
+fn s008_match_non_comparable() {
+    let errs = err(r#"
+        state { let xs: list[float] = [] }
+        fn on_init(s: State) -> State {
+            match s.xs { }
+            return s
+        }
+    "#);
+    assert!(has(&errs, ErrorCode::S008));
+}
+
+#[test]
 fn s008_inc_dec_requires_assignable() {
     let errs = err("let x = 1.0 + 2.0++");
     assert!(has(&errs, ErrorCode::S008));

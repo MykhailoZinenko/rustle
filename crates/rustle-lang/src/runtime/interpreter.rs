@@ -558,6 +558,35 @@ impl<'a> Interpreter<'a> {
                 }
             }
 
+            Stmt::Match(m) => {
+                let scrut = self.eval_expr(&m.expr)?;
+                let mut matched = false;
+                for arm in &m.arms {
+                    if arm.values.is_empty() {
+                        // else arm
+                        matched = true;
+                    } else {
+                        for val_expr in &arm.values {
+                            let val = self.eval_expr(val_expr)?;
+                            if values_equal(&scrut, &val) {
+                                matched = true;
+                                break;
+                            }
+                        }
+                    }
+                    if matched {
+                        self.env.push_scope();
+                        for s in &arm.body {
+                            self.exec_stmt(s)?;
+                            if self.return_value.is_some() { break; }
+                        }
+                        self.env.pop_scope();
+                        break;
+                    }
+                }
+                // no match and no else: nothing happens
+            }
+
             Stmt::While(w) => {
                 loop {
                     match self.eval_expr(&w.condition)? {
@@ -918,6 +947,10 @@ fn values_equal(a: &Value, b: &Value) -> bool {
         (Value::Str(x),    Value::Str(y))    => x == y,
         (Value::Vec2(ax, ay), Value::Vec2(bx, by)) => ax == bx && ay == by,
         (Value::Vec3(ax,ay,az), Value::Vec3(bx,by,bz)) => ax==bx && ay==by && az==bz,
+        (Value::Vec4(ax,ay,az,aw), Value::Vec4(bx,by,bz,bw)) => ax==bx && ay==by && az==bz && aw==bw,
+        (Value::Color { r: ar, g: ag, b: ab, a: aa }, Value::Color { r: br, g: bg, b: bb, a: ba }) => {
+            ar == br && ag == bg && ab == bb && aa == ba
+        }
         _ => false,
     }
 }

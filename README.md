@@ -20,7 +20,7 @@ Rustle is designed for generative art and interactive 2D scenes. You get explici
 - [x] `else if`
 - [x] Compound assignment: `+=`, `-=`, `*=`, `/=`
 - [x] Index assignment: `list[i] = x`, `list[i] += 1`
-- [ ] `switch` / `match` (simple value matching)
+- [x] `match` (simple value matching)
 - [x] `++`, `--`
 - [ ] Comments (`//` and `/* */`)
 - [ ] `null` / `none` value

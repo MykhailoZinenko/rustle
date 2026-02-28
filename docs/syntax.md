@@ -114,6 +114,20 @@ let v = condition ? then_value : else_value
 
 Both branches must have the same type.
 
+### Match
+
+```rust
+match expr {
+  val1, val2 => { /* stmts */ }
+  val3 => { /* stmts */ }
+  else => { /* stmts */ }
+}
+```
+
+- Each arm executes only its block (no fall-through).
+- `else` is optional; if no arm matches and there is no `else`, nothing happens.
+- Scrutinee and arm values must be comparable types: `float`, `bool`, `string`, `vec2`, `vec3`, `vec4`, `color`.
+
 ### Cast
 
 ```rust

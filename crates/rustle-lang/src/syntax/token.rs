@@ -12,6 +12,7 @@ pub enum TokenKind {
     Let,
     If,
     Else,
+    Match,
     While,
     For,
     Foreach,
@@ -55,6 +56,7 @@ pub enum TokenKind {
     GtEq,       // >=
     LtLt,       // <<
     Arrow,      // ->
+    FatArrow,   // =>
     At,         // @
     Question,   // ?
 
@@ -97,7 +99,7 @@ impl TokenKind {
     pub fn is_keyword(&self) -> bool {
         matches!(
             self,
-            Self::Fn | Self::Let | Self::If | Self::Else | Self::While | Self::For | Self::Foreach
+            Self::Fn | Self::Let | Self::If | Self::Else | Self::Match | Self::While | Self::For | Self::Foreach
             | Self::In | Self::Return | Self::Const | Self::State | Self::Import
             | Self::Out | Self::Try | Self::And | Self::Or | Self::Not | Self::As
         )
@@ -125,6 +127,7 @@ pub fn keyword_or_ident(s: String) -> TokenKind {
         "or"        => TokenKind::Or,
         "not"       => TokenKind::Not,
         "as"        => TokenKind::As,
+        "match"     => TokenKind::Match,
         "true"      => TokenKind::Bool(true),
         "false"     => TokenKind::Bool(false),
         "float"     => TokenKind::TFloat,
