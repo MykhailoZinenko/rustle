@@ -112,6 +112,7 @@ impl<'a> TypeResolver<'a> {
             Stmt::VarDecl(v) => self.check_var_decl(v),
             Stmt::Assign(a)  => self.check_assign(a),
             Stmt::Out(o)     => self.check_out(o),
+            Stmt::Print(p)   => self.check_print(p),
             Stmt::If(i)      => self.check_if(i),
             Stmt::Match(m)   => self.check_match(m),
             Stmt::While(w)   => self.check_while(w),
@@ -219,6 +220,14 @@ impl<'a> TypeResolver<'a> {
                 }
                 Err(e) => self.errors.extend(e),
                 _ => {}
+            }
+        }
+    }
+
+    fn check_print(&mut self, p: &PrintStmt) {
+        for expr in &p.values {
+            if let Err(e) = self.infer_expr(expr) {
+                self.errors.extend(e);
             }
         }
     }

@@ -220,4 +220,7 @@ impl ShapeData {
 #[derive(Debug, Clone)]
 pub enum DrawCommand {
     DrawShape(ShapeData),
+    Print(String),
+    Warn(String),
+    Error(String),
 }

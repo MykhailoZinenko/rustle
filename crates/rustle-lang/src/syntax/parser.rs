@@ -174,6 +174,7 @@ impl Parser {
             TokenKind::Foreach => self.parse_foreach(),
             TokenKind::Return  => self.parse_return(),
             TokenKind::Out     => self.parse_out(),
+            TokenKind::Console => self.parse_print(),
 
             // ident (`.ident`)* `=` → assignment; anything else → expr stmt
             TokenKind::Ident(_) => {
@@ -263,6 +264,37 @@ impl Parser {
             };
         }
         expr
+    }
+
+    fn parse_print(&mut self) -> Result<Stmt, Error> {
+        let span = self.span();
+        self.expect(TokenKind::Console)?;
+        // Determine level from optional `.warn` or `.error`
+        let level = if self.matches(TokenKind::Dot) {
+            match self.peek().kind.clone() {
+                TokenKind::Ident(ref s) if s == "warn" => {
+                    self.advance();
+                    PrintLevel::Warn
+                }
+                TokenKind::Ident(ref s) if s == "error" => {
+                    self.advance();
+                    PrintLevel::Error
+                }
+                _ => return Err(Error::new(
+                    crate::error::ErrorCode::P001,
+                    span.line, span.column,
+                    "expected `warn` or `error` after `console.`",
+                )),
+            }
+        } else {
+            PrintLevel::Log
+        };
+        self.expect(TokenKind::LtLt)?;
+        let mut values = vec![self.parse_expr()?];
+        while self.matches(TokenKind::LtLt) {
+            values.push(self.parse_expr()?);
+        }
+        Ok(Stmt::Print(PrintStmt { level, values, span }))
     }
 
     fn parse_out(&mut self) -> Result<Stmt, Error> {

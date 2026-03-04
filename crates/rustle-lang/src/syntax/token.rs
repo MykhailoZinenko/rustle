@@ -22,6 +22,7 @@ pub enum TokenKind {
     State,
     Import,
     Out,
+    Console,
     Try,
     And,
     Or,
@@ -101,7 +102,7 @@ impl TokenKind {
             self,
             Self::Fn | Self::Let | Self::If | Self::Else | Self::Match | Self::While | Self::For | Self::Foreach
             | Self::In | Self::Return | Self::Const | Self::State | Self::Import
-            | Self::Out | Self::Try | Self::And | Self::Or | Self::Not | Self::As
+            | Self::Out | Self::Console | Self::Try | Self::And | Self::Or | Self::Not | Self::As
         )
     }
 }
@@ -122,6 +123,7 @@ pub fn keyword_or_ident(s: String) -> TokenKind {
         "state"     => TokenKind::State,
         "import"    => TokenKind::Import,
         "out"       => TokenKind::Out,
+        "console"   => TokenKind::Console,
         "try"       => TokenKind::Try,
         "and"       => TokenKind::And,
         "or"        => TokenKind::Or,

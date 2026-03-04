@@ -1128,7 +1128,7 @@ fn draw_static_emits_circle() {
     "#);
     let cmds = tick(&mut rt);
     assert_eq!(cmds.len(), 1);
-    let DrawCommand::DrawShape(data) = &cmds[0];
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
     assert!(matches!(data.desc, ShapeDesc::Circle { .. }));
 }
 
@@ -1140,7 +1140,7 @@ fn draw_static_emits_rect() {
     "#);
     let cmds = tick(&mut rt);
     assert_eq!(cmds.len(), 1);
-    let DrawCommand::DrawShape(data) = &cmds[0];
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
     assert!(matches!(data.desc, ShapeDesc::Rect { .. }));
 }
 
@@ -1212,7 +1212,7 @@ fn draw_transform_attached_to_shape() {
     "#);
     let cmds = tick(&mut rt);
     assert_eq!(cmds.len(), 1);
-    let DrawCommand::DrawShape(data) = &cmds[0];
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
     assert_eq!(data.transforms.len(), 1);
     assert_eq!(data.transforms[0].sx, 2.0);
     assert_eq!(data.transforms[0].sy, 2.0);
@@ -1228,7 +1228,7 @@ fn draw_multiple_transforms_accumulated() {
         out << s@(t1, t2)
     "#);
     let cmds = tick(&mut rt);
-    let DrawCommand::DrawShape(data) = &cmds[0];
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
     assert_eq!(data.transforms.len(), 2);
 }
 
@@ -1243,7 +1243,7 @@ fn resolution_sets_coord_meta() {
         out << circle(vec2(400.0, 300.0), 50.0)
     "#);
     let cmds = tick(&mut rt);
-    let DrawCommand::DrawShape(data) = &cmds[0];
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
     assert_eq!(data.coord_meta.px_width,  800.0);
     assert_eq!(data.coord_meta.px_height, 600.0);
 }
@@ -1265,7 +1265,7 @@ fn resolution_in_init_persists_to_tick() {
         }
     "#);
     let cmds = tick(&mut rt);
-    let DrawCommand::DrawShape(data) = &cmds[0];
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
     assert_eq!(data.coord_meta.px_width,  1024.0);
     assert_eq!(data.coord_meta.px_height, 768.0);
 }

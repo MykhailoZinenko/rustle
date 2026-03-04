@@ -188,7 +188,7 @@ fn main() -> eframe::Result {
 // ─── App state ────────────────────────────────────────────────────────────────
 
 #[derive(PartialEq)]
-enum Tab { Errors, Symbols, Ast, Output, Canvas }
+enum Tab { Errors, Symbols, Ast, Output, Console, Canvas }
 
 struct App {
     source: String,
@@ -244,11 +244,20 @@ struct SymbolRow {
     is_builtin: bool,
 }
 
+struct ConsoleEntry {
+    level: ConsoleLevel,
+    message: String,
+}
+
+#[derive(PartialEq)]
+enum ConsoleLevel { Log, Warn, Error }
+
 struct RunResult {
     errors: Vec<String>,
     symbols: Vec<SymbolRow>,
     ast: String,
     draw_commands: Vec<DrawCommand>,
+    console: Vec<ConsoleEntry>,
 }
 
 fn run(source: &str, _show_builtins: bool) -> RunResult {
@@ -263,6 +272,7 @@ fn run(source: &str, _show_builtins: bool) -> RunResult {
                 symbols: vec![],
                 ast: String::new(),
                 draw_commands: vec![],
+                console: vec![],
             };
         }
     };
@@ -276,6 +286,7 @@ fn run(source: &str, _show_builtins: bool) -> RunResult {
                 symbols: vec![],
                 ast: String::new(),
                 draw_commands: vec![],
+                console: vec![],
             };
         }
     };
@@ -325,7 +336,7 @@ fn run(source: &str, _show_builtins: bool) -> RunResult {
         })
         .collect();
 
-    RunResult { errors, symbols: symbol_rows, ast, draw_commands: vec![] }
+    RunResult { errors, symbols: symbol_rows, ast, draw_commands: vec![], console: vec![] }
 }
 
 // ─── UI ───────────────────────────────────────────────────────────────────────
@@ -340,7 +351,18 @@ impl eframe::App for App {
         if let Some(rt) = &mut self.runtime {
             let input = Input { dt };
             match rt.tick(&input) {
-                Ok(cmds) => self.result.draw_commands = cmds,
+                Ok(cmds) => {
+                    let mut draw = Vec::new();
+                    for cmd in cmds {
+                        match cmd {
+                            DrawCommand::Print(msg) => self.result.console.push(ConsoleEntry { level: ConsoleLevel::Log,   message: msg }),
+                            DrawCommand::Warn(msg)  => self.result.console.push(ConsoleEntry { level: ConsoleLevel::Warn,  message: msg }),
+                            DrawCommand::Error(msg) => self.result.console.push(ConsoleEntry { level: ConsoleLevel::Error, message: msg }),
+                            other => draw.push(other),
+                        }
+                    }
+                    self.result.draw_commands = draw;
+                }
                 Err(e) => {
                     self.result.errors.push(format!("[runtime] {}", e.message));
                     self.runtime = None;
@@ -406,6 +428,12 @@ impl eframe::App for App {
                         ui.selectable_value(&mut self.tab, Tab::Symbols, "Symbols");
                         ui.selectable_value(&mut self.tab, Tab::Ast, "AST");
                         ui.selectable_value(&mut self.tab, Tab::Output, "Output");
+                        let console_label = if self.result.console.is_empty() {
+                            "Console".into()
+                        } else {
+                            format!("Console ({})", self.result.console.len())
+                        };
+                        ui.selectable_value(&mut self.tab, Tab::Console, console_label);
                         ui.selectable_value(&mut self.tab, Tab::Canvas, "Canvas");
                     });
 
@@ -418,6 +446,7 @@ impl eframe::App for App {
                             Tab::Symbols => self.show_symbols(ui),
                             Tab::Ast     => self.show_ast(ui),
                             Tab::Output  => self.show_output(ui),
+                            Tab::Console => self.show_console(ui),
                             Tab::Canvas  => self.show_canvas(ui),
                         }
                     });
@@ -442,7 +471,7 @@ impl App {
         }
 
         for (i, cmd) in self.result.draw_commands.iter().enumerate() {
-            let DrawCommand::DrawShape(data) = cmd;
+            let DrawCommand::DrawShape(data) = cmd else { continue };
 
             let mode_str = match &data.render_mode {
                 RenderMode::Sdf       => "sdf".to_string(),
@@ -522,6 +551,22 @@ impl App {
         }
     }
 
+    fn show_console(&self, ui: &mut egui::Ui) {
+        if self.result.console.is_empty() {
+            let msg = if self.runtime.is_none() { "Press Run to execute." } else { "No console output." };
+            ui.label(RichText::new(msg).color(Color32::GRAY));
+            return;
+        }
+        for entry in &self.result.console {
+            let (prefix, color) = match entry.level {
+                ConsoleLevel::Log   => ("",        Color32::from_rgb(210, 210, 210)),
+                ConsoleLevel::Warn  => ("[warn]  ", Color32::from_rgb(220, 180, 60)),
+                ConsoleLevel::Error => ("[error] ", Color32::from_rgb(220, 80, 80)),
+            };
+            ui.label(RichText::new(format!("{}{}", prefix, entry.message)).monospace().color(color));
+        }
+    }
+
     fn show_canvas(&self, ui: &mut egui::Ui) {
         if self.result.draw_commands.is_empty() {
             let msg = if self.result.errors.iter().any(|e| !e.starts_with("[warn]")) {
@@ -537,7 +582,8 @@ impl App {
 
         // Determine canvas size from first command's coord_meta, or default 400×400.
         let (canvas_w, canvas_h) = {
-            let first = match &self.result.draw_commands[0] { DrawCommand::DrawShape(d) => d };
+            let first = self.result.draw_commands.iter().find_map(|c| if let DrawCommand::DrawShape(d) = c { Some(d) } else { None });
+            let first = match first { Some(d) => d, None => return };
             let m = &first.coord_meta;
             if m.px_width > 0.0 && m.px_height > 0.0 {
                 (m.px_width as f32, m.px_height as f32)
@@ -555,7 +601,7 @@ impl App {
 
         // Draw each shape
         for cmd in &self.result.draw_commands {
-            let DrawCommand::DrawShape(data) = cmd;
+            let DrawCommand::DrawShape(data) = cmd else { continue };
 
             let screen_verts = tessellate_screen_px(data);
             if screen_verts.is_empty() { continue; }

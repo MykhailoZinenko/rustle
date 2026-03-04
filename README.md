@@ -22,7 +22,7 @@ Rustle is designed for generative art and interactive 2D scenes. You get explici
 - [x] Index assignment: `list[i] = x`, `list[i] += 1`
 - [x] `match` (simple value matching)
 - [x] `++`, `--`
-- [ ] Comments (`//` and `/* */`)
+- [x] Comments (`//` and `/* */`)
 - [ ] `null` / `none` value
 - [ ] Type coercion / truthiness rules
 - [ ] Console output: `console << x`, `console.warn`, `console.error`

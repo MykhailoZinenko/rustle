@@ -78,6 +78,8 @@ pub enum Stmt {
     Assign(Assign),
     /// `out << s1 << s2`
     Out(OutStmt),
+    /// `console << x`, `console.warn << x`, `console.error << x`
+    Print(PrintStmt),
     /// `if ... { } else { }`
     If(IfStmt),
     /// `while cond { }`
@@ -140,6 +142,16 @@ pub struct Assign {
 #[derive(Debug, Clone)]
 pub struct OutStmt {
     pub shapes: Vec<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PrintLevel { Log, Warn, Error }
+
+#[derive(Debug, Clone)]
+pub struct PrintStmt {
+    pub level: PrintLevel,
+    pub values: Vec<Expr>,
     pub span: Span,
 }
 

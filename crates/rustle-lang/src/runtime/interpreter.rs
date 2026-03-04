@@ -542,6 +542,27 @@ impl<'a> Interpreter<'a> {
                 }
             }
 
+            Stmt::Print(p) => {
+                let parts: Result<Vec<String>, _> = p.values.iter()
+                    .map(|e| self.eval_expr(e).map(|v| display_value(&v)))
+                    .collect();
+                let msg = parts?.join(" ");
+                match p.level {
+                    ast::PrintLevel::Log   => {
+                        println!("{msg}");
+                        self.env.emit(DrawCommand::Print(msg));
+                    }
+                    ast::PrintLevel::Warn  => {
+                        eprintln!("[warn] {msg}");
+                        self.env.emit(DrawCommand::Warn(msg));
+                    }
+                    ast::PrintLevel::Error => {
+                        eprintln!("[error] {msg}");
+                        self.env.emit(DrawCommand::Error(msg));
+                    }
+                }
+            }
+
             Stmt::If(i) => {
                 let branch = match self.eval_expr(&i.condition)? {
                     Value::Bool(true)  => Some(&i.then_block),
@@ -955,6 +976,28 @@ fn values_equal(a: &Value, b: &Value) -> bool {
     }
 }
 
+
+fn display_value(v: &Value) -> String {
+    match v {
+        Value::Float(f)  => {
+            if f.fract() == 0.0 && f.abs() < 1e15 { format!("{}", *f as i64) }
+            else { format!("{f}") }
+        }
+        Value::Bool(b)   => b.to_string(),
+        Value::Str(s)    => s.clone(),
+        Value::Vec2(x, y)           => format!("vec2({x}, {y})"),
+        Value::Vec3(x, y, z)        => format!("vec3({x}, {y}, {z})"),
+        Value::Vec4(x, y, z, w)     => format!("vec4({x}, {y}, {z}, {w})"),
+        Value::Color { r, g, b, a } => format!("color({r:.3}, {g:.3}, {b:.3}, {a:.3})"),
+        Value::List(rc)  => {
+            let items: Vec<String> = rc.borrow().iter().map(display_value).collect();
+            format!("[{}]", items.join(", "))
+        }
+        Value::ResOk(v)  => format!("ok({})", display_value(v)),
+        Value::ResErr(e) => format!("err({e})"),
+        other            => format!("{:?}", crate::namespaces::value_type_name(other)),
+    }
+}
 
 fn parse_hex_color(hex: &str) -> Result<Value, RuntimeError> {
     let parse = |s: &str| u8::from_str_radix(s, 16)
