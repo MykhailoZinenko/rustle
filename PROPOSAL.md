@@ -2,7 +2,7 @@
 
 ## Team Members
 
-- Mykhailo Zinenko, Ihor Poprushko
+- Mykhailo Zinenko, Igor Poprushko
 
 ## Introduction
 
