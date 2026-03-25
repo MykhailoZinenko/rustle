@@ -12,6 +12,8 @@ use crate::{Input, State, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 // ─── Environment ──────────────────────────────────────────────────────────────
 
@@ -65,6 +67,7 @@ pub struct Interpreter<'a> {
     env: Env,
     return_value: Option<Value>,
     runtime_state: RuntimeState,
+    cancel: Option<Arc<AtomicBool>>,
 }
 
 impl<'a> Interpreter<'a> {
@@ -77,6 +80,7 @@ impl<'a> Interpreter<'a> {
             env: Env::new(),
             return_value: None,
             runtime_state: RuntimeState::default(),
+            cancel: None,
         }
     }
 
@@ -85,6 +89,22 @@ impl<'a> Interpreter<'a> {
     pub fn with_runtime_state(mut self, rs: RuntimeState) -> Self {
         self.runtime_state = rs;
         self
+    }
+
+    /// Set a cancellation token. When the flag is set to `true`, the interpreter
+    /// will abort at the next loop iteration or function call boundary.
+    pub fn with_cancel(mut self, cancel: Arc<AtomicBool>) -> Self {
+        self.cancel = Some(cancel);
+        self
+    }
+
+    fn check_cancel(&self, line: usize) -> Result<(), RuntimeError> {
+        if let Some(ref c) = self.cancel {
+            if c.load(Ordering::Relaxed) {
+                return Err(self.err(line, "script cancelled"));
+            }
+        }
+        Ok(())
     }
 
     /// Extract the final runtime state after running (captures resolution/origin calls).
@@ -233,6 +253,7 @@ impl<'a> Interpreter<'a> {
         match expr {
             Expr::Float(v, _)     => Ok(Value::Float(*v)),
             Expr::Bool(v, _)      => Ok(Value::Bool(*v)),
+            Expr::None(_)         => Ok(Value::None),
             Expr::StringLit(s, _) => Ok(Value::Str(s.clone())),
             Expr::HexColor(s, _)  => parse_hex_color(s),
 
@@ -254,8 +275,23 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::BinOp { left, op, right, span } => {
+                // ?? (coalesce): short-circuit — don't eval RHS if LHS is not none
+                if *op == BinOp::Coalesce {
+                    let l = self.eval_expr(left)?;
+                    return match l {
+                        Value::None => self.eval_expr(right),
+                        other => Ok(other),
+                    };
+                }
                 let l = self.eval_expr(left)?;
                 let r = self.eval_expr(right)?;
+                // == / != with none values
+                if matches!(op, BinOp::Eq | BinOp::NotEq) {
+                    if matches!(&l, Value::None) || matches!(&r, Value::None) {
+                        let both_none = matches!((&l, &r), (Value::None, Value::None));
+                        return Ok(Value::Bool(if *op == BinOp::Eq { both_none } else { !both_none }));
+                    }
+                }
                 eval_binop(op, l, r, span.line, &self.binops)
             }
 
@@ -297,7 +333,7 @@ impl<'a> Interpreter<'a> {
             Expr::Index { expr, index, span } => {
                 let coll = self.eval_expr(expr)?;
                 let idx  = self.eval_expr(index)?;
-                let i = as_float(&idx, span.line)? as usize;
+                let i = safe_index(&idx, span.line)?;
                 match coll {
                     Value::List(items) => items.borrow().get(i).cloned()
                         .ok_or_else(|| self.err(span.line, "index out of bounds")),
@@ -310,6 +346,14 @@ impl<'a> Interpreter<'a> {
             Expr::Field { expr, field, span } => {
                 let obj = self.eval_expr(expr)?;
                 eval_field(&self.types, &obj, field, span.line)
+            }
+
+            Expr::OptionalChain { expr, field, span } => {
+                let obj = self.eval_expr(expr)?;
+                match obj {
+                    Value::None => Ok(Value::None),
+                    other => eval_field(&self.types, &other, field, span.line),
+                }
             }
 
             Expr::MethodCall { expr, method, args, named_args, span } => {
@@ -332,8 +376,10 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Lambda { params, body, .. } => {
+                let needed = free_vars_in_body(params, body);
                 let captured = self.env.scopes.iter()
                     .flat_map(|s| s.iter())
+                    .filter(|(k, _)| needed.contains(k.as_str()))
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
                 Ok(Value::Closure { params: params.clone(), body: body.clone(), captured })
@@ -399,8 +445,9 @@ impl<'a> Interpreter<'a> {
         params: &[Param],
         body: &[Stmt],
         arg_vals: &[Value],
-        _line: usize,
+        line: usize,
     ) -> Result<Value, RuntimeError> {
+        self.check_cancel(line)?;
         self.env.push_scope();
         for (p, v) in params.iter().zip(arg_vals) {
             self.env.declare(&p.name, v.clone());
@@ -544,7 +591,7 @@ impl<'a> Interpreter<'a> {
 
             Stmt::Print(p) => {
                 let parts: Result<Vec<String>, _> = p.values.iter()
-                    .map(|e| self.eval_expr(e).map(|v| display_value(&v)))
+                    .map(|e| self.eval_expr(e).map(|v| v.to_string()))
                     .collect();
                 let msg = parts?.join(" ");
                 match p.level {
@@ -579,6 +626,31 @@ impl<'a> Interpreter<'a> {
                 }
             }
 
+            Stmt::IfLet { binding, expr, then_block, else_block, .. } => {
+                let val = self.eval_expr(expr)?;
+                match val {
+                    Value::None => {
+                        if let Some(els) = else_block {
+                            self.env.push_scope();
+                            for s in els {
+                                self.exec_stmt(s)?;
+                                if self.return_value.is_some() { break; }
+                            }
+                            self.env.pop_scope();
+                        }
+                    }
+                    other => {
+                        self.env.push_scope();
+                        self.env.declare(binding, other);
+                        for s in then_block {
+                            self.exec_stmt(s)?;
+                            if self.return_value.is_some() { break; }
+                        }
+                        self.env.pop_scope();
+                    }
+                }
+            }
+
             Stmt::Match(m) => {
                 let scrut = self.eval_expr(&m.expr)?;
                 let mut matched = false;
@@ -610,6 +682,7 @@ impl<'a> Interpreter<'a> {
 
             Stmt::While(w) => {
                 loop {
+                    self.check_cancel(w.span.line)?;
                     match self.eval_expr(&w.condition)? {
                         Value::Bool(false) => break,
                         Value::Bool(true)  => {}
@@ -629,6 +702,7 @@ impl<'a> Interpreter<'a> {
                 self.env.push_scope();
                 self.exec_stmt(&f.init)?;
                 loop {
+                    self.check_cancel(f.span.line)?;
                     match self.eval_expr(&f.condition)? {
                         Value::Bool(false) => break,
                         Value::Bool(true)  => {}
@@ -654,6 +728,7 @@ impl<'a> Interpreter<'a> {
                     ))),
                 };
                 for item in list {
+                    self.check_cancel(f.span.line)?;
                     self.env.push_scope();
                     self.env.declare(&f.var_name, item);
                     for s in &f.body {
@@ -723,7 +798,7 @@ impl<'a> Interpreter<'a> {
                 }
                 for idx_expr in indices {
                     let idx = self.eval_expr(idx_expr)?;
-                    let i = as_float(&idx, line)? as usize;
+                    let i = safe_index(&idx, line)?;
                     coll = match &coll {
                         Value::List(items) => items.borrow().get(i).cloned()
                             .ok_or_else(|| self.err(line, "index out of bounds")),
@@ -778,7 +853,7 @@ impl<'a> Interpreter<'a> {
         }
         for idx_expr in &indices[..indices.len().saturating_sub(1)] {
             let idx = self.eval_expr(idx_expr)?;
-            let i = as_float(&idx, line)? as usize;
+            let i = safe_index(&idx, line)?;
             coll = match &coll {
                 Value::List(items) => items.borrow().get(i).cloned()
                     .ok_or_else(|| self.err(line, "index out of bounds")),
@@ -789,7 +864,7 @@ impl<'a> Interpreter<'a> {
         }
         let last_idx = indices.last().unwrap();
         let idx = self.eval_expr(last_idx)?;
-        let i = as_float(&idx, line)? as usize;
+        let i = safe_index(&idx, line)?;
         match &coll {
             Value::List(items) => {
                 let mut guard = items.borrow_mut();
@@ -923,7 +998,7 @@ fn eval_binop(op: &BinOp, l: Value, r: Value, line: usize, binops: &BinopRegistr
                 BinOp::Lt   => "<",  BinOp::LtEq => "<=",
                 BinOp::Gt   => ">",  BinOp::GtEq => ">=",
                 BinOp::And  => "and", BinOp::Or  => "or",
-                BinOp::Eq | BinOp::NotEq => unreachable!(),
+                BinOp::Eq | BinOp::NotEq | BinOp::Coalesce => unreachable!(),
             }
         )))
     })
@@ -977,26 +1052,165 @@ fn values_equal(a: &Value, b: &Value) -> bool {
 }
 
 
-fn display_value(v: &Value) -> String {
-    match v {
-        Value::Float(f)  => {
-            if f.fract() == 0.0 && f.abs() < 1e15 { format!("{}", *f as i64) }
-            else { format!("{f}") }
-        }
-        Value::Bool(b)   => b.to_string(),
-        Value::Str(s)    => s.clone(),
-        Value::Vec2(x, y)           => format!("vec2({x}, {y})"),
-        Value::Vec3(x, y, z)        => format!("vec3({x}, {y}, {z})"),
-        Value::Vec4(x, y, z, w)     => format!("vec4({x}, {y}, {z}, {w})"),
-        Value::Color { r, g, b, a } => format!("color({r:.3}, {g:.3}, {b:.3}, {a:.3})"),
-        Value::List(rc)  => {
-            let items: Vec<String> = rc.borrow().iter().map(display_value).collect();
-            format!("[{}]", items.join(", "))
-        }
-        Value::ResOk(v)  => format!("ok({})", display_value(v)),
-        Value::ResErr(e) => format!("err({e})"),
-        other            => format!("{:?}", crate::namespaces::value_type_name(other)),
+// ─── Free variable analysis (for selective lambda capture) ───────────────────
+
+use std::collections::HashSet;
+
+fn free_vars_in_body(params: &[Param], body: &[Stmt]) -> HashSet<String> {
+    let mut free = HashSet::new();
+    let mut bound: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+    for s in body {
+        collect_free_stmt(s, &mut bound, &mut free);
     }
+    free
+}
+
+fn collect_free_expr(expr: &Expr, bound: &HashSet<String>, free: &mut HashSet<String>) {
+    match expr {
+        Expr::Ident(name, _) => {
+            if !bound.contains(name) {
+                free.insert(name.clone());
+            }
+        }
+        Expr::Float(..) | Expr::Bool(..) | Expr::None(..) | Expr::StringLit(..) | Expr::HexColor(..) => {}
+        Expr::BinOp { left, right, .. } => {
+            collect_free_expr(left, bound, free);
+            collect_free_expr(right, bound, free);
+        }
+        Expr::UnOp { operand, .. } => collect_free_expr(operand, bound, free),
+        Expr::Ternary { condition, then_expr, else_expr, .. } => {
+            collect_free_expr(condition, bound, free);
+            collect_free_expr(then_expr, bound, free);
+            collect_free_expr(else_expr, bound, free);
+        }
+        Expr::Cast { expr, .. } | Expr::Try { expr, .. } => collect_free_expr(expr, bound, free),
+        Expr::Call { callee, args, named_args, .. } => {
+            if !bound.contains(callee) {
+                free.insert(callee.clone());
+            }
+            for a in args { collect_free_expr(a, bound, free); }
+            for (_, a) in named_args { collect_free_expr(a, bound, free); }
+        }
+        Expr::Index { expr, index, .. } => {
+            collect_free_expr(expr, bound, free);
+            collect_free_expr(index, bound, free);
+        }
+        Expr::Field { expr, .. } | Expr::OptionalChain { expr, .. } => collect_free_expr(expr, bound, free),
+        Expr::MethodCall { expr, args, named_args, .. } => {
+            collect_free_expr(expr, bound, free);
+            for a in args { collect_free_expr(a, bound, free); }
+            for (_, a) in named_args { collect_free_expr(a, bound, free); }
+        }
+        Expr::Transform { expr, transforms, .. } => {
+            collect_free_expr(expr, bound, free);
+            for t in transforms { collect_free_expr(t, bound, free); }
+        }
+        Expr::List(items, _) => {
+            for i in items { collect_free_expr(i, bound, free); }
+        }
+        Expr::Lambda { params, body, .. } => {
+            let mut inner_bound = bound.clone();
+            for p in params { inner_bound.insert(p.name.clone()); }
+            for s in body { collect_free_stmt(s, &mut inner_bound, free); }
+        }
+    }
+}
+
+fn collect_free_stmt(stmt: &Stmt, bound: &mut HashSet<String>, free: &mut HashSet<String>) {
+    match stmt {
+        Stmt::VarDecl(v) => {
+            collect_free_expr(&v.initializer, bound, free);
+            bound.insert(v.name.clone());
+        }
+        Stmt::FnVar { value, name, .. } => {
+            collect_free_expr(value, bound, free);
+            bound.insert(name.clone());
+        }
+        Stmt::Assign(a) => {
+            collect_free_expr(&a.value, bound, free);
+            let root = &a.target.path()[0];
+            if !bound.contains(root) { free.insert(root.clone()); }
+            if let ast::AssignTarget::Indexed { indices, .. } = &a.target {
+                for idx in indices { collect_free_expr(idx, bound, free); }
+            }
+        }
+        Stmt::Out(o) => {
+            for e in &o.shapes { collect_free_expr(e, bound, free); }
+        }
+        Stmt::Print(p) => {
+            for e in &p.values { collect_free_expr(e, bound, free); }
+        }
+        Stmt::Expr(e) => collect_free_expr(e, bound, free),
+        Stmt::Return(expr, _) => {
+            if let Some(e) = expr { collect_free_expr(e, bound, free); }
+        }
+        Stmt::IfLet { binding, expr, then_block, else_block, .. } => {
+            collect_free_expr(expr, bound, free);
+            let mut then_bound = bound.clone();
+            then_bound.insert(binding.clone());
+            for s in then_block { collect_free_stmt(s, &mut then_bound, free); }
+            if let Some(els) = else_block {
+                let mut else_bound = bound.clone();
+                for s in els { collect_free_stmt(s, &mut else_bound, free); }
+            }
+        }
+        Stmt::If(i) => {
+            collect_free_expr(&i.condition, bound, free);
+            let mut then_bound = bound.clone();
+            for s in &i.then_block { collect_free_stmt(s, &mut then_bound, free); }
+            if let Some(els) = &i.else_block {
+                let mut else_bound = bound.clone();
+                for s in els { collect_free_stmt(s, &mut else_bound, free); }
+            }
+        }
+        Stmt::Match(m) => {
+            collect_free_expr(&m.expr, bound, free);
+            for arm in &m.arms {
+                for v in &arm.values { collect_free_expr(v, bound, free); }
+                let mut arm_bound = bound.clone();
+                for s in &arm.body { collect_free_stmt(s, &mut arm_bound, free); }
+            }
+        }
+        Stmt::While(w) => {
+            collect_free_expr(&w.condition, bound, free);
+            let mut body_bound = bound.clone();
+            for s in &w.body { collect_free_stmt(s, &mut body_bound, free); }
+        }
+        Stmt::For(f) => {
+            let mut for_bound = bound.clone();
+            collect_free_stmt(&f.init, &mut for_bound, free);
+            collect_free_expr(&f.condition, &for_bound, free);
+            collect_free_stmt(&f.step, &mut for_bound.clone(), free);
+            for s in &f.body { collect_free_stmt(s, &mut for_bound.clone(), free); }
+        }
+        Stmt::Foreach(f) => {
+            collect_free_expr(&f.iterable, bound, free);
+            let mut body_bound = bound.clone();
+            body_bound.insert(f.var_name.clone());
+            for s in &f.body { collect_free_stmt(s, &mut body_bound, free); }
+        }
+    }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+fn safe_index(v: &Value, line: usize) -> Result<usize, RuntimeError> {
+    let f = match v {
+        Value::Float(x) => *x,
+        other => return Err(RuntimeError::new(line, format!(
+            "index must be a number, got `{}`", value_type_name(other)
+        ))),
+    };
+    if f.is_nan() {
+        return Err(RuntimeError::new(line, "index is NaN"));
+    }
+    if f.is_infinite() {
+        return Err(RuntimeError::new(line, "index is infinite"));
+    }
+    if f < 0.0 {
+        return Err(RuntimeError::new(line, format!("index is negative ({})", f as i64)));
+    }
+    Ok(f as usize)
 }
 
 fn parse_hex_color(hex: &str) -> Result<Value, RuntimeError> {

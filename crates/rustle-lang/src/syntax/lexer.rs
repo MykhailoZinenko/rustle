@@ -51,7 +51,11 @@ impl<'a> Lexer<'a> {
                 else { TokenKind::Star }
             }
             b'%' => TokenKind::Percent,
-            b'?' => TokenKind::Question,
+            b'?' => {
+                if self.peek() == b'?' { self.advance(); TokenKind::QuestionQuestion }
+                else if self.peek() == b'.' { self.advance(); TokenKind::QuestionDot }
+                else { TokenKind::Question }
+            }
             b':' => TokenKind::Colon,
             b',' => TokenKind::Comma,
             b';' => TokenKind::Semicolon,
@@ -72,7 +76,7 @@ impl<'a> Lexer<'a> {
             }
             b'/' => {
                 if self.peek() == b'/' { self.skip_line(); return Ok(None); }
-                else if self.peek() == b'*' { self.skip_block_comment(); return Ok(None); }
+                else if self.peek() == b'*' { self.skip_block_comment()?; return Ok(None); }
                 else if self.peek() == b'=' { self.advance(); TokenKind::SlashEq }
                 else { TokenKind::Slash }
             }
@@ -150,16 +154,20 @@ impl<'a> Lexer<'a> {
         while !self.is_at_end() && self.peek() != b'\n' { self.advance(); }
     }
 
-    fn skip_block_comment(&mut self) {
+    fn skip_block_comment(&mut self) -> Result<(), Error> {
+        let start_line = self.line;
+        let start_col = self.column;
         self.advance(); // consume *
         while !self.is_at_end() {
             if self.peek() == b'*' && self.peek_next() == b'/' {
                 self.advance(); // *
                 self.advance(); // /
-                break;
+                return Ok(());
             }
+            if self.peek() == b'\n' { self.line += 1; self.column = 0; }
             self.advance();
         }
+        Err(Error::new(ErrorCode::L004, start_line, start_col, "unterminated block comment"))
     }
 
     // ─── Readers ─────────────────────────────────────────────────────────────

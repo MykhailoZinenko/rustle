@@ -1367,3 +1367,340 @@ fn complex_state_persists_across_many_ticks() {
     }
     assert_eq!(f(&rt, "count"), 100.0);
 }
+
+#[test]
+fn console_with_postfix_inc() {
+    let mut rt = run("
+        let x: float = 5.0
+        console << x++
+    ");
+    let cmds = tick(&mut rt);
+    match &cmds[0] {
+        DrawCommand::Print(msg) => assert_eq!(msg, "5"),
+        other => panic!("expected Print, got {other:?}"),
+    }
+}
+
+// ─── Phase 5A: Console warn/error tests ─────────────────────────────────────
+
+#[test]
+fn console_warn() {
+    let mut rt = run("console.warn << 42");
+    let cmds = tick(&mut rt);
+    match &cmds[0] {
+        DrawCommand::Warn(msg) => assert_eq!(msg, "42"),
+        other => panic!("expected Warn, got {other:?}"),
+    }
+}
+
+#[test]
+fn console_error() {
+    let mut rt = run("console.error << \"oops\"");
+    let cmds = tick(&mut rt);
+    match &cmds[0] {
+        DrawCommand::Error(msg) => assert_eq!(msg, "oops"),
+        other => panic!("expected Error, got {other:?}"),
+    }
+}
+
+#[test]
+fn console_multiple_values() {
+    let mut rt = run("console << 1 << 2 << 3");
+    let cmds = tick(&mut rt);
+    match &cmds[0] {
+        DrawCommand::Print(msg) => assert_eq!(msg, "1 2 3"),
+        other => panic!("expected Print, got {other:?}"),
+    }
+}
+
+#[test]
+fn console_warn_multiple_values() {
+    let mut rt = run("console.warn << true << \"hello\"");
+    let cmds = tick(&mut rt);
+    match &cmds[0] {
+        DrawCommand::Warn(msg) => assert_eq!(msg, "true hello"),
+        other => panic!("expected Warn, got {other:?}"),
+    }
+}
+
+// ─── Phase 5B: String type tests ────────────────────────────────────────────
+
+#[test]
+fn string_in_state() {
+    let rt = run(r#"
+        state { let name: string = "hello" }
+    "#);
+    match rt.state().0.get("name") {
+        Some(Value::Str(s)) => assert_eq!(s, "hello"),
+        other => panic!("expected Str, got {other:?}"),
+    }
+}
+
+#[test]
+fn string_equality() {
+    let rt = run(r#"
+        state {
+            let eq: bool = "abc" == "abc"
+            let neq: bool = "abc" != "xyz"
+        }
+    "#);
+    assert_eq!(b(&rt, "eq"), true);
+    assert_eq!(b(&rt, "neq"), true);
+}
+
+#[test]
+fn string_in_list() {
+    let mut rt = run(r#"
+        let xs: list[string] = ["a", "b", "c"]
+        console << xs
+    "#);
+    let cmds = tick(&mut rt);
+    match &cmds[0] {
+        DrawCommand::Print(msg) => assert_eq!(msg, "[a, b, c]"),
+        other => panic!("expected Print, got {other:?}"),
+    }
+}
+
+#[test]
+fn string_console_output() {
+    let mut rt = run(r#"console << "hello world""#);
+    let cmds = tick(&mut rt);
+    match &cmds[0] {
+        DrawCommand::Print(msg) => assert_eq!(msg, "hello world"),
+        other => panic!("expected Print, got {other:?}"),
+    }
+}
+
+// ─── Phase 5C: Index edge case tests ────────────────────────────────────────
+
+#[test]
+fn index_negative_error() {
+    let mut rt = run("
+        let xs: list[float] = [1, 2, 3]
+        let i: float = -1
+        state { let val: float = 0 }
+        fn on_update(s: State, input: Input) -> State {
+            s.val = xs[i]
+            return s
+        }
+    ");
+    let err = tick_err(&mut rt);
+    assert!(err.message.contains("negative"), "expected negative index error, got: {}", err.message);
+}
+
+#[test]
+fn index_out_of_bounds_error() {
+    let mut rt = run("
+        let xs: list[float] = [1, 2, 3]
+        state { let val: float = 0 }
+        fn on_update(s: State, input: Input) -> State {
+            s.val = xs[10]
+            return s
+        }
+    ");
+    let err = tick_err(&mut rt);
+    assert!(err.message.contains("out of bounds"),
+        "expected bounds error, got: {}", err.message);
+}
+
+#[test]
+fn index_valid_access() {
+    let rt = run("
+        let xs: list[float] = [10, 20, 30]
+        state { let val: float = xs[1] }
+    ");
+    assert_eq!(f(&rt, "val"), 20.0);
+}
+
+// ─── Optional types (none, T?, ??) ──────────────────────────────────────────
+
+#[test]
+fn optional_none_init() {
+    let rt = run("state { let x: float? = none }");
+    match rt.state().0.get("x") {
+        Some(Value::None) => {}
+        other => panic!("expected None, got {other:?}"),
+    }
+}
+
+#[test]
+fn optional_value_init() {
+    let rt = run("state { let x: float? = 5.0 }");
+    match rt.state().0.get("x") {
+        Some(Value::Float(v)) => assert_eq!(*v, 5.0),
+        other => panic!("expected Float(5.0), got {other:?}"),
+    }
+}
+
+#[test]
+fn coalesce_none_uses_default() {
+    let rt = run("
+        let x: float? = none
+        state { let val: float = x ?? 42.0 }
+    ");
+    assert_eq!(f(&rt, "val"), 42.0);
+}
+
+#[test]
+fn coalesce_value_uses_left() {
+    let rt = run("
+        let x: float? = 5.0
+        state { let val: float = x ?? 42.0 }
+    ");
+    assert_eq!(f(&rt, "val"), 5.0);
+}
+
+#[test]
+fn none_eq_none() {
+    let rt = run("state { let val: bool = none == none }");
+    assert_eq!(b(&rt, "val"), true);
+}
+
+#[test]
+fn some_neq_none() {
+    let rt = run("
+        let x: float? = 5.0
+        state { let val: bool = x != none }
+    ");
+    assert_eq!(b(&rt, "val"), true);
+}
+
+#[test]
+fn none_display() {
+    let mut rt = run("
+        let x: float? = none
+        console << x
+    ");
+    let cmds = tick(&mut rt);
+    match &cmds[0] {
+        DrawCommand::Print(msg) => assert_eq!(msg, "none"),
+        other => panic!("expected Print, got {other:?}"),
+    }
+}
+
+#[test]
+fn coalesce_in_update() {
+    let mut rt = run("
+        state { let x: float? = none }
+        fn on_update(s: State, input: Input) -> State {
+            let val: float = s.x ?? 99.0
+            console << val
+            s.x = 10.0
+            return s
+        }
+    ");
+    let cmds = tick(&mut rt);
+    match &cmds[0] {
+        DrawCommand::Print(msg) => assert_eq!(msg, "99"),
+        other => panic!("expected Print, got {other:?}"),
+    }
+    let cmds2 = tick(&mut rt);
+    match &cmds2[0] {
+        DrawCommand::Print(msg) => assert_eq!(msg, "10"),
+        other => panic!("expected Print, got {other:?}"),
+    }
+}
+
+#[test]
+fn optional_reassign_none_to_value() {
+    let mut rt = run("
+        state { let x: float? = none }
+        fn on_update(s: State, input: Input) -> State {
+            s.x = 42.0
+            return s
+        }
+    ");
+    tick(&mut rt);
+    match rt.state().0.get("x") {
+        Some(Value::Float(v)) => assert_eq!(*v, 42.0),
+        other => panic!("expected Float(42.0), got {other:?}"),
+    }
+}
+
+#[test]
+fn optional_reassign_value_to_none() {
+    let mut rt = run("
+        state { let x: float? = 10.0 }
+        fn on_update(s: State, input: Input) -> State {
+            s.x = none
+            return s
+        }
+    ");
+    tick(&mut rt);
+    match rt.state().0.get("x") {
+        Some(Value::None) => {}
+        other => panic!("expected None, got {other:?}"),
+    }
+}
+
+// ─── if let ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn if_let_some_runs_then() {
+    let mut rt = run("
+        let x: float? = 42.0
+        if let v = x {
+            console << v
+        } else {
+            console << 0
+        }
+    ");
+    let cmds = tick(&mut rt);
+    match &cmds[0] {
+        DrawCommand::Print(msg) => assert_eq!(msg, "42"),
+        other => panic!("expected Print(42), got {other:?}"),
+    }
+}
+
+#[test]
+fn if_let_none_runs_else() {
+    let mut rt = run("
+        let x: float? = none
+        if let v = x {
+            console << v
+        } else {
+            console << 0
+        }
+    ");
+    let cmds = tick(&mut rt);
+    match &cmds[0] {
+        DrawCommand::Print(msg) => assert_eq!(msg, "0"),
+        other => panic!("expected Print(0), got {other:?}"),
+    }
+}
+
+#[test]
+fn if_let_none_no_else() {
+    let mut rt = run("
+        let x: float? = none
+        if let v = x {
+            console << v
+        }
+        console << 99
+    ");
+    let cmds = tick(&mut rt);
+    match &cmds[0] {
+        DrawCommand::Print(msg) => assert_eq!(msg, "99"),
+        other => panic!("expected Print(99), got {other:?}"),
+    }
+}
+
+// ─── ?. optional chaining ───────────────────────────────────────────────────
+
+#[test]
+fn optional_chain_some() {
+    let rt = run("
+        let v: vec2? = vec2(3.0, 7.0)
+        state { let val: float = v?.x ?? 0.0 }
+    ");
+    assert_eq!(f(&rt, "val"), 3.0);
+}
+
+#[test]
+fn optional_chain_none() {
+    let rt = run("
+        let v: vec2? = none
+        state { let val: float = v?.x ?? 0.0 }
+    ");
+    assert_eq!(f(&rt, "val"), 0.0);
+}

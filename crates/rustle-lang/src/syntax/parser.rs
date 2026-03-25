@@ -312,6 +312,22 @@ impl Parser {
     fn parse_if(&mut self) -> Result<Stmt, Error> {
         let span = self.span();
         self.expect(TokenKind::If)?;
+
+        // if let v = expr { ... } else { ... }
+        if self.check(TokenKind::Let) {
+            self.advance();
+            let binding = self.expect_ident()?;
+            self.expect(TokenKind::Eq)?;
+            let expr = self.parse_expr()?;
+            let then_block = self.parse_block()?;
+            let else_block = if self.matches(TokenKind::Else) {
+                Some(self.parse_block()?)
+            } else {
+                None
+            };
+            return Ok(Stmt::IfLet { binding, expr, then_block, else_block, span });
+        }
+
         let condition = self.parse_expr()?;
         let then_block = self.parse_block()?;
         let else_block = if self.matches(TokenKind::Else) {
@@ -412,12 +428,12 @@ impl Parser {
     }
 
     fn parse_ternary(&mut self) -> Result<Expr, Error> {
-        let expr = self.parse_or()?;
+        let expr = self.parse_coalesce()?;
         if self.matches(TokenKind::Question) {
             let span = expr.span().clone();
-            let then_expr = self.parse_or()?;
+            let then_expr = self.parse_coalesce()?;
             self.expect(TokenKind::Colon)?;
-            let else_expr = self.parse_or()?;
+            let else_expr = self.parse_coalesce()?;
             return Ok(Expr::Ternary {
                 condition: Box::new(expr),
                 then_expr: Box::new(then_expr),
@@ -426,6 +442,17 @@ impl Parser {
             });
         }
         Ok(expr)
+    }
+
+    fn parse_coalesce(&mut self) -> Result<Expr, Error> {
+        let mut left = self.parse_or()?;
+        while self.check(TokenKind::QuestionQuestion) {
+            let span = left.span().clone();
+            self.advance();
+            let right = self.parse_or()?;
+            left = Expr::BinOp { left: Box::new(left), op: BinOp::Coalesce, right: Box::new(right), span };
+        }
+        Ok(left)
     }
 
     fn parse_or(&mut self) -> Result<Expr, Error> {
@@ -564,6 +591,14 @@ impl Parser {
                     }
                 }
 
+                // optional chaining: expr?.field
+                TokenKind::QuestionDot => {
+                    let span = expr.span().clone();
+                    self.advance();
+                    let field = self.expect_ident()?;
+                    expr = Expr::OptionalChain { expr: Box::new(expr), field, span };
+                }
+
                 // index: expr[i]
                 TokenKind::LBracket => {
                     let span = expr.span().clone();
@@ -626,6 +661,7 @@ impl Parser {
         match tok.kind {
             TokenKind::Float(v) => { self.advance(); Ok(Expr::Float(v, span)) }
             TokenKind::Bool(v)  => { self.advance(); Ok(Expr::Bool(v, span)) }
+            TokenKind::None     => { self.advance(); Ok(Expr::None(span)) }
             TokenKind::StringLit(s) => { self.advance(); Ok(Expr::StringLit(s, span)) }
             TokenKind::HexColor(s)  => { self.advance(); Ok(Expr::HexColor(s, span)) }
 
@@ -724,16 +760,16 @@ impl Parser {
 
     fn parse_type(&mut self) -> Result<Type, Error> {
         let tok = self.advance();
-        match tok.kind {
-            TokenKind::TFloat => Ok(Type::Float),
-            TokenKind::TBool  => Ok(Type::Bool),
+        let base = match tok.kind {
+            TokenKind::TFloat => Type::Float,
+            TokenKind::TBool  => Type::Bool,
 
             // res<T>
             TokenKind::TRes => {
                 self.expect(TokenKind::Lt)?;
                 let inner = self.parse_type()?;
                 self.expect(TokenKind::Gt)?;
-                Ok(Type::Res(Box::new(inner)))
+                Type::Res(Box::new(inner))
             }
 
             // list[T]
@@ -741,7 +777,7 @@ impl Parser {
                 self.expect(TokenKind::LBracket)?;
                 let inner = self.parse_type()?;
                 self.expect(TokenKind::RBracket)?;
-                Ok(Type::List(Box::new(inner)))
+                Type::List(Box::new(inner))
             }
 
             // array[T, N]
@@ -754,7 +790,7 @@ impl Parser {
                     _ => return Err(self.error_at(&tok, "expected array size")),
                 };
                 self.expect(TokenKind::RBracket)?;
-                Ok(Type::Array(Box::new(inner), size))
+                Type::Array(Box::new(inner), size)
             }
 
             // fn(T, T) -> T
@@ -771,12 +807,20 @@ impl Parser {
                 } else {
                     None
                 };
-                Ok(Type::Fn(params, ret))
+                Type::Fn(params, ret)
             }
 
-            TokenKind::Ident(name) => Ok(Type::Named(name)),
+            TokenKind::Ident(name) => Type::Named(name),
 
-            _ => Err(self.error_at(&tok, "expected type")),
+            _ => return Err(self.error_at(&tok, "expected type")),
+        };
+
+        // Optional suffix: T?
+        if self.check(TokenKind::Question) {
+            self.advance();
+            Ok(Type::Optional(Box::new(base)))
+        } else {
+            Ok(base)
         }
     }
 

@@ -177,5 +177,6 @@ pub(crate) fn value_type_name(v: &Value) -> &'static str {
         Value::Closure {..}  => "fn",
         Value::State(_)      => "State",
         Value::Input {..}    => "Input",
+        Value::None          => "none",
     }
 }

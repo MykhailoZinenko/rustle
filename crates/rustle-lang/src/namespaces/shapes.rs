@@ -75,7 +75,13 @@ impl NamespaceProvider for ShapesNamespace {
             }
             "polygon" | "shape" => {
                 check_argc(name, args, 1, line)?;
-                ShapeDesc::Polygon(as_vertices(&args[0], line)?)
+                let verts = as_vertices(&args[0], line)?;
+                if verts.len() < 3 {
+                    return Err(RuntimeError::new(line, format!(
+                        "polygon requires at least 3 vertices, got {}", verts.len()
+                    )));
+                }
+                ShapeDesc::Polygon(verts)
             }
             _ => return Ok(None),
         };
@@ -94,17 +100,7 @@ impl NamespaceProvider for ShapesNamespace {
 
 fn origin_from_named(named: &HashMap<String, Value>) -> Origin {
     match named.get("origin") {
-        Some(Value::Str(s)) => match s.as_str() {
-            "top_left"     => Origin::TopLeft,
-            "top_right"    => Origin::TopRight,
-            "bottom_left"  => Origin::BottomLeft,
-            "bottom_right" => Origin::BottomRight,
-            "top"          => Origin::Top,
-            "bottom"       => Origin::Bottom,
-            "left"         => Origin::Left,
-            "right"        => Origin::Right,
-            _              => Origin::Center,
-        },
+        Some(Value::Str(s)) => Origin::from_str(s).unwrap_or(Origin::Center),
         _ => Origin::Center,
     }
 }

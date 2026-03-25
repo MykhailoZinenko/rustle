@@ -114,6 +114,9 @@ impl<'a> TypeResolver<'a> {
             Stmt::Out(o)     => self.check_out(o),
             Stmt::Print(p)   => self.check_print(p),
             Stmt::If(i)      => self.check_if(i),
+            Stmt::IfLet { binding, expr, then_block, else_block, span } => {
+                self.check_if_let(binding, expr, then_block, else_block.as_deref(), span);
+            }
             Stmt::Match(m)   => self.check_match(m),
             Stmt::While(w)   => self.check_while(w),
             Stmt::For(f)     => self.check_for(f),
@@ -138,6 +141,14 @@ impl<'a> TypeResolver<'a> {
             self.expect_type(ann, &init_ty, &v.span);
             ann.clone()
         } else {
+            // Bare `let x = none` — can't infer the inner type
+            if init_ty == Type::Optional(Box::new(Type::Unit)) {
+                self.errors.push(Error::new(
+                    ErrorCode::S002, v.span.line, v.span.column,
+                    "cannot infer type of `none` without a type annotation",
+                ));
+                return;
+            }
             init_ty
         };
 
@@ -278,6 +289,33 @@ impl<'a> TypeResolver<'a> {
         }
     }
 
+    fn check_if_let(&mut self, binding: &str, expr: &Expr, then_block: &[Stmt], else_block: Option<&[Stmt]>, span: &Span) {
+        let expr_ty = match self.infer_expr(expr) {
+            Ok(t) => t,
+            Err(e) => { self.errors.extend(e); return; }
+        };
+        let inner = match expr_ty {
+            Type::Optional(inner) => *inner,
+            other => {
+                self.errors.push(Error::new(
+                    ErrorCode::S002, span.line, span.column,
+                    format!("`if let` requires an optional type, found `{}`", type_name(&other)),
+                ));
+                return;
+            }
+        };
+        // Then block: binding has the unwrapped type
+        self.table.push_scope(ScopeKind::Block);
+        let sym = Symbol::new(binding.to_string(), Some(inner), SymbolKind::Variable, span.clone());
+        self.table.declare(sym);
+        for s in then_block { self.check_stmt(s); }
+        self.table.pop_scope();
+        // Else block: no binding
+        if let Some(els) = else_block {
+            self.check_block(els);
+        }
+    }
+
     fn check_while(&mut self, w: &WhileStmt) {
         match self.infer_expr(&w.condition) {
             Ok(cond_ty) if cond_ty != Type::Bool => {
@@ -408,6 +446,7 @@ impl<'a> TypeResolver<'a> {
         match expr {
             Expr::Float(_, _)     => Ok(Type::Float),
             Expr::Bool(_, _)      => Ok(Type::Bool),
+            Expr::None(_)         => Ok(Type::Optional(Box::new(Type::Unit))),
             Expr::StringLit(_, _) => Ok(Type::Named("string".into())),
             Expr::HexColor(_, _)  => Ok(Type::Named("color".into())),
 
@@ -483,6 +522,25 @@ impl<'a> TypeResolver<'a> {
                     ErrorCode::S009, span.line, span.column,
                     format!("type `{}` has no field `{field}`", type_name(&obj_ty)),
                 )])
+            }
+
+            Expr::OptionalChain { expr, field, span } => {
+                let obj_ty = self.infer_expr(expr)?;
+                let inner = match &obj_ty {
+                    Type::Optional(inner) => inner,
+                    other => return Err(vec![Error::new(
+                        ErrorCode::S002, span.line, span.column,
+                        format!("`?.` requires an optional type, found `{}`", type_name(other)),
+                    )]),
+                };
+                let field_ty = self.lookup.resolve_field(inner, field);
+                match field_ty {
+                    Some(t) => Ok(Type::Optional(Box::new(t))),
+                    None => Err(vec![Error::new(
+                        ErrorCode::S009, span.line, span.column,
+                        format!("type `{}` has no field `{field}`", type_name(inner)),
+                    )]),
+                }
             }
 
             Expr::MethodCall { expr, method, args, named_args: _, span } => {
@@ -641,6 +699,32 @@ impl<'a> TypeResolver<'a> {
     // ── Operator checking ─────────────────────────────────────────────────────
 
     fn check_binop(&mut self, op: &BinOp, l: &Type, r: &Type, span: &Span) -> Result<Type, Vec<Error>> {
+        // ?? (coalesce): T? ?? T → T
+        if *op == BinOp::Coalesce {
+            if let Type::Optional(inner) = l {
+                if types_compatible(inner, r) {
+                    return Ok(*inner.clone());
+                }
+                return Err(vec![Error::new(
+                    ErrorCode::S002, span.line, span.column,
+                    format!("`??` default must be `{}`, found `{}`", type_name(inner), type_name(r)),
+                )]);
+            }
+            return Err(vec![Error::new(
+                ErrorCode::S008, span.line, span.column,
+                format!("`??` requires an optional type on the left, found `{}`", type_name(l)),
+            )]);
+        }
+
+        // == / != with none or optional types
+        if matches!(op, BinOp::Eq | BinOp::NotEq) {
+            let is_opt_or_none = |t: &Type| matches!(t, Type::Optional(_));
+            if is_opt_or_none(l) || is_opt_or_none(r) {
+                // At least one side is optional — allow the comparison
+                return Ok(Type::Bool);
+            }
+        }
+
         if let (Some(lk), Some(rk)) = (type_to_key(l), type_to_key(r)) {
             if let Some(ret_key) = self.binops.result_type(op, lk, rk) {
                 return Ok(key_to_type(ret_key));
@@ -800,6 +884,18 @@ pub fn types_compatible(expected: &Type, actual: &Type) -> bool {
     if expected == actual { return true; }
     // Concrete shape kind → erased shape
     if expected == &Type::Named("shape".into()) && is_drawable(actual) { return true; }
+    // Optional compatibility rules
+    if let Type::Optional(inner) = expected {
+        // none literal (Optional(Unit)) fits any Optional(T)
+        if *actual == Type::Optional(Box::new(Type::Unit)) { return true; }
+        // T is assignable to T?
+        if types_compatible(inner, actual) { return true; }
+        // Optional(T) is assignable to Optional(T) — already handled by == above
+        // Also handle Optional(T) where inner types are compatible
+        if let Type::Optional(actual_inner) = actual {
+            if types_compatible(inner, actual_inner) { return true; }
+        }
+    }
     false
 }
 
@@ -813,6 +909,7 @@ pub fn type_name(ty: &Type) -> String {
         Type::Array(t, n)     => format!("array[{}, {n}]", type_name(t)),
         Type::List(t)         => format!("list[{}]", type_name(t)),
         Type::Res(t)          => format!("res<{}>", type_name(t)),
+        Type::Optional(t)    => format!("{}?", type_name(t)),
         Type::Fn(ps, Some(r)) => format!("fn({}) -> {}", ps.iter().map(type_name).collect::<Vec<_>>().join(", "), type_name(r)),
         Type::Fn(ps, None)    => format!("fn({})", ps.iter().map(type_name).collect::<Vec<_>>().join(", ")),
         Type::Named(n)        => n.clone(),

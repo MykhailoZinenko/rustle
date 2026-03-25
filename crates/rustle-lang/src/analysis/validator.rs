@@ -114,6 +114,12 @@ impl<'a> Validator<'a> {
                     self.scan_stmts_for_const_assign(e);
                 }
             }
+            Stmt::IfLet { then_block, else_block, .. } => {
+                self.scan_stmts_for_const_assign(then_block);
+                if let Some(e) = else_block {
+                    self.scan_stmts_for_const_assign(e);
+                }
+            }
             Stmt::Match(m) => {
                 for arm in &m.arms {
                     self.scan_stmts_for_const_assign(&arm.body);

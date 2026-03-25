@@ -82,6 +82,14 @@ pub enum Stmt {
     Print(PrintStmt),
     /// `if ... { } else { }`
     If(IfStmt),
+    /// `if let v = expr { } else { }`
+    IfLet {
+        binding: String,
+        expr: Expr,
+        then_block: Vec<Stmt>,
+        else_block: Option<Vec<Stmt>>,
+        span: Span,
+    },
     /// `while cond { }`
     While(WhileStmt),
     /// `for let i = 0.0; i < 10.0; i = i + 1.0 { }`
@@ -209,6 +217,7 @@ pub struct ForeachStmt {
 pub enum Expr {
     Float(f64, Span),
     Bool(bool, Span),
+    None(Span),
     StringLit(String, Span),
     HexColor(String, Span),
     Ident(String, Span),
@@ -271,6 +280,13 @@ pub enum Expr {
         span: Span,
     },
 
+    /// `expr?.field` — optional chaining
+    OptionalChain {
+        expr: Box<Expr>,
+        field: String,
+        span: Span,
+    },
+
     /// `expr.method(args, name: val)`
     MethodCall {
         expr: Box<Expr>,
@@ -304,6 +320,7 @@ impl Expr {
         match self {
             Expr::Float(_, s)       => s,
             Expr::Bool(_, s)        => s,
+            Expr::None(s)           => s,
             Expr::StringLit(_, s)   => s,
             Expr::HexColor(_, s)    => s,
             Expr::Ident(_, s)       => s,
@@ -315,6 +332,7 @@ impl Expr {
             Expr::Call { span, .. }     => span,
             Expr::Index { span, .. }    => span,
             Expr::Field { span, .. }    => span,
+            Expr::OptionalChain { span, .. } => span,
             Expr::MethodCall { span, .. } => span,
             Expr::Transform { span, .. } => span,
             Expr::List(_, s)        => s,
@@ -331,6 +349,7 @@ pub enum BinOp {
     Eq, NotEq,
     Lt, LtEq, Gt, GtEq,
     And, Or,
+    Coalesce,
 }
 
 impl std::fmt::Display for BinOp {
@@ -347,8 +366,9 @@ impl std::fmt::Display for BinOp {
             BinOp::LtEq  => "<=",
             BinOp::Gt    => ">",
             BinOp::GtEq  => ">=",
-            BinOp::And   => "and",
-            BinOp::Or    => "or",
+            BinOp::And      => "and",
+            BinOp::Or       => "or",
+            BinOp::Coalesce => "??",
         };
         write!(f, "{s}")
     }
@@ -374,6 +394,7 @@ pub enum Type {
     Array(Box<Type>, usize),
     List(Box<Type>),
     Res(Box<Type>),
+    Optional(Box<Type>),
     Fn(Vec<Type>, Option<Box<Type>>),
     /// Any named type — built-in (`vec2`, `color`, `shape`) or user-defined (`State`, `Input`, future structs).
     Named(String),

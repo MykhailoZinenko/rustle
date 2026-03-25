@@ -12,6 +12,8 @@ pub use runtime::value::Value;
 pub use namespaces::RuntimeState;
 
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::syntax::ast::Program as AstProgram;
 use namespaces::NamespaceRegistry;
@@ -59,13 +61,27 @@ pub struct Runtime {
     program: Program,
     state: State,
     runtime_state: RuntimeState,
+    cancel: Option<Arc<AtomicBool>>,
 }
 
 impl Runtime {
     pub fn new(program: Program) -> Result<Self, RuntimeError> {
+        Self::new_inner(program, None)
+    }
+
+    /// Create a runtime with a cancellation token. When the flag is set to `true`,
+    /// the interpreter aborts at the next loop iteration or function call boundary.
+    pub fn new_cancellable(program: Program, cancel: Arc<AtomicBool>) -> Result<Self, RuntimeError> {
+        Self::new_inner(program, Some(cancel))
+    }
+
+    fn new_inner(program: Program, cancel: Option<Arc<AtomicBool>>) -> Result<Self, RuntimeError> {
         use runtime::interpreter::Interpreter;
 
         let mut interp = Interpreter::new(&program.ast, &program.registry);
+        if let Some(ref c) = cancel {
+            interp = interp.with_cancel(c.clone());
+        }
 
         // 1. Run top-level stmts — resolution(), origin(), etc. These set
         //    runtime_state.coord_meta which persists for all subsequent ticks.
@@ -75,7 +91,7 @@ impl Runtime {
         let mut state = State::default();
         if let Some(ref state_block) = program.ast.state {
             for field in &state_block.fields {
-                let val = interp.eval_expr(&field.initializer).unwrap_or(Value::Float(0.0));
+                let val = interp.eval_expr(&field.initializer)?;
                 state.0.insert(field.name.clone(), val);
             }
         }
@@ -85,7 +101,7 @@ impl Runtime {
 
         let runtime_state = interp.take_runtime_state();
 
-        Ok(Self { program, state, runtime_state })
+        Ok(Self { program, state, runtime_state, cancel })
     }
 
     /// Execute one frame. Runs `update(state, input)` if present, otherwise
@@ -96,6 +112,9 @@ impl Runtime {
 
         let mut interp = Interpreter::new(&self.program.ast, &self.program.registry)
             .with_runtime_state(self.runtime_state.clone());
+        if let Some(ref c) = self.cancel {
+            interp = interp.with_cancel(c.clone());
+        }
 
         if self.program.ast.items.iter().any(|i| matches!(i, Item::FnDef(f) if f.name == "on_update")) {
             self.state = interp.run_update(self.state.clone(), input)?;
@@ -117,6 +136,9 @@ impl Runtime {
         if self.program.ast.items.iter().any(|i| matches!(i, Item::FnDef(f) if f.name == "on_exit")) {
             let mut interp = Interpreter::new(&self.program.ast, &self.program.registry)
                 .with_runtime_state(self.runtime_state.clone());
+            if let Some(ref c) = self.cancel {
+                interp = interp.with_cancel(c.clone());
+            }
             self.state = interp.run_on_exit(self.state.clone())?;
         }
         Ok(())

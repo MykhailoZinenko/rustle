@@ -5,6 +5,7 @@ pub enum ErrorCode {
     L001, // unexpected character
     L002, // unterminated string literal
     L003, // invalid escape sequence
+    L004, // unterminated block comment
 
     // Parser
     P001, // unexpected token
@@ -35,6 +36,7 @@ impl ErrorCode {
             Self::L001 => "L001",
             Self::L002 => "L002",
             Self::L003 => "L003",
+            Self::L004 => "L004",
             Self::P001 => "P001",
             Self::P002 => "P002",
             Self::S001 => "S001",

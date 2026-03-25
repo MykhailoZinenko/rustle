@@ -1046,3 +1046,166 @@ fn complex_shape_in_method() {
         let x = p.x
     "#);
 }
+
+// ─── Optional types (none, T?, ??) ──────────────────────────────────────────
+
+#[test]
+fn optional_let_none() {
+    ok("let x: float? = none");
+}
+
+#[test]
+fn optional_let_value() {
+    ok("let x: float? = 5.0");
+}
+
+#[test]
+fn non_optional_rejects_none() {
+    let errs = err("let x: float = none");
+    assert!(has(&errs, ErrorCode::S002));
+}
+
+#[test]
+fn optional_to_non_optional_error() {
+    let errs = err("
+        let x: float? = none
+        fn f(a: float) -> float { return a }
+        let y: float = f(x)
+    ");
+    assert!(has(&errs, ErrorCode::S002));
+}
+
+#[test]
+fn bare_none_no_annotation() {
+    let errs = err("let x = none");
+    assert!(has(&errs, ErrorCode::S002));
+}
+
+#[test]
+fn coalesce_type_check() {
+    ok("
+        let x: float? = none
+        let y: float = x ?? 0.0
+    ");
+}
+
+#[test]
+fn coalesce_wrong_default() {
+    let errs = err(r#"
+        let x: float? = none
+        let y: float = x ?? "hello"
+    "#);
+    assert!(has(&errs, ErrorCode::S002));
+}
+
+#[test]
+fn coalesce_non_optional_lhs() {
+    let errs = err("
+        let x: float = 5.0
+        let y: float = x ?? 1.0
+    ");
+    assert!(has(&errs, ErrorCode::S008));
+}
+
+#[test]
+fn none_eq_check() {
+    ok("
+        let x: float? = none
+        let eq: bool = x == none
+        let neq: bool = x != none
+    ");
+}
+
+#[test]
+fn optional_state_field() {
+    ok("state { let x: float? = none }");
+}
+
+#[test]
+fn optional_string_type() {
+    ok(r#"let x: string? = none"#);
+}
+
+#[test]
+fn optional_list_type() {
+    ok("let x: list[float]? = none");
+}
+
+#[test]
+fn optional_value_to_optional() {
+    ok("
+        let x: float? = 5.0
+        let y: float? = x
+    ");
+}
+
+// ─── if let ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn if_let_compiles() {
+    ok("
+        let x: float? = 5.0
+        if let v = x {
+            let y: float = v + 1.0
+        }
+    ");
+}
+
+#[test]
+fn if_let_with_else() {
+    ok("
+        let x: float? = none
+        if let v = x {
+            console << v
+        } else {
+            console << 0
+        }
+    ");
+}
+
+#[test]
+fn if_let_non_optional_error() {
+    let errs = err("
+        let x: float = 5.0
+        if let v = x { console << v }
+    ");
+    assert!(has(&errs, ErrorCode::S002));
+}
+
+// ─── ?. optional chaining ───────────────────────────────────────────────────
+
+#[test]
+fn optional_chain_compiles() {
+    ok("
+        let v: vec2? = vec2(1.0, 2.0)
+        let x: float? = v?.x
+    ");
+}
+
+#[test]
+fn optional_chain_non_optional_error() {
+    let errs = err("
+        let v: vec2 = vec2(1.0, 2.0)
+        let x: float? = v?.x
+    ");
+    assert!(has(&errs, ErrorCode::S002));
+}
+
+#[test]
+fn optional_chain_bad_field_error() {
+    let errs = err("
+        let v: vec2? = vec2(1.0, 2.0)
+        let x: float? = v?.nonexistent
+    ");
+    assert!(has(&errs, ErrorCode::S009));
+}
+
+#[test]
+fn optional_chain_result_is_optional() {
+    // v?.x is float?, not float — assigning to float should fail
+    let errs = err("
+        let v: vec2? = vec2(1.0, 2.0)
+        let x: float = v?.x
+    ");
+    assert!(has(&errs, ErrorCode::S002));
+}

@@ -55,7 +55,7 @@ impl NamespaceProvider for CoordsNamespace {
                         "`origin` expects an origin constant, got `{:?}`", other
                     ))),
                 };
-                state.coord_meta.origin = parse_origin(&s)
+                state.coord_meta.origin = Origin::from_str(&s)
                     .ok_or_else(|| RuntimeError::new(line, format!("unknown origin: `{s}`")))?;
                 Ok(Some(Value::Float(0.0)))
             }
@@ -72,17 +72,4 @@ impl NamespaceProvider for CoordsNamespace {
     }
 }
 
-fn parse_origin(s: &str) -> Option<Origin> {
-    match s {
-        "center"       => Some(Origin::Center),
-        "top_left"     => Some(Origin::TopLeft),
-        "top_right"    => Some(Origin::TopRight),
-        "bottom_left"  => Some(Origin::BottomLeft),
-        "bottom_right" => Some(Origin::BottomRight),
-        "top"          => Some(Origin::Top),
-        "bottom"       => Some(Origin::Bottom),
-        "left"         => Some(Origin::Left),
-        "right"        => Some(Origin::Right),
-        _              => None,
-    }
-}
+

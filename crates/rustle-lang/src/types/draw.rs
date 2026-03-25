@@ -12,6 +12,21 @@ impl Default for Origin {
 }
 
 impl Origin {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "center"       => Some(Self::Center),
+            "top_left"     => Some(Self::TopLeft),
+            "top_right"    => Some(Self::TopRight),
+            "bottom_left"  => Some(Self::BottomLeft),
+            "bottom_right" => Some(Self::BottomRight),
+            "top"          => Some(Self::Top),
+            "bottom"       => Some(Self::Bottom),
+            "left"         => Some(Self::Left),
+            "right"        => Some(Self::Right),
+            _              => None,
+        }
+    }
+
     /// Canvas origins where y=0 is at the top and y increases downward (screen convention).
     pub fn is_y_down(self) -> bool {
         matches!(self, Origin::TopLeft | Origin::TopRight | Origin::Top)

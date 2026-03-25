@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::rc::Rc;
 use std::cell::RefCell;
 
@@ -31,4 +32,44 @@ pub enum Value {
     },
     State(Rc<RefCell<HashMap<String, Value>>>),
     Input { dt: f64 },
+    None,
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Float(v) => {
+                if v.fract() == 0.0 && v.abs() < 1e15 { write!(f, "{}", *v as i64) }
+                else { write!(f, "{v}") }
+            }
+            Value::Bool(b)   => write!(f, "{b}"),
+            Value::Str(s)    => write!(f, "{s}"),
+            Value::Vec2(x, y)           => write!(f, "vec2({x}, {y})"),
+            Value::Vec3(x, y, z)        => write!(f, "vec3({x}, {y}, {z})"),
+            Value::Vec4(x, y, z, w)     => write!(f, "vec4({x}, {y}, {z}, {w})"),
+            Value::Color { r, g, b, a } => write!(f, "color({r:.3}, {g:.3}, {b:.3}, {a:.3})"),
+            Value::List(rc) => {
+                let items = rc.borrow();
+                write!(f, "[")?;
+                for (i, v) in items.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{v}")?;
+                }
+                write!(f, "]")
+            }
+            Value::ResOk(v)  => write!(f, "ok({v})"),
+            Value::ResErr(e) => write!(f, "err({e})"),
+            Value::Mat3(_)   => write!(f, "mat3(...)"),
+            Value::Mat4(_)   => write!(f, "mat4(...)"),
+            Value::Shape(_)  => write!(f, "<shape>"),
+            Value::Transform(_)  => write!(f, "<transform>"),
+            Value::RenderMode(_) => write!(f, "<render_mode>"),
+            Value::Namespace(n)  => write!(f, "<namespace:{n}>"),
+            Value::NativeFn(n)   => write!(f, "<fn:{n}>"),
+            Value::Closure { .. } => write!(f, "<closure>"),
+            Value::State(_)  => write!(f, "<state>"),
+            Value::Input { dt } => write!(f, "input(dt={dt})"),
+            Value::None => write!(f, "none"),
+        }
+    }
 }

@@ -106,6 +106,8 @@ impl TypeRegistry {
             Type::Bool     => self.field_type("bool", field),
             // list<T> only has .len; everything else returns None.
             Type::List(_)  => self.field_type("list", field),
+            // Optional types have no fields — must unwrap with ?? first.
+            Type::Optional(_) => None,
             _ => None,
         }
     }
@@ -128,6 +130,8 @@ impl TypeRegistry {
                 "len" => Some((vec![], Some(Type::Float))),
                 _ => None,
             },
+            // Optional types have no methods — must unwrap with ?? first.
+            Type::Optional(_) => None,
             // Named types and primitives — delegate to static descriptor table.
             Type::Named(n) => self.method_signature(n.as_str(), method),
             Type::Float    => self.method_signature("float", method),
@@ -239,6 +243,7 @@ pub fn value_type_key(v: &Value) -> &'static str {
         Value::ResOk(_)
         | Value::ResErr(_)          => "res",
         Value::Input { .. }         => "Input",
+        Value::None                 => "none",
         // Not in registry — handled specially by the interpreter:
         // Namespace, NativeFn, Closure, State, RenderMode
         _                           => "",

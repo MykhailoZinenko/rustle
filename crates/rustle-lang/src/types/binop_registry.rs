@@ -70,6 +70,7 @@ pub fn type_to_key(ty: &Type) -> Option<&'static str> {
             "shape"     => Some("shape"),
             _           => None,
         },
+        Type::Optional(_) => None,
         _ => None,
     }
 }
