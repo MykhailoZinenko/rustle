@@ -7,6 +7,10 @@ use rustle_lang::{
     compile, Runtime, DrawCommand, Input, Origin, RenderMode, ShapeData, ShapeDesc,
 };
 use rustle_lang::analysis::checker::type_name;
+use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 
 
 /// Return screen pixel vertices (0,0 = top-left, y-down).
@@ -190,12 +194,94 @@ fn main() -> eframe::Result {
 #[derive(PartialEq)]
 enum Tab { Errors, Symbols, Ast, Output, Console, Canvas }
 
+// ─── Worker thread communication ─────────────────────────────────────────────
+
+enum WorkerCmd {
+    Tick(Input),
+    Exit,
+}
+
+enum WorkerResult {
+    Frame(Vec<DrawCommand>),
+    Error(String),
+    InitError(String),
+    Exited,
+}
+
+struct ScriptHandle {
+    cancel: Arc<AtomicBool>,
+    tx: mpsc::Sender<WorkerCmd>,
+    rx: mpsc::Receiver<WorkerResult>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl ScriptHandle {
+    fn spawn(program: rustle_lang::Program) -> Self {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (tx_cmd, rx_cmd) = mpsc::channel::<WorkerCmd>();
+        let (tx_res, rx_res) = mpsc::channel::<WorkerResult>();
+        let cancel_clone = cancel.clone();
+
+        let thread = std::thread::spawn(move || {
+            let mut rt = match Runtime::new_cancellable(program, cancel_clone) {
+                Ok(rt) => rt,
+                Err(e) => {
+                    let _ = tx_res.send(WorkerResult::InitError(e.message));
+                    return;
+                }
+            };
+
+            while let Ok(cmd) = rx_cmd.recv() {
+                match cmd {
+                    WorkerCmd::Tick(input) => {
+                        match rt.tick(&input) {
+                            Ok(cmds) => { let _ = tx_res.send(WorkerResult::Frame(cmds)); }
+                            Err(e) => {
+                                let _ = tx_res.send(WorkerResult::Error(e.message));
+                                return;
+                            }
+                        }
+                    }
+                    WorkerCmd::Exit => {
+                        let _ = rt.exit();
+                        let _ = tx_res.send(WorkerResult::Exited);
+                        return;
+                    }
+                }
+            }
+        });
+
+        ScriptHandle {
+            cancel,
+            tx: tx_cmd,
+            rx: rx_res,
+            thread: Some(thread),
+        }
+    }
+
+    fn stop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        let _ = self.tx.send(WorkerCmd::Exit);
+        if let Some(h) = self.thread.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+impl Drop for ScriptHandle {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+// ─── App ─────────────────────────────────────────────────────────────────────
+
 struct App {
     source: String,
     result: RunResult,
     tab: Tab,
     show_builtins: bool,
-    runtime: Option<Runtime>,
+    script: Option<ScriptHandle>,
     last_tick: std::time::Instant,
 }
 
@@ -230,8 +316,8 @@ fn on_exit(s: State) -> State {
     return s
 }
 ");
-        let result = run(&source, false);
-        Self { source, result, tab: Tab::Canvas, show_builtins: false, runtime: None, last_tick: std::time::Instant::now() }
+        let result = run(&source);
+        Self { source, result, tab: Tab::Canvas, show_builtins: false, script: None, last_tick: std::time::Instant::now() }
     }
 }
 
@@ -252,15 +338,22 @@ struct ConsoleEntry {
 #[derive(PartialEq)]
 enum ConsoleLevel { Log, Warn, Error }
 
+const CONSOLE_MAX: usize = 1000;
+
+fn push_console(console: &mut VecDeque<ConsoleEntry>, level: ConsoleLevel, message: String) {
+    if console.len() >= CONSOLE_MAX { console.pop_front(); }
+    console.push_back(ConsoleEntry { level, message });
+}
+
 struct RunResult {
     errors: Vec<String>,
     symbols: Vec<SymbolRow>,
     ast: String,
     draw_commands: Vec<DrawCommand>,
-    console: Vec<ConsoleEntry>,
+    console: VecDeque<ConsoleEntry>,
 }
 
-fn run(source: &str, _show_builtins: bool) -> RunResult {
+fn run(source: &str) -> RunResult {
     let mut errors: Vec<String> = Vec::new();
 
     // ── Lex ───────────────────────────────────────────────────────────────────
@@ -272,7 +365,7 @@ fn run(source: &str, _show_builtins: bool) -> RunResult {
                 symbols: vec![],
                 ast: String::new(),
                 draw_commands: vec![],
-                console: vec![],
+                console: VecDeque::new(),
             };
         }
     };
@@ -286,7 +379,7 @@ fn run(source: &str, _show_builtins: bool) -> RunResult {
                 symbols: vec![],
                 ast: String::new(),
                 draw_commands: vec![],
-                console: vec![],
+                console: VecDeque::new(),
             };
         }
     };
@@ -336,7 +429,7 @@ fn run(source: &str, _show_builtins: bool) -> RunResult {
         })
         .collect();
 
-    RunResult { errors, symbols: symbol_rows, ast, draw_commands: vec![], console: vec![] }
+    RunResult { errors, symbols: symbol_rows, ast, draw_commands: vec![], console: VecDeque::new() }
 }
 
 // ─── UI ───────────────────────────────────────────────────────────────────────
@@ -348,25 +441,43 @@ impl eframe::App for App {
         let dt = now.duration_since(self.last_tick).as_secs_f64().min(0.1);
         self.last_tick = now;
 
-        if let Some(rt) = &mut self.runtime {
-            let input = Input { dt };
-            match rt.tick(&input) {
-                Ok(cmds) => {
-                    let mut draw = Vec::new();
-                    for cmd in cmds {
-                        match cmd {
-                            DrawCommand::Print(msg) => self.result.console.push(ConsoleEntry { level: ConsoleLevel::Log,   message: msg }),
-                            DrawCommand::Warn(msg)  => self.result.console.push(ConsoleEntry { level: ConsoleLevel::Warn,  message: msg }),
-                            DrawCommand::Error(msg) => self.result.console.push(ConsoleEntry { level: ConsoleLevel::Error, message: msg }),
-                            other => draw.push(other),
+        if let Some(handle) = &self.script {
+            // Send tick command (non-blocking — if worker is busy, it'll get it next)
+            let _ = handle.tx.send(WorkerCmd::Tick(Input { dt }));
+
+            // Drain all pending results (take latest frame)
+            let mut got_error = false;
+            while let Ok(msg) = handle.rx.try_recv() {
+                match msg {
+                    WorkerResult::Frame(cmds) => {
+                        let mut draw = Vec::new();
+                        for cmd in cmds {
+                            match cmd {
+                                DrawCommand::Print(m) => push_console(&mut self.result.console, ConsoleLevel::Log, m),
+                                DrawCommand::Warn(m)  => push_console(&mut self.result.console, ConsoleLevel::Warn, m),
+                                DrawCommand::Error(m) => push_console(&mut self.result.console, ConsoleLevel::Error, m),
+                                other => draw.push(other),
+                            }
                         }
+                        self.result.draw_commands = draw;
                     }
-                    self.result.draw_commands = draw;
+                    WorkerResult::Error(msg) => {
+                        if msg != "script cancelled" {
+                            self.result.errors.push(format!("[runtime] {msg}"));
+                        }
+                        got_error = true;
+                    }
+                    WorkerResult::InitError(msg) => {
+                        self.result.errors.push(format!("[runtime] {msg}"));
+                        got_error = true;
+                    }
+                    WorkerResult::Exited => {
+                        got_error = true; // not an error, but worker is done
+                    }
                 }
-                Err(e) => {
-                    self.result.errors.push(format!("[runtime] {}", e.message));
-                    self.runtime = None;
-                }
+            }
+            if got_error {
+                self.script = None;
             }
             ctx.request_repaint();
         }
@@ -398,17 +509,17 @@ impl eframe::App for App {
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.checkbox(&mut self.show_builtins, "show builtins");
-                            let running = self.runtime.is_some();
+                            let running = self.script.is_some();
                             if running {
                                 if ui.button("Stop").clicked() {
-                                    if let Some(mut rt) = self.runtime.take() {
-                                        let _ = rt.exit();
-                                    }
+                                    self.script = None; // Drop triggers stop + join
                                 }
                             } else {
                                 if ui.button("Run").clicked() {
-                                    self.result = run(&self.source, self.show_builtins);
-                                    self.runtime = compile(&self.source).ok().and_then(|p| Runtime::new(p).ok());
+                                    self.result = run(&self.source);
+                                    if let Ok(program) = compile(&self.source) {
+                                        self.script = Some(ScriptHandle::spawn(program));
+                                    }
                                     self.last_tick = std::time::Instant::now();
                                 }
                             }
@@ -461,7 +572,7 @@ impl App {
         if self.result.draw_commands.is_empty() {
             let msg = if self.result.errors.iter().any(|e| !e.starts_with("[warn]")) {
                 "Fix errors to run."
-            } else if self.runtime.is_none() {
+            } else if self.script.is_none() {
                 "Press Run to execute."
             } else {
                 "No draw commands this frame."
@@ -553,7 +664,7 @@ impl App {
 
     fn show_console(&self, ui: &mut egui::Ui) {
         if self.result.console.is_empty() {
-            let msg = if self.runtime.is_none() { "Press Run to execute." } else { "No console output." };
+            let msg = if self.script.is_none() { "Press Run to execute." } else { "No console output." };
             ui.label(RichText::new(msg).color(Color32::GRAY));
             return;
         }
@@ -571,7 +682,7 @@ impl App {
         if self.result.draw_commands.is_empty() {
             let msg = if self.result.errors.iter().any(|e| !e.starts_with("[warn]")) {
                 "Fix errors to run."
-            } else if self.runtime.is_none() {
+            } else if self.script.is_none() {
                 "Press Run to execute."
             } else {
                 "No draw commands this frame."
