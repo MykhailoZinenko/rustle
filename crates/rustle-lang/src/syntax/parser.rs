@@ -723,15 +723,6 @@ impl Parser {
     // ─── Argument lists ──────────────────────────────────────────────────────
 
     /// Parse a plain positional arg list (no named args).
-    fn parse_arg_list(&mut self) -> Result<Vec<Expr>, Error> {
-        let mut args = Vec::new();
-        while !self.check(TokenKind::RParen) && !self.is_at_end() {
-            args.push(self.parse_expr()?);
-            if !self.matches(TokenKind::Comma) { break; }
-        }
-        Ok(args)
-    }
-
     /// Parse positional + named args: `circle(x, y, radius, render: sdf)`.
     /// Named args must come after positional args.
     fn parse_mixed_arg_list(&mut self) -> Result<(Vec<Expr>, Vec<(String, Expr)>), Error> {
