@@ -93,21 +93,21 @@ fn s001_used_before_decl_in_fn() {
 // ─── S002: type mismatch ──────────────────────────────────────────────────────
 
 #[test]
-fn s002_if_condition_not_bool() {
-    let errs = err("if 3.14 { let x = 1.0 }");
+fn s002_if_condition_not_truthy() {
+    let errs = err("if vec2(1.0, 2.0) { let x = 1.0 }");
     assert!(has(&errs, ErrorCode::S002));
-    assert!(has_msg(&errs, "bool"));
+    assert!(has_msg(&errs, "truthy"));
 }
 
 #[test]
-fn s002_while_condition_not_bool() {
-    let errs = err("let i = 0.0\nwhile i { i = i + 1.0 }");
+fn s002_while_condition_not_truthy() {
+    let errs = err("let v = vec2(0.0, 0.0)\nwhile v { let x = 1.0 }");
     assert!(has(&errs, ErrorCode::S002));
 }
 
 #[test]
-fn s002_for_condition_not_bool() {
-    let errs = err("for let i = 0.0; 42.0; i = i + 1.0 { }");
+fn s002_for_condition_not_truthy() {
+    let errs = err("for let i = 0.0; vec2(1.0, 2.0); i = i + 1.0 { }");
     assert!(has(&errs, ErrorCode::S002));
 }
 
@@ -397,8 +397,8 @@ fn s008_compare_float_lt_bool() {
 }
 
 #[test]
-fn s008_logical_on_float() {
-    let errs = err("let a = 1.0\nlet b = a and true");
+fn s008_logical_on_non_truthy() {
+    let errs = err("let a = vec2(1.0, 2.0)\nlet b = a and true");
     assert!(has(&errs, ErrorCode::S008));
 }
 
@@ -1208,4 +1208,74 @@ fn optional_chain_result_is_optional() {
         let x: float = v?.x
     ");
     assert!(has(&errs, ErrorCode::S002));
+}
+
+// ─── Truthiness ──────────────────────────────────────────────────────────────
+
+#[test]
+fn truthy_float_in_if() {
+    ok("if 1.0 { let x = 1.0 }");
+}
+
+#[test]
+fn truthy_string_in_condition() {
+    ok("let s: string = \"yes\"\nif s { let x = 1.0 }");
+}
+
+#[test]
+fn truthy_list_in_condition() {
+    ok("let xs: list[float] = [1.0]\nif xs { let x = 1.0 }");
+}
+
+#[test]
+fn truthy_optional_truthy_inner() {
+    ok("let opt: float? = 5.0\nif opt { let x = 1.0 }");
+}
+
+#[test]
+fn truthy_optional_nontruthy_inner() {
+    ok("let opt: vec2? = vec2(1.0, 2.0)\nif opt { let x = 1.0 }");
+}
+
+#[test]
+fn non_truthy_vec2_error() {
+    let errs = err("if vec2(1.0, 2.0) { let x = 1.0 }");
+    assert!(has(&errs, ErrorCode::S002));
+    assert!(has_msg(&errs, "truthy"));
+}
+
+#[test]
+fn non_truthy_res_error() {
+    let errs = err("
+        fn f() -> res<float> { return 1.0 }
+        let r: res<float> = f()
+        if r { let x = 1.0 }
+    ");
+    assert!(has(&errs, ErrorCode::S002));
+}
+
+#[test]
+fn truthy_and_mixed() {
+    ok("let b: bool = 1.0 and \"hello\"");
+}
+
+#[test]
+fn truthy_or_mixed() {
+    ok("let b: bool = 0.0 or \"fallback\"");
+}
+
+#[test]
+fn truthy_not_float() {
+    ok("let b: bool = not 0.0");
+}
+
+#[test]
+fn truthy_not_string() {
+    ok("let b: bool = not \"hello\"");
+}
+
+#[test]
+fn non_truthy_not_vec2_error() {
+    let errs = err("let b = not vec2(1.0, 2.0)");
+    assert!(has(&errs, ErrorCode::S008));
 }

@@ -275,13 +275,25 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::BinOp { left, op, right, span } => {
-                // ?? (coalesce): short-circuit — don't eval RHS if LHS is not none
+                // Short-circuit operators: ??, and, or
                 if *op == BinOp::Coalesce {
                     let l = self.eval_expr(left)?;
                     return match l {
                         Value::None => self.eval_expr(right),
                         other => Ok(other),
                     };
+                }
+                if *op == BinOp::And {
+                    let l = self.eval_expr(left)?;
+                    if !l.is_truthy() { return Ok(Value::Bool(false)); }
+                    let r = self.eval_expr(right)?;
+                    return Ok(Value::Bool(r.is_truthy()));
+                }
+                if *op == BinOp::Or {
+                    let l = self.eval_expr(left)?;
+                    if l.is_truthy() { return Ok(Value::Bool(true)); }
+                    let r = self.eval_expr(right)?;
+                    return Ok(Value::Bool(r.is_truthy()));
                 }
                 let l = self.eval_expr(left)?;
                 let r = self.eval_expr(right)?;
@@ -307,11 +319,11 @@ impl<'a> Interpreter<'a> {
                 }
             }
 
-            Expr::Ternary { condition, then_expr, else_expr, span } => {
-                match self.eval_expr(condition)? {
-                    Value::Bool(true)  => self.eval_expr(then_expr),
-                    Value::Bool(false) => self.eval_expr(else_expr),
-                    _ => Err(self.err(span.line, "ternary condition must be bool")),
+            Expr::Ternary { condition, then_expr, else_expr, .. } => {
+                if self.eval_expr(condition)?.is_truthy() {
+                    self.eval_expr(then_expr)
+                } else {
+                    self.eval_expr(else_expr)
                 }
             }
 
@@ -611,10 +623,10 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::If(i) => {
-                let branch = match self.eval_expr(&i.condition)? {
-                    Value::Bool(true)  => Some(&i.then_block),
-                    Value::Bool(false) => i.else_block.as_ref(),
-                    _ => return Err(self.err(i.span.line, "if condition must be bool")),
+                let branch = if self.eval_expr(&i.condition)?.is_truthy() {
+                    Some(&i.then_block)
+                } else {
+                    i.else_block.as_ref()
                 };
                 if let Some(block) = branch {
                     self.env.push_scope();
@@ -683,11 +695,7 @@ impl<'a> Interpreter<'a> {
             Stmt::While(w) => {
                 loop {
                     self.check_cancel(w.span.line)?;
-                    match self.eval_expr(&w.condition)? {
-                        Value::Bool(false) => break,
-                        Value::Bool(true)  => {}
-                        _ => return Err(self.err(w.span.line, "while condition must be bool")),
-                    }
+                    if !self.eval_expr(&w.condition)?.is_truthy() { break; }
                     self.env.push_scope();
                     for s in &w.body {
                         self.exec_stmt(s)?;
@@ -703,11 +711,7 @@ impl<'a> Interpreter<'a> {
                 self.exec_stmt(&f.init)?;
                 loop {
                     self.check_cancel(f.span.line)?;
-                    match self.eval_expr(&f.condition)? {
-                        Value::Bool(false) => break,
-                        Value::Bool(true)  => {}
-                        _ => return Err(self.err(f.span.line, "for condition must be bool")),
-                    }
+                    if !self.eval_expr(&f.condition)?.is_truthy() { break; }
                     self.env.push_scope();
                     for s in &f.body {
                         self.exec_stmt(s)?;
@@ -997,8 +1001,7 @@ fn eval_binop(op: &BinOp, l: Value, r: Value, line: usize, binops: &BinopRegistr
                 BinOp::Mul  => "*",  BinOp::Div  => "/",  BinOp::Mod  => "%",
                 BinOp::Lt   => "<",  BinOp::LtEq => "<=",
                 BinOp::Gt   => ">",  BinOp::GtEq => ">=",
-                BinOp::And  => "and", BinOp::Or  => "or",
-                BinOp::Eq | BinOp::NotEq | BinOp::Coalesce => unreachable!(),
+                BinOp::And | BinOp::Or | BinOp::Eq | BinOp::NotEq | BinOp::Coalesce => unreachable!(),
             }
         )))
     })
@@ -1016,12 +1019,7 @@ fn eval_unop(op: &UnOp, v: Value, line: usize) -> Result<Value, RuntimeError> {
                 "unary `-` not supported on `{}`", value_type_name(&other)
             ))),
         },
-        UnOp::Not => match v {
-            Value::Bool(b) => Ok(Value::Bool(!b)),
-            other => Err(RuntimeError::new(line, format!(
-                "`not` requires bool, got `{}`", value_type_name(&other)
-            ))),
-        },
+        UnOp::Not => Ok(Value::Bool(!v.is_truthy())),
     }
 }
 

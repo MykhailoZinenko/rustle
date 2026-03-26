@@ -246,14 +246,7 @@ fn register_color(r: &mut BinopRegistry) {
 
 fn register_bool(r: &mut BinopRegistry) {
     use BinOp::*;
-    r.register(And, "bool", "bool", "bool", |l, r, _| {
-        let (Value::Bool(a), Value::Bool(b)) = (l, r) else { unreachable!() };
-        Ok(Value::Bool(a && b))
-    });
-    r.register(Or, "bool", "bool", "bool", |l, r, _| {
-        let (Value::Bool(a), Value::Bool(b)) = (l, r) else { unreachable!() };
-        Ok(Value::Bool(a || b))
-    });
+    // And/Or are handled as special cases in checker + interpreter (truthy short-circuit).
     r.register(Eq,    "bool", "bool", "bool", |l, r, _| { let (Value::Bool(a), Value::Bool(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a == b)) });
     r.register(NotEq, "bool", "bool", "bool", |l, r, _| { let (Value::Bool(a), Value::Bool(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a != b)) });
 }

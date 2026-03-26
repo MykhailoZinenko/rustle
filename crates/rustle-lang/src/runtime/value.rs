@@ -35,6 +35,20 @@ pub enum Value {
     None,
 }
 
+impl Value {
+    /// Returns whether this value is "truthy" in a boolean context.
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Value::Bool(b) => *b,
+            Value::Float(f) => *f != 0.0 && !f.is_nan(),
+            Value::Str(s) => !s.is_empty(),
+            Value::List(rc) => !rc.borrow().is_empty(),
+            Value::None => false,
+            _ => true,
+        }
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

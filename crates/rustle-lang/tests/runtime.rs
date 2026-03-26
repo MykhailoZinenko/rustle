@@ -1704,3 +1704,167 @@ fn optional_chain_none() {
     ");
     assert_eq!(f(&rt, "val"), 0.0);
 }
+
+// ─── Truthiness ──────────────────────────────────────────────────────────────
+
+#[test]
+fn truthy_float_zero_false() {
+    let rt = run("state { let v: float = 0.0 ? 1.0 : 2.0 }");
+    assert_eq!(f(&rt, "v"), 2.0);
+}
+
+#[test]
+fn truthy_float_nonzero_true() {
+    let rt = run("state { let v: float = 3.14 ? 1.0 : 2.0 }");
+    assert_eq!(f(&rt, "v"), 1.0);
+}
+
+#[test]
+fn truthy_string_empty_false() {
+    let rt = run("state { let v: float = \"\" ? 1.0 : 2.0 }");
+    assert_eq!(f(&rt, "v"), 2.0);
+}
+
+#[test]
+fn truthy_string_nonempty_true() {
+    let rt = run("state { let v: float = \"hi\" ? 1.0 : 2.0 }");
+    assert_eq!(f(&rt, "v"), 1.0);
+}
+
+#[test]
+fn truthy_list_empty_false() {
+    let rt = run("
+        let xs: list[float] = []
+        state { let v: float = xs ? 1.0 : 2.0 }
+    ");
+    assert_eq!(f(&rt, "v"), 2.0);
+}
+
+#[test]
+fn truthy_list_nonempty_true() {
+    let rt = run("
+        let xs: list[float] = [1.0]
+        state { let v: float = xs ? 1.0 : 2.0 }
+    ");
+    assert_eq!(f(&rt, "v"), 1.0);
+}
+
+#[test]
+fn truthy_none_false() {
+    let rt = run("
+        let x: float? = none
+        state { let v: float = x ? 1.0 : 2.0 }
+    ");
+    assert_eq!(f(&rt, "v"), 2.0);
+}
+
+#[test]
+fn truthy_optional_value_true() {
+    let rt = run("
+        let x: float? = 5.0
+        state { let v: float = x ? 1.0 : 2.0 }
+    ");
+    assert_eq!(f(&rt, "v"), 1.0);
+}
+
+#[test]
+fn truthy_optional_zero_false() {
+    // float? with 0.0 — unwrap + apply inner truthiness → false
+    let rt = run("
+        let x: float? = 0.0
+        state { let v: float = x ? 1.0 : 2.0 }
+    ");
+    assert_eq!(f(&rt, "v"), 2.0);
+}
+
+#[test]
+fn truthy_optional_vec2_present_true() {
+    // vec2? with value — presence check only → true
+    let rt = run("
+        let x: vec2? = vec2(0.0, 0.0)
+        state { let v: float = x ? 1.0 : 2.0 }
+    ");
+    assert_eq!(f(&rt, "v"), 1.0);
+}
+
+#[test]
+fn truthy_not_float() {
+    let rt = run("state { let a: bool = not 0.0 }");
+    assert_eq!(b(&rt, "a"), true);
+}
+
+#[test]
+fn truthy_not_float_nonzero() {
+    let rt = run("state { let a: bool = not 1.0 }");
+    assert_eq!(b(&rt, "a"), false);
+}
+
+#[test]
+fn truthy_and_short_circuit() {
+    // false and (side effect that would crash) — RHS not evaluated
+    let rt = run("
+        let xs: list[float] = []
+        state { let v: bool = false and xs[99] }
+    ");
+    assert_eq!(b(&rt, "v"), false);
+}
+
+#[test]
+fn truthy_or_short_circuit() {
+    // true or (side effect that would crash) — RHS not evaluated
+    let rt = run("
+        let xs: list[float] = []
+        state { let v: bool = true or xs[99] }
+    ");
+    assert_eq!(b(&rt, "v"), true);
+}
+
+#[test]
+fn truthy_and_mixed_types() {
+    let rt = run("state { let v: bool = 1.0 and \"hello\" }");
+    assert_eq!(b(&rt, "v"), true);
+}
+
+#[test]
+fn truthy_and_mixed_false() {
+    let rt = run("state { let v: bool = 0.0 and \"hello\" }");
+    assert_eq!(b(&rt, "v"), false);
+}
+
+#[test]
+fn truthy_or_mixed_types() {
+    let rt = run("state { let v: bool = 0.0 or \"\" }");
+    assert_eq!(b(&rt, "v"), false);
+}
+
+#[test]
+fn truthy_or_mixed_true() {
+    let rt = run("state { let v: bool = 0.0 or \"hi\" }");
+    assert_eq!(b(&rt, "v"), true);
+}
+
+#[test]
+fn truthy_if_float() {
+    let rt = run("
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            if 0.0 { s.v = 1.0 } else { s.v = 2.0 }
+            return s
+        }
+    ");
+    assert_eq!(f(&rt, "v"), 2.0);
+}
+
+#[test]
+fn truthy_while_string() {
+    // while with empty string — falsy, so loop body never runs
+    let rt = run("
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let s2: string = \"\"
+            while s2 { s.v = 1.0 s2 = \"\" }
+            return s
+        }
+    ");
+    assert_eq!(f(&rt, "v"), 0.0);
+}

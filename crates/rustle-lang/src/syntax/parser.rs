@@ -428,12 +428,12 @@ impl Parser {
     }
 
     fn parse_ternary(&mut self) -> Result<Expr, Error> {
-        let expr = self.parse_coalesce()?;
+        let expr = self.parse_or()?;
         if self.matches(TokenKind::Question) {
             let span = expr.span().clone();
-            let then_expr = self.parse_coalesce()?;
+            let then_expr = self.parse_or()?;
             self.expect(TokenKind::Colon)?;
-            let else_expr = self.parse_coalesce()?;
+            let else_expr = self.parse_or()?;
             return Ok(Expr::Ternary {
                 condition: Box::new(expr),
                 then_expr: Box::new(then_expr),
@@ -444,24 +444,24 @@ impl Parser {
         Ok(expr)
     }
 
-    fn parse_coalesce(&mut self) -> Result<Expr, Error> {
-        let mut left = self.parse_or()?;
-        while self.check(TokenKind::QuestionQuestion) {
+    fn parse_or(&mut self) -> Result<Expr, Error> {
+        let mut left = self.parse_coalesce()?;
+        while self.check(TokenKind::Or) {
             let span = left.span().clone();
             self.advance();
-            let right = self.parse_or()?;
-            left = Expr::BinOp { left: Box::new(left), op: BinOp::Coalesce, right: Box::new(right), span };
+            let right = self.parse_coalesce()?;
+            left = Expr::BinOp { left: Box::new(left), op: BinOp::Or, right: Box::new(right), span };
         }
         Ok(left)
     }
 
-    fn parse_or(&mut self) -> Result<Expr, Error> {
+    fn parse_coalesce(&mut self) -> Result<Expr, Error> {
         let mut left = self.parse_and()?;
-        while self.check(TokenKind::Or) {
+        while self.check(TokenKind::QuestionQuestion) {
             let span = left.span().clone();
             self.advance();
             let right = self.parse_and()?;
-            left = Expr::BinOp { left: Box::new(left), op: BinOp::Or, right: Box::new(right), span };
+            left = Expr::BinOp { left: Box::new(left), op: BinOp::Coalesce, right: Box::new(right), span };
         }
         Ok(left)
     }

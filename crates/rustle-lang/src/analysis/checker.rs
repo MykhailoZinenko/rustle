@@ -273,11 +273,11 @@ impl<'a> TypeResolver<'a> {
 
     fn check_if(&mut self, i: &IfStmt) {
         match self.infer_expr(&i.condition) {
-            Ok(cond_ty) if cond_ty != Type::Bool => {
+            Ok(ref cond_ty) if !is_truthy_type(cond_ty) => {
                 self.errors.push(Error::new(
                     ErrorCode::S002,
                     i.condition.span().line, i.condition.span().column,
-                    format!("condition must be `bool`, found `{}`", type_name(&cond_ty)),
+                    format!("condition must be a truthy type (bool, float, string, list, or optional), found `{}`", type_name(cond_ty)),
                 ));
             }
             Err(e) => self.errors.extend(e),
@@ -318,11 +318,11 @@ impl<'a> TypeResolver<'a> {
 
     fn check_while(&mut self, w: &WhileStmt) {
         match self.infer_expr(&w.condition) {
-            Ok(cond_ty) if cond_ty != Type::Bool => {
+            Ok(ref cond_ty) if !is_truthy_type(cond_ty) => {
                 self.errors.push(Error::new(
                     ErrorCode::S002,
                     w.condition.span().line, w.condition.span().column,
-                    format!("condition must be `bool`, found `{}`", type_name(&cond_ty)),
+                    format!("condition must be a truthy type (bool, float, string, list, or optional), found `{}`", type_name(cond_ty)),
                 ));
             }
             Err(e) => self.errors.extend(e),
@@ -335,11 +335,11 @@ impl<'a> TypeResolver<'a> {
         self.table.push_scope(ScopeKind::Block);
         self.check_stmt(&f.init);
         match self.infer_expr(&f.condition) {
-            Ok(cond_ty) if cond_ty != Type::Bool => {
+            Ok(ref cond_ty) if !is_truthy_type(cond_ty) => {
                 self.errors.push(Error::new(
                     ErrorCode::S002,
                     f.condition.span().line, f.condition.span().column,
-                    format!("for condition must be `bool`, found `{}`", type_name(&cond_ty)),
+                    format!("for condition must be a truthy type (bool, float, string, list, or optional), found `{}`", type_name(cond_ty)),
                 ));
             }
             Err(e) => self.errors.extend(e),
@@ -465,10 +465,10 @@ impl<'a> TypeResolver<'a> {
 
             Expr::Ternary { condition, then_expr, else_expr, span } => {
                 let cond_ty = self.infer_expr(condition)?;
-                if cond_ty != Type::Bool {
+                if !is_truthy_type(&cond_ty) {
                     return Err(vec![Error::new(
                         ErrorCode::S002, span.line, span.column,
-                        format!("ternary condition must be `bool`, found `{}`", type_name(&cond_ty)),
+                        format!("ternary condition must be a truthy type (bool, float, string, list, or optional), found `{}`", type_name(&cond_ty)),
                     )]);
                 }
                 let then_ty = self.infer_expr(then_expr)?;
@@ -725,6 +725,23 @@ impl<'a> TypeResolver<'a> {
             }
         }
 
+        // and / or with truthy types → bool
+        if matches!(op, BinOp::And | BinOp::Or) {
+            if !is_truthy_type(l) {
+                return Err(vec![Error::new(
+                    ErrorCode::S008, span.line, span.column,
+                    format!("operator `{op}` requires a truthy type, found `{}`", type_name(l)),
+                )]);
+            }
+            if !is_truthy_type(r) {
+                return Err(vec![Error::new(
+                    ErrorCode::S008, span.line, span.column,
+                    format!("operator `{op}` requires a truthy type, found `{}`", type_name(r)),
+                )]);
+            }
+            return Ok(Type::Bool);
+        }
+
         if let (Some(lk), Some(rk)) = (type_to_key(l), type_to_key(r)) {
             if let Some(ret_key) = self.binops.result_type(op, lk, rk) {
                 return Ok(key_to_type(ret_key));
@@ -749,10 +766,10 @@ impl<'a> TypeResolver<'a> {
                 }
             }
             UnOp::Not => {
-                if *ty != Type::Bool {
+                if !is_truthy_type(ty) {
                     Err(vec![Error::new(
                         ErrorCode::S008, span.line, span.column,
-                        format!("`not` requires `bool`, found `{}`", type_name(ty)),
+                        format!("`not` requires a truthy type, found `{}`", type_name(ty)),
                     )])
                 } else {
                     Ok(Type::Bool)
@@ -897,6 +914,17 @@ pub fn types_compatible(expected: &Type, actual: &Type) -> bool {
         }
     }
     false
+}
+
+// ─── Truthiness ──────────────────────────────────────────────────────────────
+
+/// Returns whether a type can be used in a boolean context (conditions, logical ops).
+fn is_truthy_type(ty: &Type) -> bool {
+    match ty {
+        Type::Bool | Type::Float | Type::List(_) | Type::Optional(_) => true,
+        Type::Named(n) if n == "string" => true,
+        _ => false,
+    }
 }
 
 // ─── Type display ─────────────────────────────────────────────────────────────
