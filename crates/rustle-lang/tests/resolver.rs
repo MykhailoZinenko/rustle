@@ -385,8 +385,8 @@ fn s008_compare_vec2_with_float() {
 }
 
 #[test]
-fn s008_add_bool_and_float() {
-    let errs = err("let a = true\nlet b = a + 1.0");
+fn s008_add_string_and_float() {
+    let errs = err("let a = \"hello\"\nlet b = a + 1.0");
     assert!(has(&errs, ErrorCode::S008));
 }
 
@@ -404,7 +404,7 @@ fn s008_logical_on_non_truthy() {
 
 #[test]
 fn s008_error_message_uses_symbol_not_debug() {
-    let errs = err("let a = true\nlet b = a + 1.0");
+    let errs = err("let a = \"hello\"\nlet b = a + 1.0");
     // Error should say "+" not "Add"
     assert!(has_msg(&errs, "+"));
     assert!(!has_msg(&errs, "\"Add\""));
@@ -1278,4 +1278,21 @@ fn truthy_not_string() {
 fn non_truthy_not_vec2_error() {
     let errs = err("let b = not vec2(1.0, 2.0)");
     assert!(has(&errs, ErrorCode::S008));
+}
+
+// ─── Boolean arithmetic ──────────────────────────────────────────────────────
+
+#[test]
+fn bool_arithmetic_compiles() {
+    ok("let x: float = true + 1.0");
+}
+
+#[test]
+fn bool_arithmetic_both_bools() {
+    ok("let x: float = true + false");
+}
+
+#[test]
+fn bool_arithmetic_float_plus_bool() {
+    ok("let x: float = 1.0 + true");
 }

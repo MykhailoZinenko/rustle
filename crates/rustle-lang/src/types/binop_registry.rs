@@ -249,6 +249,32 @@ fn register_bool(r: &mut BinopRegistry) {
     // And/Or are handled as special cases in checker + interpreter (truthy short-circuit).
     r.register(Eq,    "bool", "bool", "bool", |l, r, _| { let (Value::Bool(a), Value::Bool(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a == b)) });
     r.register(NotEq, "bool", "bool", "bool", |l, r, _| { let (Value::Bool(a), Value::Bool(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a != b)) });
+
+    // Bool arithmetic: bool coerces to float (true=1.0, false=0.0).
+    macro_rules! bool_arith {
+        ($r:expr, $op:expr, $f:expr) => {
+            $r.register($op, "bool", "float", "float", |l, r, _| {
+                let a = match l { Value::Bool(b) => if b { 1.0 } else { 0.0 }, _ => unreachable!() };
+                let b = match r { Value::Float(f) => f, _ => unreachable!() };
+                Ok(Value::Float($f(a, b)))
+            });
+            $r.register($op, "float", "bool", "float", |l, r, _| {
+                let a = match l { Value::Float(f) => f, _ => unreachable!() };
+                let b = match r { Value::Bool(b) => if b { 1.0 } else { 0.0 }, _ => unreachable!() };
+                Ok(Value::Float($f(a, b)))
+            });
+            $r.register($op, "bool", "bool", "float", |l, r, _| {
+                let a = match l { Value::Bool(b) => if b { 1.0 } else { 0.0 }, _ => unreachable!() };
+                let b = match r { Value::Bool(b) => if b { 1.0 } else { 0.0 }, _ => unreachable!() };
+                Ok(Value::Float($f(a, b)))
+            });
+        };
+    }
+    bool_arith!(r, Add, |a: f64, b: f64| a + b);
+    bool_arith!(r, Sub, |a: f64, b: f64| a - b);
+    bool_arith!(r, Mul, |a: f64, b: f64| a * b);
+    bool_arith!(r, Div, |a: f64, b: f64| a / b);
+    bool_arith!(r, Mod, |a: f64, b: f64| a % b);
 }
 
 // ─── mat3 ─────────────────────────────────────────────────────────────────────

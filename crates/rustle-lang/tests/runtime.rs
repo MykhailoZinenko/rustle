@@ -1868,3 +1868,59 @@ fn truthy_while_string() {
     ");
     assert_eq!(f(&rt, "v"), 0.0);
 }
+
+// ─── Boolean arithmetic ──────────────────────────────────────────────────────
+
+#[test]
+fn bool_add_true_plus_one() {
+    let rt = run("state { let v: float = true + 1.0 }");
+    assert_eq!(f(&rt, "v"), 2.0);
+}
+
+#[test]
+fn bool_add_false_plus_one() {
+    let rt = run("state { let v: float = false + 1.0 }");
+    assert_eq!(f(&rt, "v"), 1.0);
+}
+
+#[test]
+fn bool_sub() {
+    let rt = run("state { let v: float = true - false }");
+    assert_eq!(f(&rt, "v"), 1.0);
+}
+
+#[test]
+fn bool_mul() {
+    let rt = run("state { let v: float = true * 5.0 }");
+    assert_eq!(f(&rt, "v"), 5.0);
+}
+
+#[test]
+fn bool_mul_false() {
+    let rt = run("state { let v: float = false * 5.0 }");
+    assert_eq!(f(&rt, "v"), 0.0);
+}
+
+#[test]
+fn bool_div() {
+    let rt = run("state { let v: float = 5.0 / true }");
+    assert_eq!(f(&rt, "v"), 5.0);
+}
+
+#[test]
+fn bool_mod() {
+    let rt = run("state { let v: float = 3.0 % true }");
+    assert_eq!(f(&rt, "v"), 0.0);
+}
+
+#[test]
+fn bool_add_both() {
+    let rt = run("state { let v: float = true + true }");
+    assert_eq!(f(&rt, "v"), 2.0);
+}
+
+#[test]
+fn bool_chain_arithmetic() {
+    let rt = run("state { let v: float = true + true + true }");
+    assert_eq!(f(&rt, "v"), 3.0);
+}
