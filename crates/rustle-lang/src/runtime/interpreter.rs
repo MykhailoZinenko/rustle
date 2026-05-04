@@ -9,6 +9,7 @@ use crate::types::registry::TypeRegistry;
 use crate::error::{ErrorCode, RuntimeError};
 use crate::namespaces::{value_type_name, NamespaceRegistry, RuntimeState};
 use crate::{Input, State, Value};
+use crate::runtime::value::ClosureData;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -275,11 +276,11 @@ impl<'a> Interpreter<'a> {
                 self.env.get(name)
                     .or_else(|| self.registry.get_constant(name))
                     .or_else(|| {
-                        self.fn_table.get(name.as_str()).map(|f| Value::Closure {
+                        self.fn_table.get(name.as_str()).map(|f| Value::Closure(Box::new(ClosureData {
                             params: f.params.clone(),
                             body: f.body.clone(),
                             captured: HashMap::new(),
-                        })
+                        })))
                     })
                     .ok_or_else(|| self.err(ErrorCode::R002, span.line, format!("undefined: `{name}`")))
             }
@@ -407,7 +408,7 @@ impl<'a> Interpreter<'a> {
                     .filter(|(k, _)| needed.contains(k.as_str()))
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
-                Ok(Value::Closure { params: params.clone(), body: body.clone(), captured })
+                Ok(Value::Closure(Box::new(ClosureData { params: params.clone(), body: body.clone(), captured })))
             }
         }
     }
@@ -436,8 +437,8 @@ impl<'a> Interpreter<'a> {
                     return self.registry.call_any(&n, &arg_vals, &named, &mut self.runtime_state, span.line)?
                         .ok_or_else(|| self.err(ErrorCode::R004, span.line, format!("unknown native fn: `{n}`")));
                 }
-                Value::Closure { params, body, captured } => {
-                    return self.call_body(callee, &params, &body, &captured, &arg_vals, span.line);
+                Value::Closure(data) => {
+                    return self.call_body(callee, &data.params, &data.body, &data.captured, &arg_vals, span.line);
                 }
                 _ => {} // fall through — may be a user fn with same name
             }

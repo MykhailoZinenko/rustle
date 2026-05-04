@@ -7,6 +7,14 @@ use std::cell::RefCell;
 use crate::syntax::ast::{Param, Stmt};
 use crate::types::draw::{RenderMode, ShapeData, TransformData};
 
+#[derive(Debug, Clone)]
+pub struct ClosureData {
+    pub params: Arc<[Param]>,
+    pub body:   Arc<[Stmt]>,
+    pub captured: HashMap<String, Value>,
+}
+
+/// Runtime value in the Rustle interpreter.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -27,11 +35,7 @@ pub enum Value {
     ResErr(String),
     Namespace(String),
     NativeFn(String),
-    Closure {
-        params: Arc<[Param]>,
-        body:   Arc<[Stmt]>,
-        captured: HashMap<String, Value>,
-    },
+    Closure(Box<ClosureData>),
     State(Rc<RefCell<HashMap<String, Value>>>),
     Input { dt: f64 },
     None,
@@ -85,7 +89,7 @@ impl fmt::Display for Value {
             Value::RenderMode(_) => write!(f, "<render_mode>"),
             Value::Namespace(n)  => write!(f, "<namespace:{n}>"),
             Value::NativeFn(n)   => write!(f, "<fn:{n}>"),
-            Value::Closure { .. } => write!(f, "<closure>"),
+            Value::Closure(_) => write!(f, "<closure>"),
             Value::State(_)  => write!(f, "<state>"),
             Value::Input { dt } => write!(f, "input(dt={dt})"),
             Value::None => write!(f, "none"),

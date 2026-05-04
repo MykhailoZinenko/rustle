@@ -1,53 +1,92 @@
-/// Error codes prefixed by phase: L = lexer, P = parser, S = semantic, R = runtime.
+/// Error classification code, prefixed by phase: L=lexer, P=parser, S=semantic, R=runtime.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErrorCode {
     // Lexer
-    L001, // unexpected character
-    L002, // unterminated string literal
-    L003, // invalid escape sequence
-    L004, // unterminated block comment
-    L005, // invalid number literal
+    /// Unexpected character in source.
+    L001,
+    /// Unterminated string literal.
+    L002,
+    /// Invalid escape sequence.
+    L003,
+    /// Unterminated block comment.
+    L004,
+    /// Invalid number literal.
+    L005,
 
     // Parser
-    P001, // unexpected token
-    P002, // missing expected token
-    P003, // unclosed delimiter
-    P004, // invalid assignment target
-    P005, // empty body
-    P006, // duplicate else clause
-    P007, // invalid type annotation
+    /// Unexpected token.
+    P001,
+    /// Missing expected token.
+    P002,
+    /// Unclosed delimiter.
+    P003,
+    /// Invalid assignment target.
+    P004,
+    /// Empty body.
+    P005,
+    /// Duplicate else clause.
+    P006,
+    /// Invalid type annotation.
+    P007,
 
     // Semantic / resolver
-    S001, // undefined symbol
-    S002, // type mismatch
-    S003, // redeclaration in same scope
-    S004, // reassignment of const
-    S005, // unknown namespace
-    S006, // member not exported by namespace
-    S007, // wrong argument count
-    S008, // operator not applicable to type
-    S009, // field or method not found on type
-    S010, // not callable
-    S011, // duplicate state block
-    S012, // invalid update function signature
-    S013, // missing return value
-    S014, // unreachable code
-    S015, // cannot infer type
+    /// Undefined symbol.
+    S001,
+    /// Type mismatch.
+    S002,
+    /// Redeclaration in same scope.
+    S003,
+    /// Reassignment of const.
+    S004,
+    /// Unknown namespace.
+    S005,
+    /// Member not exported by namespace.
+    S006,
+    /// Wrong argument count.
+    S007,
+    /// Operator not applicable to type.
+    S008,
+    /// Field or method not found on type.
+    S009,
+    /// Expression is not callable.
+    S010,
+    /// Duplicate state block.
+    S011,
+    /// Invalid lifecycle function signature.
+    S012,
+    /// Missing return value.
+    S013,
+    /// Unreachable code or invalid control flow.
+    S014,
+    /// Cannot infer type.
+    S015,
 
     // Runtime
-    R001, // type error
-    R002, // undefined variable/function
-    R003, // field not found
-    R004, // method not found
-    R005, // index out of bounds
-    R006, // invalid index
-    R007, // division by zero
-    R008, // wrong argument count
-    R009, // not callable
-    R010, // cancelled
-    R011, // invalid operation
-    R012, // assertion error
+    /// Runtime type error.
+    R001,
+    /// Undefined variable or function.
+    R002,
+    /// Field not found.
+    R003,
+    /// Method not found.
+    R004,
+    /// Index out of bounds.
+    R005,
+    /// Invalid index value.
+    R006,
+    /// Division by zero.
+    R007,
+    /// Wrong argument count.
+    R008,
+    /// Expression is not callable.
+    R009,
+    /// Script cancelled.
+    R010,
+    /// Invalid operation.
+    R011,
+    /// Assertion failed.
+    R012,
 }
 
 impl ErrorCode {
@@ -97,6 +136,7 @@ impl ErrorCode {
     }
 }
 
+/// Compile-time error with source location, code, message, and optional hint.
 #[derive(Debug, Clone)]
 pub struct Error {
     pub code: ErrorCode,
@@ -132,12 +172,14 @@ impl std::error::Error for Error {}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// A single frame in the runtime call stack.
 #[derive(Debug, Clone)]
 pub struct StackFrame {
     pub function: String,
     pub line: usize,
 }
 
+/// Runtime error with source location, code, message, and call stack trace.
 #[derive(Debug, Clone)]
 pub struct RuntimeError {
     pub code: ErrorCode,
@@ -172,7 +214,8 @@ impl std::error::Error for RuntimeError {}
 // Suggestion helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[must_use] 
+/// Compute the Levenshtein edit distance between two strings.
+#[must_use]
 pub fn levenshtein(a: &str, b: &str) -> usize {
     let (a, b) = (a.as_bytes(), b.as_bytes());
     let (m, n) = (a.len(), b.len());
@@ -189,7 +232,8 @@ pub fn levenshtein(a: &str, b: &str) -> usize {
     prev[n]
 }
 
-#[must_use] 
+/// Find the closest match to `name` from `candidates` within `max_dist` edits.
+#[must_use]
 pub fn suggest_similar<'a>(name: &str, candidates: &[&'a str], max_dist: usize) -> Option<&'a str> {
     candidates
         .iter()

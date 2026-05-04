@@ -1,3 +1,8 @@
+//! Rustle scripting language runtime.
+//!
+//! Provides compilation and execution of `.rustle` scripts for 2D interactive scenes.
+//! The main entry points are [`compile`] and [`Runtime`].
+
 pub mod syntax;
 pub mod types;
 pub mod runtime;
@@ -27,9 +32,10 @@ use analysis::resolve;
 #[derive(Debug, Clone, Default)]
 pub struct State(pub HashMap<String, Value>);
 
-/// Per-frame input passed into `update`.
+/// Per-frame input passed into `on_update`.
 #[derive(Debug, Clone, Default)]
 pub struct Input {
+    /// Elapsed time in seconds since the last frame.
     pub dt: f64,
 }
 
@@ -46,7 +52,12 @@ pub struct Program {
 /// Parse and type-check source text. Returns a compiled program ready for execution.
 ///
 /// # Errors
-/// Returns a list of parse or semantic errors if the source is invalid.
+/// Returns `Vec<Error>` if the source has lexer, parser, or semantic errors.
+///
+/// # Examples
+/// ```
+/// let program = rustle_lang::compile("state { let x: float = 0.0 }").unwrap();
+/// ```
 pub fn compile(source: &str) -> Result<Program, Vec<Error>> {
     let tokens = syntax::lexer::Lexer::new(source).tokenize()?;
     let ast = syntax::parser::Parser::new(tokens).parse()?;
@@ -141,7 +152,8 @@ impl Runtime {
         Ok(interp.take_output())
     }
 
-    #[must_use] 
+    /// Return a reference to the script's persistent state.
+    #[must_use]
     pub fn state(&self) -> &State { &self.state }
 
     /// Run `on_exit(s)` if defined, then drop. Call when the app stops.

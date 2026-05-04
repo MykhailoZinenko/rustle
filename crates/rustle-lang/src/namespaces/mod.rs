@@ -177,7 +177,7 @@ pub(crate) fn value_type_name(v: &Value) -> &'static str {
         Value::ResOk(_)      => "res<ok>",
         Value::ResErr(_)     => "res<err>",
         Value::Namespace(_)  => "namespace",
-        Value::NativeFn(_) | Value::Closure { .. } => "fn",
+        Value::NativeFn(_) | Value::Closure(_) => "fn",
         Value::State(_)      => "State",
         Value::Input {..}    => "Input",
         Value::None          => "none",

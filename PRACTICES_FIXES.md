@@ -64,6 +64,18 @@ Extracted shared `run_lifecycle()` method. `run_update`, `run_init`, `run_on_exi
 ### 29. call_fn and call_closure nearly identical
 Merged into single `call_body()` method. Callers pass `&HashMap::new()` for plain functions, actual captures for closures.
 
+### 5. Value enum large variant size disparity
+Boxed `Closure` variant into `Value::Closure(Box<ClosureData>)` with a dedicated `ClosureData` struct. Reduces stack size of every `Value` instance.
+
+### 9. No doc comments on public API
+Added `//!` crate doc to `lib.rs`, `///` docs to all public structs/functions/enums in `lib.rs`, `error.rs`, `value.rs`. Added doc test for `compile()`.
+
+### 32. No doc tests
+Added runnable `# Examples` doc test to `compile()`.
+
+### 23. ErrorCode semantic names
+Added `///` doc comments to all 42 `ErrorCode` variants explaining what each code means.
+
 ### 17. No rustfmt.toml configuration
 Created `rustfmt.toml` with `reorder_imports`, `imports_granularity = "Crate"`, `group_imports = "StdExternalCrate"`.
 
