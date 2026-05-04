@@ -2,6 +2,6 @@
 members = [
     "crates/rustle-lang",
     "crates/rustle-renderer",
-    "crates/rustle-app",
+    "crates/rustle-ide",
 ]
 resolver = "2"
