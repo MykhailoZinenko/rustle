@@ -91,12 +91,12 @@ impl<'a> TypeResolver<'a> {
         self.table.push_scope(ScopeKind::Function);
 
         // Declare params in function scope
-        for param in &f.params {
+        for param in f.params.iter() {
             let sym = Symbol::new(param.name.clone(), Some(param.ty.clone()), SymbolKind::Param, param.span.clone());
             self.table.declare(sym);
         }
 
-        for stmt in &f.body {
+        for stmt in f.body.iter() {
             self.check_stmt(stmt);
         }
 
@@ -640,11 +640,11 @@ impl<'a> TypeResolver<'a> {
                 // Check the lambda body in its own scope
                 self.table.push_scope(ScopeKind::Function);
                 let prev_return = std::mem::replace(&mut self.current_fn_return, return_ty.clone());
-                for param in params {
+                for param in params.iter() {
                     let sym = Symbol::new(param.name.clone(), Some(param.ty.clone()), SymbolKind::Param, param.span.clone());
                     self.table.declare(sym);
                 }
-                for stmt in body { self.check_stmt(stmt); }
+                for stmt in body.iter() { self.check_stmt(stmt); }
                 self.table.pop_scope();
                 self.current_fn_return = prev_return;
 

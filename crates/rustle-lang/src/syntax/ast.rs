@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 /// Source location attached to every node for error reporting.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Span {
@@ -55,9 +57,9 @@ pub enum Item {
 #[derive(Debug, Clone)]
 pub struct FnDef {
     pub name: String,
-    pub params: Vec<Param>,
+    pub params: Arc<[Param]>,
     pub return_ty: Option<Type>,
-    pub body: Vec<Stmt>,
+    pub body: Arc<[Stmt]>,
     pub span: Span,
 }
 
@@ -308,9 +310,9 @@ pub enum Expr {
 
     /// `(a: float, b: float) -> float { return a + b }`
     Lambda {
-        params: Vec<Param>,
+        params: Arc<[Param]>,
         return_ty: Option<Type>,
-        body: Vec<Stmt>,
+        body: Arc<[Stmt]>,
         span: Span,
     },
 }

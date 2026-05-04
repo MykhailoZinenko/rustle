@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use crate::syntax::ast::*;
 use crate::error::{Error, ErrorCode};
 use crate::syntax::token::{Token, TokenKind};
@@ -114,10 +115,10 @@ impl Parser {
         if self.check(TokenKind::LParen) {
             // fn name(params) -> T { body }
             self.advance();
-            let params = self.parse_param_list()?;
+            let params: Arc<[Param]> = self.parse_param_list()?.into();
             self.expect(TokenKind::RParen)?;
             let return_ty = if self.matches(TokenKind::Arrow) { Some(self.parse_type()?) } else { None };
-            let body = self.parse_block()?;
+            let body: Arc<[Stmt]> = self.parse_block()?.into();
             Ok(Item::FnDef(FnDef { name, params, return_ty, body, span }))
         } else {
             // fn name = expr
@@ -958,10 +959,10 @@ impl Parser {
     fn parse_lambda(&mut self) -> Result<Expr, Error> {
         let span = self.span();
         self.expect(TokenKind::LParen)?;
-        let params = self.parse_param_list()?;
+        let params: Arc<[Param]> = self.parse_param_list()?.into();
         self.expect(TokenKind::RParen)?;
         let return_ty = if self.matches(TokenKind::Arrow) { Some(self.parse_type()?) } else { None };
-        let body = self.parse_block()?;
+        let body: Arc<[Stmt]> = self.parse_block()?.into();
         Ok(Expr::Lambda { params, return_ty, body, span })
     }
 

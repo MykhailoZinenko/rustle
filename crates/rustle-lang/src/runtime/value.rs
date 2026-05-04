@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::cell::RefCell;
 
 use crate::syntax::ast::{Param, Stmt};
@@ -26,8 +27,8 @@ pub enum Value {
     Namespace(String),
     NativeFn(String),
     Closure {
-        params: Vec<Param>,
-        body:   Vec<Stmt>,
+        params: Arc<[Param]>,
+        body:   Arc<[Stmt]>,
         captured: HashMap<String, Value>,
     },
     State(Rc<RefCell<HashMap<String, Value>>>),

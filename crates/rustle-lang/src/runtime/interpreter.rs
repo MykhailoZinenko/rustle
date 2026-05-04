@@ -61,6 +61,7 @@ impl Env {
 
 pub struct Interpreter<'a> {
     program: &'a ast::Program,
+    fn_table: HashMap<&'a str, &'a ast::FnDef>,
     registry: &'a NamespaceRegistry,
     binops: BinopRegistry,
     types: TypeRegistry,
@@ -72,8 +73,13 @@ pub struct Interpreter<'a> {
 
 impl<'a> Interpreter<'a> {
     pub fn new(program: &'a ast::Program, registry: &'a NamespaceRegistry) -> Self {
+        let fn_table = program.items.iter().filter_map(|item| match item {
+            ast::Item::FnDef(f) => Some((f.name.as_str(), f)),
+            _ => None,
+        }).collect();
         Self {
             program,
+            fn_table,
             registry,
             binops: BinopRegistry::default(),
             types: TypeRegistry::default(),
@@ -107,6 +113,11 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
+    /// Check whether a named function is defined in the program.
+    pub fn has_fn(&self, name: &str) -> bool {
+        self.fn_table.contains_key(name)
+    }
+
     /// Extract the final runtime state after running (captures resolution/origin calls).
     pub fn take_runtime_state(&self) -> RuntimeState {
         self.runtime_state.clone()
@@ -123,8 +134,8 @@ impl<'a> Interpreter<'a> {
     /// - `import shapes { circle }` → `circle = NativeFn("circle")`
     /// - `import render { sdf }`   → `sdf = RenderMode(Sdf)`  (constant)
     pub fn setup_imports(&mut self) {
-        let imports = self.program.imports.clone();
-        for import in &imports {
+        let program = self.program;
+        for import in &program.imports {
             if import.members.is_empty() {
                 self.env.declare(&import.namespace, Value::Namespace(import.namespace.clone()));
             } else {
@@ -151,19 +162,15 @@ impl<'a> Interpreter<'a> {
 
     pub fn run_top_level(&mut self) -> Result<(), RuntimeError> {
         self.setup_imports();
-        let items = self.program.items.clone();
-        for item in &items {
+        let program = self.program;
+        for item in &program.items {
             if let Item::Stmt(s) = item { self.exec_stmt(s)?; }
         }
         Ok(())
     }
 
     pub fn run_update(&mut self, state: State, input: &Input) -> Result<State, RuntimeError> {
-        let f = self.program.items.iter().find_map(|i| match i {
-            Item::FnDef(f) if f.name == "on_update" => Some(f.clone()),
-            _ => None,
-        });
-        let Some(f) = f else { return Ok(state); };
+        let Some(f) = self.fn_table.get("on_update").copied() else { return Ok(state); };
 
         self.run_top_level()?;
 
@@ -176,7 +183,7 @@ impl<'a> Interpreter<'a> {
         if let Some(p) = f.params.get(1)   { self.env.declare(&p.name, input_val); }
 
         self.return_value = None;
-        for stmt in &f.body {
+        for stmt in f.body.iter() {
             match self.exec_stmt(stmt) {
                 Ok(()) => {}
                 Err(mut e) => {
@@ -197,11 +204,7 @@ impl<'a> Interpreter<'a> {
     }
 
     pub fn run_init(&mut self, state: State) -> Result<State, RuntimeError> {
-        let f = self.program.items.iter().find_map(|i| match i {
-            Item::FnDef(f) if f.name == "on_init" => Some(f.clone()),
-            _ => None,
-        });
-        let Some(f) = f else { return Ok(state); };
+        let Some(f) = self.fn_table.get("on_init").copied() else { return Ok(state); };
 
         let state_rc = Rc::new(RefCell::new(state.0));
         let state_val = Value::State(state_rc.clone());
@@ -210,7 +213,7 @@ impl<'a> Interpreter<'a> {
         if let Some(p) = f.params.first() { self.env.declare(&p.name, state_val); }
 
         self.return_value = None;
-        for stmt in &f.body {
+        for stmt in f.body.iter() {
             match self.exec_stmt(stmt) {
                 Ok(()) => {}
                 Err(mut e) => {
@@ -231,11 +234,7 @@ impl<'a> Interpreter<'a> {
     }
 
     pub fn run_on_exit(&mut self, state: State) -> Result<State, RuntimeError> {
-        let f = self.program.items.iter().find_map(|i| match i {
-            Item::FnDef(f) if f.name == "on_exit" => Some(f.clone()),
-            _ => None,
-        });
-        let Some(f) = f else { return Ok(state); };
+        let Some(f) = self.fn_table.get("on_exit").copied() else { return Ok(state); };
 
         let state_rc = Rc::new(RefCell::new(state.0));
         let state_val = Value::State(state_rc.clone());
@@ -244,7 +243,7 @@ impl<'a> Interpreter<'a> {
         if let Some(p) = f.params.first() { self.env.declare(&p.name, state_val); }
 
         self.return_value = None;
-        for stmt in &f.body {
+        for stmt in f.body.iter() {
             match self.exec_stmt(stmt) {
                 Ok(()) => {}
                 Err(mut e) => {
@@ -282,14 +281,10 @@ impl<'a> Interpreter<'a> {
                 self.env.get(name)
                     .or_else(|| self.registry.get_constant(name))
                     .or_else(|| {
-                        // User-defined function used as a first-class value.
-                        self.program.items.iter().find_map(|i| match i {
-                            Item::FnDef(f) if f.name == *name => Some(Value::Closure {
-                                params: f.params.clone(),
-                                body: f.body.clone(),
-                                captured: HashMap::new(),
-                            }),
-                            _ => None,
+                        self.fn_table.get(name.as_str()).map(|f| Value::Closure {
+                            params: f.params.clone(),
+                            body: f.body.clone(),
+                            captured: HashMap::new(),
                         })
                     })
                     .ok_or_else(|| self.err(ErrorCode::R002, span.line, format!("undefined: `{name}`")))
@@ -461,11 +456,7 @@ impl<'a> Interpreter<'a> {
         }
 
         // 3. User-defined functions (FnDef items)
-        let f = self.program.items.iter().find_map(|i| match i {
-            Item::FnDef(f) if f.name == callee => Some(f.clone()),
-            _ => None,
-        });
-        if let Some(f) = f {
+        if let Some(f) = self.fn_table.get(callee).copied() {
             if f.params.len() != arg_vals.len() {
                 return Err(self.err(ErrorCode::R008, span.line, format!(
                     "`{}` expects {} args, got {}", f.name, f.params.len(), arg_vals.len()
@@ -491,9 +482,8 @@ impl<'a> Interpreter<'a> {
             self.env.declare(&p.name, v.clone());
         }
         let saved = self.return_value.take();
-        let body = body.to_vec();
         let mut err_result = None;
-        for stmt in &body {
+        for stmt in body {
             match self.exec_stmt(stmt) {
                 Ok(()) => {}
                 Err(mut e) => {
@@ -533,9 +523,8 @@ impl<'a> Interpreter<'a> {
         for (k, v) in captured { self.env.declare(k, v.clone()); }
         for (p, v) in params.iter().zip(arg_vals) { self.env.declare(&p.name, v.clone()); }
         let saved = self.return_value.take();
-        let body = body.to_vec();
         let mut err_result = None;
-        for stmt in &body {
+        for stmt in body {
             match self.exec_stmt(stmt) {
                 Ok(()) => {}
                 Err(mut e) => {
@@ -1183,8 +1172,8 @@ fn collect_free_expr(expr: &Expr, bound: &HashSet<String>, free: &mut HashSet<St
         }
         Expr::Lambda { params, body, .. } => {
             let mut inner_bound = bound.clone();
-            for p in params { inner_bound.insert(p.name.clone()); }
-            for s in body { collect_free_stmt(s, &mut inner_bound, free); }
+            for p in params.iter() { inner_bound.insert(p.name.clone()); }
+            for s in body.iter() { collect_free_stmt(s, &mut inner_bound, free); }
         }
     }
 }
