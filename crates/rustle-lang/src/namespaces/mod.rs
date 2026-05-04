@@ -67,6 +67,11 @@ pub trait NamespaceProvider: NamespaceInfo {
 
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
+/// Registry of namespace providers for resolving imports and dispatching calls.
+///
+/// Uses dynamic dispatch (`Box<dyn NamespaceProvider>`) to support potential
+/// future plugin/extension namespaces. The fixed set of built-in namespaces
+/// (core, shapes, render, coords) is registered via [`Self::standard()`].
 pub struct NamespaceRegistry {
     providers: Vec<Box<dyn NamespaceProvider>>,
 }

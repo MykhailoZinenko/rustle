@@ -85,6 +85,15 @@ Split 4 multi-assertion tests into 15 individual tests: `keywords` (6), `all_ari
 ### 2. Env::get clones every value on read
 Changed `Env::get` to return `Option<&Value>` instead of `Option<Value>`. All 8 call sites that need ownership now use explicit `.cloned()`, making every clone visible. Future optimizations can target specific sites.
 
+### 8. Functions accept String where &str would suffice
+Fixed `Env::set` to use `get_mut` instead of `contains_key` + `insert(name.to_string(), ...)`. Eliminates String allocation on every variable assignment.
+
+### 28. NamespaceRegistry uses Vec of trait objects
+Documented the dynamic dispatch trade-off. Kept current design for future plugin extensibility.
+
+### 31. TokenKind contains owned Strings
+Changed `peek_kind()` to return `&TokenKind` instead of cloning. Eliminates string allocations on every parser peek. Documented the owned-string trade-off.
+
 ### 17. No rustfmt.toml configuration
 Created `rustfmt.toml` with `reorder_imports`, `imports_granularity = "Crate"`, `group_imports = "StdExternalCrate"`.
 

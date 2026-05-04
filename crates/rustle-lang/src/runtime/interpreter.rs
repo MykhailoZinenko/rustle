@@ -38,8 +38,8 @@ impl Env {
 
     fn set(&mut self, name: &str, val: Value) -> bool {
         for scope in self.scopes.iter_mut().rev() {
-            if scope.contains_key(name) {
-                scope.insert(name.to_string(), val);
+            if let Some(slot) = scope.get_mut(name) {
+                *slot = val;
                 return true;
             }
         }

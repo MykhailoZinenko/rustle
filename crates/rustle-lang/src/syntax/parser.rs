@@ -736,7 +736,7 @@ impl Parser {
 
         while !self.check(TokenKind::RParen) && !self.is_at_end() {
             // named arg: ident `:` expr
-            if let TokenKind::Ident(_) = self.peek_kind()
+            if matches!(self.peek_kind(), TokenKind::Ident(_))
                 && self.peek_next_is(TokenKind::Colon) {
                     let name = self.expect_ident()?;
                     self.expect(TokenKind::Colon)?;
@@ -843,8 +843,8 @@ impl Parser {
         &self.tokens[self.pos]
     }
 
-    fn peek_kind(&self) -> TokenKind {
-        self.tokens[self.pos].kind.clone()
+    fn peek_kind(&self) -> &TokenKind {
+        &self.tokens[self.pos].kind
     }
 
     #[expect(clippy::needless_pass_by_value, reason = "TokenKind not Copy; taking by value avoids & at every call site")]
@@ -907,7 +907,7 @@ impl Parser {
 
     #[expect(clippy::needless_pass_by_value, reason = "TokenKind not Copy; taking by value avoids & at every call site")]
     fn check(&self, kind: TokenKind) -> bool {
-        self.peek_kind() == kind
+        *self.peek_kind() == kind
     }
 
     fn matches(&mut self, kind: TokenKind) -> bool {
@@ -938,7 +938,7 @@ impl Parser {
     }
 
     fn is_at_end(&self) -> bool {
-        matches!(self.peek_kind(), TokenKind::Eof)
+        *self.peek_kind() == TokenKind::Eof
     }
 
     fn span(&self) -> Span {

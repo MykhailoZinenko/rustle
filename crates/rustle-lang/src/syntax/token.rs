@@ -1,3 +1,7 @@
+// NOTE: TokenKind stores owned Strings for Ident/StringLit/HexColor.
+// This causes cloning in parser's peek_kind(). A string-interning approach
+// would eliminate this, but isn't worth the complexity until parsing
+// becomes a measured bottleneck. See PRACTICES_REVIEW.md #31.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     // Literals
