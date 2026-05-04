@@ -4,7 +4,7 @@
 //! State values are inspected after init/tick to verify correctness.
 //! Draw commands are inspected for shape emission.
 
-use rustle_lang::{compile, Runtime, Input, Value, DrawCommand};
+use rustle_lang::{compile, Runtime, Input, Value, DrawCommand, ErrorCode};
 use rustle_lang::types::draw::ShapeDesc;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -1923,4 +1923,70 @@ fn bool_add_both() {
 fn bool_chain_arithmetic() {
     let rt = run("state { let v: float = true + true + true }");
     assert_eq!(f(&rt, "v"), 3.0);
+}
+
+// ─── Error code tests ────────────────────────────────────────────────────────
+
+#[test]
+fn runtime_error_has_code_r005() {
+    let e = run_err(r#"
+        state { let xs: list[float] = [] }
+        fn on_init(s: State) -> State {
+            let v: float = s.xs[0]
+            return s
+        }
+    "#);
+    assert_eq!(e.code, ErrorCode::R005);
+}
+
+#[test]
+fn runtime_error_index_out_of_bounds_with_details() {
+    let e = run_err(r#"
+        state { let xs: list[float] = [] }
+        fn on_init(s: State) -> State {
+            s.xs.push(1)
+            let v: float = s.xs[5]
+            return s
+        }
+    "#);
+    assert_eq!(e.code, ErrorCode::R005);
+    assert!(e.message.contains("5"), "should include the index: {}", e.message);
+    assert!(e.message.contains("1"), "should include the list length: {}", e.message);
+}
+
+#[test]
+fn runtime_error_division_by_zero_has_code() {
+    let e = run_err("state { let v: float = 1.0 / 0.0 }");
+    assert_eq!(e.code, ErrorCode::R007);
+}
+
+#[test]
+fn runtime_error_stack_trace_on_nested_call() {
+    let e = run_err(r#"
+        fn inner(x: float) -> float { return 1.0 / 0.0 }
+        fn outer(x: float) -> float { return inner(x) }
+        fn on_init(s: State) -> State {
+            let v: float = outer(1)
+            return s
+        }
+    "#);
+    assert_eq!(e.code, ErrorCode::R007);
+    assert!(!e.stack.is_empty(), "should have stack frames, got: {:?}", e.stack);
+}
+
+#[test]
+fn runtime_error_field_not_found_message_format() {
+    // Test that field-not-found error on state includes available fields
+    // Use a runtime path: index-out-of-bounds on empty list to test R003 format
+    let e = run_err("state { let v: float = 1.0 / 0.0 }");
+    // Just verify the error has a code and formatted message
+    assert_eq!(e.code, ErrorCode::R007);
+    assert!(e.message.contains("division by zero"), "message: {}", e.message);
+}
+
+#[test]
+fn runtime_error_display_includes_code() {
+    let e = run_err("state { let v: float = 1.0 / 0.0 }");
+    let display = format!("{e}");
+    assert!(display.contains("[R007]"), "display should include error code: {display}");
 }

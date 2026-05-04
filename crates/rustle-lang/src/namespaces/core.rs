@@ -7,7 +7,7 @@ use crate::types::mat::{
     m3_identity, m3_translate2d, m3_rotate2d, m3_scale2d,
     m4_identity, m4_translate, m4_scale_xyz, m4_rotate_x, m4_rotate_y, m4_rotate_z,
 };
-use crate::error::RuntimeError;
+use crate::error::{ErrorCode, RuntimeError};
 use crate::Value;
 use std::collections::HashMap;
 use super::{Export, ExportKind, NamespaceInfo, NamespaceProvider, RuntimeState, as_float, check_argc, value_type_name};
@@ -170,7 +170,7 @@ impl NamespaceProvider for CoreNamespace {
             }
             "color" => {
                 if args.len() != 3 && args.len() != 4 {
-                    return Err(RuntimeError::new(line, format!(
+                    return Err(RuntimeError::new(ErrorCode::R008, line, format!(
                         "`color` expects 3 or 4 args, got {}", args.len()
                     )));
                 }

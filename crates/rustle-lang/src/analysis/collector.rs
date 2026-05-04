@@ -96,11 +96,17 @@ impl<'a> Collector<'a> {
                         }
                     }
                     None => {
-                        self.errors.push(Error::new(
+                        let mut err = Error::new(
                             ErrorCode::S006,
                             import.span.line, import.span.column,
                             format!("`{}` does not export `{member}`", import.namespace),
-                        ));
+                        );
+                        if let Some(ns) = self.registry.get(&import.namespace) {
+                            let exports = ns.exports();
+                            let names: Vec<&str> = exports.iter().map(|e| e.name).collect();
+                            err = err.with_hint(format!("available exports: {}", names.join(", ")));
+                        }
+                        self.errors.push(err);
                     }
                 }
             }

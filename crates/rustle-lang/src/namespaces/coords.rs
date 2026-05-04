@@ -1,6 +1,6 @@
 use crate::syntax::ast::Type;
 use crate::types::draw::Origin;
-use crate::error::RuntimeError;
+use crate::error::{ErrorCode, RuntimeError};
 use crate::Value;
 use std::collections::HashMap;
 use super::{Export, ExportKind, NamespaceInfo, NamespaceProvider, RuntimeState, as_float, check_argc};
@@ -51,12 +51,12 @@ impl NamespaceProvider for CoordsNamespace {
                 check_argc(name, args, 1, line)?;
                 let s = match &args[0] {
                     Value::Str(s) => s.clone(),
-                    other => return Err(RuntimeError::new(line, format!(
+                    other => return Err(RuntimeError::new(ErrorCode::R001, line, format!(
                         "`origin` expects an origin constant, got `{:?}`", other
                     ))),
                 };
                 state.coord_meta.origin = Origin::from_str(&s)
-                    .ok_or_else(|| RuntimeError::new(line, format!("unknown origin: `{s}`")))?;
+                    .ok_or_else(|| RuntimeError::new(ErrorCode::R011, line, format!("unknown origin: `{s}`")))?;
                 Ok(Some(Value::Float(0.0)))
             }
             _ => Ok(None),

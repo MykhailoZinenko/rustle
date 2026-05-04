@@ -899,7 +899,7 @@ impl Parser {
                 ErrorCode::P002,
                 tok.line,
                 tok.column,
-                format!("expected {:?}, found {:?}", kind, tok.kind),
+                format!("expected {}, found {}", kind.display_name(), tok.kind.display_name()),
             ))
         }
     }
@@ -927,7 +927,7 @@ impl Parser {
             ErrorCode::P001,
             tok.line,
             tok.column,
-            format!("expected {}, found {:?}", expected, tok.kind),
+            format!("expected {}, found {}", expected, tok.kind.display_name()),
         )
     }
 

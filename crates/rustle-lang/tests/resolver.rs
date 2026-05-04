@@ -2,7 +2,7 @@
 //!
 //! Tests the full compile pipeline through the public `compile()` API.
 //! Each test covers one specific semantic rule or success path.
-//! Error codes: S001–S012.
+//! Error codes: S001–S015.
 
 use rustle_lang::{compile, Error, ErrorCode};
 
@@ -27,6 +27,10 @@ fn has(errs: &[Error], code: ErrorCode) -> bool {
 
 fn has_msg(errs: &[Error], s: &str) -> bool {
     errs.iter().any(|e| e.message.contains(s))
+}
+
+fn has_hint(errs: &[Error], s: &str) -> bool {
+    errs.iter().any(|e| e.hint.as_deref().map_or(false, |h| h.contains(s)))
 }
 
 // ─── S001: undefined symbol ───────────────────────────────────────────────────
@@ -1295,4 +1299,40 @@ fn bool_arithmetic_both_bools() {
 #[test]
 fn bool_arithmetic_float_plus_bool() {
     ok("let x: float = 1.0 + true");
+}
+
+// ─── Error hint tests ────────────────────────────────────────────────────────
+
+#[test]
+fn s001_did_you_mean_hint() {
+    let errs = err("let speed: float = 1.0\nlet v: float = sped");
+    assert!(has(&errs, ErrorCode::S001));
+    assert!(has_hint(&errs, "did you mean 'speed'"));
+}
+
+#[test]
+fn s001_no_hint_when_no_close_match() {
+    let errs = err("let v: float = xyzzy");
+    assert!(has(&errs, ErrorCode::S001));
+    assert!(!has_hint(&errs, "did you mean"));
+}
+
+#[test]
+fn s009_field_not_found_lists_available() {
+    let errs = err("import core { vec2 }\nlet v = vec2(1, 2)\nlet z: float = v.q");
+    assert!(has(&errs, ErrorCode::S009));
+    // should hint about available fields
+    let has_field_hint = errs.iter().any(|e| {
+        e.hint.as_deref().map_or(false, |h| h.contains("x") && h.contains("y"))
+    });
+    assert!(has_field_hint, "expected hint listing available fields");
+}
+
+#[test]
+fn parser_error_uses_human_readable_tokens() {
+    let errs = err("let x = (1 +");
+    // should say something like "expected ')', found end of file" — NOT "RParen" or "Eof"
+    let msg = &errs[0].message;
+    assert!(!msg.contains("RParen"), "should not use debug format: {msg}");
+    assert!(!msg.contains("Eof"), "should not use debug format: {msg}");
 }

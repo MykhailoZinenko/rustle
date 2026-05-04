@@ -1,6 +1,6 @@
 use crate::syntax::ast::Type;
 use crate::types::draw::{Origin, ShapeData, ShapeDesc};
-use crate::error::RuntimeError;
+use crate::error::{ErrorCode, RuntimeError};
 use crate::Value;
 use std::collections::HashMap;
 use super::{
@@ -77,7 +77,7 @@ impl NamespaceProvider for ShapesNamespace {
                 check_argc(name, args, 1, line)?;
                 let verts = as_vertices(&args[0], line)?;
                 if verts.len() < 3 {
-                    return Err(RuntimeError::new(line, format!(
+                    return Err(RuntimeError::new(ErrorCode::R008, line, format!(
                         "polygon requires at least 3 vertices, got {}", verts.len()
                     )));
                 }
