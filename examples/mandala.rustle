@@ -1,0 +1,179 @@
+// Animated Mandala — a generative art piece
+// Demonstrates: nested loops, math functions, transforms, multiple render modes,
+// user-defined functions, state animation, and layered composition.
+
+import shapes { circle, rect, line, polygon, center }
+import render { fill, sdf, outline, stroke }
+import coords { resolution, origin }
+
+resolution(800, 800)
+origin(center)
+
+state {
+    let t: float = 0.0
+    let breath: float = 0.0
+}
+
+// ─── Helper functions ────────────────────────────────────────────────────────
+
+fn ring_of_circles(cx: float, cy: float, count: float, radius: float, dot_r: float, angle_off: float, mode: render_mode) {
+    for let i = 0.0; i < count; i++ {
+        let a: float = i / count * TAU + angle_off
+        let x: float = cx + cos(a) * radius
+        let y: float = cy + sin(a) * radius
+        let s = circle(vec2(x, y), dot_r, render: mode)
+        out << s
+    }
+}
+
+fn ring_of_lines(cx: float, cy: float, count: float, inner_r: float, outer_r: float, angle_off: float) {
+    for let i = 0.0; i < count; i++ {
+        let a: float = i / count * TAU + angle_off
+        let x1: float = cx + cos(a) * inner_r
+        let y1: float = cy + sin(a) * inner_r
+        let x2: float = cx + cos(a) * outer_r
+        let y2: float = cy + sin(a) * outer_r
+        let l = line(vec2(x1, y1), vec2(x2, y2))
+        out << l
+    }
+}
+
+fn petal(cx: float, cy: float, angle: float, length: float, width: float) {
+    let tip_x: float = cx + cos(angle) * length
+    let tip_y: float = cy + sin(angle) * length
+    let perp: float = angle + PI / 2.0
+    let lx: float = cx + cos(perp) * width
+    let ly: float = cy + sin(perp) * width
+    let rx: float = cx - cos(perp) * width
+    let ry: float = cy - sin(perp) * width
+    let pts: list[vec2] = [vec2(lx, ly), vec2(tip_x, tip_y), vec2(rx, ry)]
+    let p = polygon(pts, render: fill)
+    out << p
+}
+
+fn flower(cx: float, cy: float, n_petals: float, radius: float, width: float, angle_off: float) {
+    for let i = 0.0; i < n_petals; i++ {
+        let a: float = i / n_petals * TAU + angle_off
+        petal(cx, cy, a, radius, width)
+    }
+}
+
+fn star_poly(cx: float, cy: float, n_points: float, outer_r: float, inner_r: float, angle_off: float) {
+    let verts: list[vec2] = [vec2(0, 0), vec2(0, 0), vec2(0, 0)]
+    verts.pop()
+    verts.pop()
+    verts.pop()
+    for let i = 0.0; i < n_points * 2.0; i++ {
+        let a: float = i / (n_points * 2.0) * TAU + angle_off
+        let r: float = outer_r
+        if i % 2.0 == 1.0 {
+            r = inner_r
+        }
+        let x: float = cx + cos(a) * r
+        let y: float = cy + sin(a) * r
+        verts.push(vec2(x, y))
+    }
+    let s = polygon(verts, render: outline)
+    out << s
+}
+
+fn concentric_rings(cx: float, cy: float, count: float, min_r: float, spacing: float, mode: render_mode) {
+    for let i = 0.0; i < count; i++ {
+        let r: float = min_r + i * spacing
+        let c = circle(vec2(cx, cy), r, render: mode)
+        out << c
+    }
+}
+
+// ─── Main animation loop ─────────────────────────────────────────────────────
+
+fn on_update(s: State, input: Input) -> State {
+    s.t = s.t + input.dt
+    s.breath = sin(s.t * 0.8) * 0.15 + 1.0
+
+    // Background
+    let bg = rect(vec2(0, 0), vec2(820, 820), render: fill)
+    out << bg
+
+    // Outer rotating spokes
+    ring_of_lines(0, 0, 36, 280, 380, s.t * 0.15)
+
+    // Outer ring of SDF circles
+    let outer_count: float = 18
+    for let i = 0.0; i < outer_count; i++ {
+        let a: float = i / outer_count * TAU + s.t * 0.2
+        let pulse: float = sin(s.t * 2.5 + i * 0.7) * 8.0 + 20.0
+        let x: float = cos(a) * 340.0
+        let y: float = sin(a) * 340.0
+        let c = circle(vec2(x, y), pulse, render: sdf)
+        out << c
+    }
+
+    // Star polygon frames
+    star_poly(0, 0, 12, 300 * s.breath, 260 * s.breath, s.t * -0.1)
+    star_poly(0, 0, 8, 250 * s.breath, 200 * s.breath, s.t * 0.15)
+
+    // Mid-ring petal flowers
+    let flower_count: float = 6
+    for let i = 0.0; i < flower_count; i++ {
+        let a: float = i / flower_count * TAU + s.t * 0.3
+        let fx: float = cos(a) * 200.0
+        let fy: float = sin(a) * 200.0
+        let petal_size: float = 40.0 * s.breath
+        flower(fx, fy, 5, petal_size, petal_size * 0.25, a + s.t * 0.5)
+    }
+
+    // Inner rotating ring of outlined circles
+    ring_of_circles(0, 0, 12, 160 * s.breath, 12, s.t * -0.4, outline)
+
+    // Concentric guide rings
+    concentric_rings(0, 0, 5, 60, 40, stroke(0.5))
+
+    // Inner flower
+    flower(0, 0, 8, 80 * s.breath, 18 * s.breath, s.t * -0.6)
+    flower(0, 0, 8, 60 * s.breath, 12 * s.breath, s.t * 0.6 + PI / 8.0)
+
+    // Spirograph dots
+    let spiral_n: float = 60
+    for let i = 0.0; i < spiral_n; i++ {
+        let progress: float = i / spiral_n
+        let spiral_a: float = progress * TAU * 5.0 + s.t
+        let spiral_r: float = 30.0 + progress * 120.0
+        let wobble: float = sin(spiral_a * 3.0 + s.t * 2.0) * 10.0
+        let sx: float = cos(spiral_a) * (spiral_r + wobble)
+        let sy: float = sin(spiral_a) * (spiral_r + wobble)
+        let dot_size: float = 2.0 + progress * 4.0
+        let dot = circle(vec2(sx, sy), dot_size, render: fill)
+        out << dot
+    }
+
+    // Center piece
+    let center_pulse: float = sin(s.t * 1.5) * 5.0 + 25.0
+    let center_dot = circle(vec2(0, 0), center_pulse, render: sdf)
+    out << center_dot
+
+    // Orbiting satellites with mini-rings
+    let sat_count: float = 3
+    for let i = 0.0; i < sat_count; i++ {
+        let base_a: float = i / sat_count * TAU + s.t * 0.7
+        let orbit_r: float = 100.0 + sin(s.t * 1.2 + i * 2.0) * 30.0
+        let sat_x: float = cos(base_a) * orbit_r
+        let sat_y: float = sin(base_a) * orbit_r
+        let sat = circle(vec2(sat_x, sat_y), 8, render: fill)
+        out << sat
+        ring_of_circles(sat_x, sat_y, 5, 20, 3, s.t * 2.0 + i, sdf)
+    }
+
+    // Lissajous trace
+    let lis_n: float = 40
+    for let i = 0.0; i < lis_n; i++ {
+        let phase: float = i / lis_n * TAU + s.t * 0.5
+        let lx: float = sin(phase * 3.0 + s.t) * 150.0
+        let ly: float = cos(phase * 2.0 + s.t * 0.7) * 150.0
+        let sz: float = 1.5 + sin(phase * 5.0 + s.t) * 1.0
+        let dot = circle(vec2(lx, ly), sz, render: fill)
+        out << dot
+    }
+
+    return s
+}

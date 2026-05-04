@@ -391,7 +391,11 @@ impl Parser {
         self.expect(TokenKind::Semicolon)?;
         let condition = self.parse_expr()?;
         self.expect(TokenKind::Semicolon)?;
-        let step = Box::new(self.parse_assign()?);
+        let step = if self.is_path_assign() {
+            Box::new(self.parse_assign()?)
+        } else {
+            Box::new(Stmt::Expr(self.parse_expr()?))
+        };
         let body = self.parse_block()?;
         Ok(Stmt::For(ForStmt { init, condition, step, body, span }))
     }
