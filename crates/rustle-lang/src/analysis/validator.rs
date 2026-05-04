@@ -6,7 +6,7 @@
 //! - `on_update`, `on_init`, `on_exit` have correct signatures if defined
 //! - `break` / `continue` only appear inside loops
 
-use crate::syntax::ast::*;
+use crate::syntax::ast::{Program, Item, Type, Stmt};
 use crate::error::{Error, ErrorCode};
 use super::symbols::SymbolTable;
 
@@ -17,10 +17,12 @@ pub struct Validator<'a> {
 }
 
 impl<'a> Validator<'a> {
+    #[must_use] 
     pub fn new(table: &'a SymbolTable) -> Self {
         Self { table, errors: Vec::new(), loop_depth: 0 }
     }
 
+    #[must_use] 
     pub fn validate(mut self, program: &Program) -> Vec<Error> {
         self.check_on_update_signature(program);
         self.check_on_init_signature(program);
@@ -101,15 +103,14 @@ impl<'a> Validator<'a> {
         match stmt {
             Stmt::Assign(a) => {
                 let root = &a.target.path()[0];
-                if let Some(sym) = self.table.lookup(root) {
-                    if sym.kind == super::symbols::SymbolKind::Const {
+                if let Some(sym) = self.table.lookup(root)
+                    && sym.kind == super::symbols::SymbolKind::Const {
                         self.errors.push(Error::new(
                             ErrorCode::S004,
                             a.span.line, a.span.column,
                             format!("cannot reassign const `{root}`"),
                         ));
                     }
-                }
             }
             Stmt::If(i) => {
                 self.scan_stmts_for_const_assign(&i.then_block);

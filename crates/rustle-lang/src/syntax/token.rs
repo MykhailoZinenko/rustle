@@ -82,26 +82,32 @@ pub enum TokenKind {
 }
 
 impl TokenKind {
+    #[must_use] 
     pub fn is_literal(&self) -> bool {
         matches!(self, Self::Float(_) | Self::Bool(_) | Self::StringLit(_) | Self::HexColor(_))
     }
 
+    #[must_use] 
     pub fn is_arithmetic(&self) -> bool {
         matches!(self, Self::Plus | Self::Minus | Self::Star | Self::Slash | Self::Percent)
     }
 
+    #[must_use] 
     pub fn is_comparison(&self) -> bool {
         matches!(self, Self::EqEq | Self::BangEq | Self::Lt | Self::LtEq | Self::Gt | Self::GtEq)
     }
 
+    #[must_use] 
     pub fn is_logical(&self) -> bool {
         matches!(self, Self::And | Self::Or | Self::Not)
     }
 
+    #[must_use] 
     pub fn is_type_keyword(&self) -> bool {
         matches!(self, Self::TFloat | Self::TBool | Self::TArray | Self::TList | Self::TRes)
     }
 
+    #[must_use] 
     pub fn display_name(&self) -> &str {
         match self {
             Self::Float(_)     => "number",
@@ -176,6 +182,7 @@ impl TokenKind {
         }
     }
 
+    #[must_use] 
     pub fn is_keyword(&self) -> bool {
         matches!(
             self,
@@ -188,6 +195,7 @@ impl TokenKind {
 }
 
 /// Maps an identifier string to its keyword token, or returns `Ident`.
+#[must_use] 
 pub fn keyword_or_ident(s: String) -> TokenKind {
     match s.as_str() {
         "fn"        => TokenKind::Fn,
@@ -234,6 +242,7 @@ pub struct Token {
 }
 
 impl Token {
+    #[must_use] 
     pub fn new(kind: TokenKind, line: usize, column: usize) -> Self {
         Self { kind, line, column }
     }

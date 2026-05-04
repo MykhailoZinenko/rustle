@@ -54,7 +54,7 @@ impl NamespaceProvider for CoordsNamespace {
                 let s = match &args[0] {
                     Value::Str(s) => s.clone(),
                     other => return Err(RuntimeError::new(ErrorCode::R001, line, format!(
-                        "`origin` expects an origin constant, got `{:?}`", other
+                        "`origin` expects an origin constant, got `{other:?}`"
                     ))),
                 };
                 state.coord_meta.origin = s.parse::<Origin>()

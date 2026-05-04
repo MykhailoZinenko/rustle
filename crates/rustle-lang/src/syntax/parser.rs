@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::syntax::ast::*;
+use crate::syntax::ast::{Program, Item, ImportDecl, StateBlock, StateField, Param, Stmt, FnDef, VarDecl, AssignTarget, BinOp, Expr, Assign, Span, PrintLevel, PrintStmt, OutStmt, IfStmt, MatchArm, MatchStmt, WhileStmt, ForStmt, ForeachStmt, UnOp, Type};
 use crate::error::{Error, ErrorCode};
 use crate::syntax::token::{Token, TokenKind};
 
@@ -9,10 +9,13 @@ pub struct Parser {
 }
 
 impl Parser {
+    #[must_use] 
     pub fn new(tokens: Vec<Token>) -> Self {
         Self { tokens, pos: 0 }
     }
 
+    /// # Errors
+    /// Returns a list of parse errors if the source is invalid.
     pub fn parse(mut self) -> Result<Program, Vec<Error>> {
         let mut errors = Vec::new();
         let mut imports = Vec::new();
@@ -250,6 +253,7 @@ impl Parser {
     }
 
     /// Build an Expr that reads the value at the given path (e.g. `x`, `s.x`, or `arr[i]`).
+    #[expect(clippy::unused_self, clippy::needless_pass_by_value, reason = "Span is small and not Copy; self kept for API consistency")]
     fn path_to_expr(&self, path: &[String], indices: &[Expr], span: Span) -> Expr {
         let mut expr = Expr::Ident(path[0].clone(), span.clone());
         for part in path.iter().skip(1) {
@@ -708,10 +712,7 @@ impl Parser {
     fn parse_call_or_ident(&mut self) -> Result<Expr, Error> {
         let tok = self.advance();
         let span = Span::new(tok.line, tok.column);
-        let name = match tok.kind {
-            TokenKind::Ident(s) => s,
-            _ => return Err(self.unexpected("identifier")),
-        };
+        let TokenKind::Ident(name) = tok.kind else { return Err(self.unexpected("identifier")) };
 
         if self.check(TokenKind::LParen) {
             self.advance();
@@ -728,14 +729,15 @@ impl Parser {
     /// Parse a plain positional arg list (no named args).
     /// Parse positional + named args: `circle(x, y, radius, render: sdf)`.
     /// Named args must come after positional args.
+    #[expect(clippy::type_complexity, reason = "return type is clear in context; a type alias would add indirection")]
     fn parse_mixed_arg_list(&mut self) -> Result<(Vec<Expr>, Vec<(String, Expr)>), Error> {
         let mut args = Vec::new();
         let mut named = Vec::new();
 
         while !self.check(TokenKind::RParen) && !self.is_at_end() {
             // named arg: ident `:` expr
-            if let TokenKind::Ident(_) = self.peek_kind() {
-                if self.peek_next_is(TokenKind::Colon) {
+            if let TokenKind::Ident(_) = self.peek_kind()
+                && self.peek_next_is(TokenKind::Colon) {
                     let name = self.expect_ident()?;
                     self.expect(TokenKind::Colon)?;
                     let val = self.parse_expr()?;
@@ -743,7 +745,6 @@ impl Parser {
                     if !self.matches(TokenKind::Comma) { break; }
                     continue;
                 }
-            }
             args.push(self.parse_expr()?);
             if !self.matches(TokenKind::Comma) { break; }
         }
@@ -780,6 +781,7 @@ impl Parser {
                 let inner = self.parse_type()?;
                 self.expect(TokenKind::Comma)?;
                 let size = match self.advance().kind {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     TokenKind::Float(n) => n as usize,
                     _ => return Err(self.error_at(&tok, "expected array size")),
                 };
@@ -845,6 +847,7 @@ impl Parser {
         self.tokens[self.pos].kind.clone()
     }
 
+    #[expect(clippy::needless_pass_by_value, reason = "TokenKind not Copy; taking by value avoids & at every call site")]
     fn peek_next_is(&self, kind: TokenKind) -> bool {
         if self.pos + 1 < self.tokens.len() {
             self.tokens[self.pos + 1].kind == kind
@@ -902,6 +905,7 @@ impl Parser {
         tok
     }
 
+    #[expect(clippy::needless_pass_by_value, reason = "TokenKind not Copy; taking by value avoids & at every call site")]
     fn check(&self, kind: TokenKind) -> bool {
         self.peek_kind() == kind
     }
@@ -910,6 +914,7 @@ impl Parser {
         if self.check(kind) { self.advance(); true } else { false }
     }
 
+    #[expect(clippy::needless_pass_by_value, reason = "TokenKind not Copy; taking by value avoids & at every call site")]
     fn expect(&mut self, kind: TokenKind) -> Result<Token, Error> {
         if self.check(kind.clone()) {
             Ok(self.advance())
@@ -951,6 +956,7 @@ impl Parser {
         )
     }
 
+    #[expect(clippy::unused_self, reason = "kept as method for API consistency")]
     fn error_at(&self, tok: &Token, msg: &str) -> Error {
         Error::new(ErrorCode::P001, tok.line, tok.column, msg)
     }
@@ -1092,7 +1098,10 @@ mod tests {
             Item::Stmt(Stmt::VarDecl(v)) => {
                 assert_eq!(v.name, "x");
                 assert!(v.ty.is_none());
-                assert!(matches!(v.initializer, Expr::Float(f, _) if f == 3.14));
+                // 3.14 is a test literal (not PI) — exact float comparison is intentional
+                #[allow(clippy::float_cmp, clippy::approx_constant)]
+                let literal_ok = matches!(v.initializer, Expr::Float(f, _) if f == 3.14);
+                assert!(literal_ok);
             }
             _ => panic!("expected VarDecl"),
         }
@@ -1162,7 +1171,7 @@ mod tests {
                 assert_eq!(f.params.len(), 2);
                 assert_eq!(f.return_ty, Some(Type::Float));
             }
-            _ => panic!("expected FnDef"),
+            Item::Stmt(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1171,7 +1180,7 @@ mod tests {
         let p = parse("fn draw() { }");
         match &p.items[0] {
             Item::FnDef(f) => assert!(f.return_ty.is_none()),
-            _ => panic!("expected FnDef"),
+            Item::Stmt(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1372,7 +1381,7 @@ mod tests {
                 assert_eq!(f.params[1].ty, Type::Input);
                 assert_eq!(f.return_ty, Some(Type::State));
             }
-            _ => panic!("expected FnDef"),
+            Item::Stmt(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1385,7 +1394,7 @@ mod tests {
                 assert_eq!(f.params[1].ty, Type::Color);
                 assert_eq!(f.return_ty, Some(Type::Shape));
             }
-            _ => panic!("expected FnDef"),
+            Item::Stmt(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1685,7 +1694,7 @@ mod tests {
             Item::FnDef(f) => {
                 assert!(matches!(f.body[0], Stmt::Return(None, _)));
             }
-            _ => panic!("expected FnDef"),
+            Item::Stmt(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1696,7 +1705,7 @@ mod tests {
             Item::FnDef(f) => {
                 assert!(matches!(f.body[0], Stmt::Return(Some(_), _)));
             }
-            _ => panic!("expected FnDef"),
+            Item::Stmt(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1717,7 +1726,7 @@ mod tests {
                 assert!(f.params.is_empty());
                 assert_eq!(f.return_ty, Some(Type::Float));
             }
-            _ => panic!("expected FnDef"),
+            Item::Stmt(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1765,7 +1774,7 @@ mod tests {
             Item::FnDef(f) => {
                 assert_eq!(f.params[0].ty, Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))));
             }
-            _ => panic!("expected FnDef"),
+            Item::Stmt(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1776,7 +1785,7 @@ mod tests {
             Item::FnDef(f) => {
                 assert_eq!(f.params[0].ty, Type::Fn(vec![Type::Float], None));
             }
-            _ => panic!("expected FnDef"),
+            Item::Stmt(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1937,7 +1946,7 @@ fn on_update(s: State, input: Input) -> State {
                 assert_eq!(f.return_ty, Some(Type::State));
                 assert_eq!(f.body.len(), 4);
             }
-            _ => panic!("expected FnDef"),
+            Item::Stmt(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1952,7 +1961,7 @@ fn mul(a: float, b: float) -> float { return a * b }
         assert_eq!(p.items.len(), 3);
         let names: Vec<&str> = p.items.iter().map(|i| match i {
             Item::FnDef(f) => f.name.as_str(),
-            _ => panic!("expected FnDef"),
+            Item::Stmt(_) => panic!("expected FnDef"),
         }).collect();
         assert_eq!(names, vec!["add", "sub", "mul"]);
     }
@@ -1969,7 +1978,7 @@ fn mul(a: float, b: float) -> float { return a * b }
                 assert_eq!(f.params[0].ty, Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))));
                 assert_eq!(f.params[1].ty, Type::Float);
             }
-            _ => panic!("expected FnDef"),
+            Item::Stmt(_) => panic!("expected FnDef"),
         }
     }
 
@@ -2083,7 +2092,7 @@ if result.ok {
             Item::FnDef(f) => {
                 assert_eq!(f.return_ty, Some(Type::Res(Box::new(Type::Float))));
             }
-            _ => panic!("expected FnDef"),
+            Item::Stmt(_) => panic!("expected FnDef"),
         }
     }
 

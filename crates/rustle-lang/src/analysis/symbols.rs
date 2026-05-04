@@ -15,7 +15,7 @@ pub enum SymbolKind {
 #[derive(Debug, Clone)]
 pub struct Symbol {
     pub name: String,
-    /// `None` while the type is still being inferred (filled in by TypeResolver).
+    /// `None` while the type is still being inferred (filled in by `TypeResolver`).
     pub ty: Option<Type>,
     pub kind: SymbolKind,
     pub span: Span,
@@ -46,6 +46,7 @@ pub struct Scope {
 }
 
 impl Scope {
+    #[must_use] 
     pub fn new(kind: ScopeKind) -> Self {
         Self { kind, symbols: HashMap::new() }
     }
@@ -59,6 +60,7 @@ impl Scope {
         true
     }
 
+    #[must_use] 
     pub fn get(&self, name: &str) -> Option<&Symbol> {
         self.symbols.get(name)
     }
@@ -76,6 +78,7 @@ pub struct SymbolTable {
 }
 
 impl SymbolTable {
+    #[must_use] 
     pub fn new() -> Self {
         Self { scopes: vec![Scope::new(ScopeKind::Global)], top_level_counter: 0 }
     }
@@ -90,14 +93,20 @@ impl SymbolTable {
         }
     }
 
+    /// # Panics
+    /// Panics if the scope stack is empty (should never happen in normal operation).
+    #[must_use]
     pub fn current_scope_kind(&self) -> &ScopeKind {
-        &self.scopes.last().unwrap().kind
+        &self.scopes.last().expect("scope stack is never empty").kind
     }
 
     /// Declare a symbol in the current (innermost) scope.
     /// Returns `false` on redeclaration.
+    ///
+    /// # Panics
+    /// Panics if the scope stack is empty (should never happen in normal operation).
     pub fn declare(&mut self, sym: Symbol) -> bool {
-        self.scopes.last_mut().unwrap().declare(sym)
+        self.scopes.last_mut().expect("scope stack is never empty").declare(sym)
     }
 
     /// Declare a top-level symbol (global scope), assigning it a declaration order.
@@ -109,6 +118,7 @@ impl SymbolTable {
     }
 
     /// Normal lookup: innermost scope to outermost, no ordering constraint.
+    #[must_use] 
     pub fn lookup(&self, name: &str) -> Option<&Symbol> {
         for scope in self.scopes.iter().rev() {
             if let Some(sym) = scope.get(name) {
@@ -122,6 +132,7 @@ impl SymbolTable {
     /// - Non-global scopes (params, local vars): visible regardless of order.
     /// - Global scope: functions always visible; variables/consts only if
     ///   declared before `fn_order` (strict top-level ordering).
+    #[must_use] 
     pub fn lookup_strict(&self, name: &str, fn_order: usize) -> Option<&Symbol> {
         // Search non-global scopes from innermost outward
         for scope in self.scopes.iter().rev() {
@@ -160,6 +171,7 @@ impl Default for SymbolTable {
 
 impl SymbolTable {
     /// Collect all symbol names visible across all scopes (for suggestions).
+    #[must_use] 
     pub fn all_visible_names(&self) -> Vec<String> {
         let mut names = Vec::new();
         for scope in &self.scopes {
@@ -173,6 +185,7 @@ impl SymbolTable {
     }
 
     /// All symbols in the global scope, sorted by declaration order.
+    #[must_use] 
     pub fn global_symbols(&self) -> Vec<&Symbol> {
         let mut syms: Vec<&Symbol> = self.scopes[0].symbols.values().collect();
         syms.sort_by_key(|s| s.declaration_order);

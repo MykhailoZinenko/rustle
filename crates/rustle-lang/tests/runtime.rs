@@ -1,8 +1,10 @@
 //! Runtime behavior tests.
 //!
-//! Tests the full stack: compile → Runtime::new → tick.
+//! Tests the full stack: compile → `Runtime::new` → tick.
 //! State values are inspected after init/tick to verify correctness.
 //! Draw commands are inspected for shape emission.
+
+#![expect(clippy::float_cmp, reason = "float equality in tests is intentional — values are computed exactly")]
 
 use rustle_lang::{compile, Runtime, Input, Value, DrawCommand, ErrorCode};
 use rustle_lang::types::draw::ShapeDesc;
@@ -120,24 +122,24 @@ fn float_precedence() {
 
 #[test]
 fn float_div_by_zero_runtime_error() {
-    run_err(r#"
+    run_err(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             s.x = 1.0 / 0.0
             return s
         }
-    "#);
+    ");
 }
 
 #[test]
 fn float_mod_by_zero_runtime_error() {
-    run_err(r#"
+    run_err(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             s.x = 5.0 % 0.0
             return s
         }
-    "#);
+    ");
 }
 
 // ─── Float comparisons ────────────────────────────────────────────────────────
@@ -307,7 +309,9 @@ fn math_pi_constant() {
 #[test]
 fn var_inferred_float() {
     let rt = run("state { let x = 3.14 }");
-    assert!((f(&rt, "x") - 3.14).abs() < 1e-10);
+    #[expect(clippy::approx_constant, reason = "3.14 is used as a test literal, not as PI")]
+    let expected = 3.14;
+    assert!((f(&rt, "x") - expected).abs() < 1e-10);
 }
 
 #[test]
@@ -318,27 +322,27 @@ fn var_inferred_bool() {
 
 #[test]
 fn var_reassign_in_init() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             s.x = 10.0
             s.x = s.x + 5.0
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 15.0);
 }
 
 #[test]
 fn var_local_scope_in_init() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             let local = 42.0
             s.x = local
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 42.0);
 }
 
@@ -346,69 +350,69 @@ fn var_local_scope_in_init() {
 
 #[test]
 fn if_true_branch_taken() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             if true { s.x = 1.0 }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 1.0);
 }
 
 #[test]
 fn if_false_branch_skipped() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             if false { s.x = 1.0 }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 0.0);
 }
 
 #[test]
 fn if_else_false_takes_else() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             if false { s.x = 1.0 } else { s.x = 2.0 }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 2.0);
 }
 
 #[test]
 fn if_condition_expression() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             let v = 5.0
             if v > 3.0 { s.x = 1.0 } else { s.x = -1.0 }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 1.0);
 }
 
 #[test]
 fn compound_assignment() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 10.0 }
         fn on_init(s: State) -> State {
             s.x += 5.0
             s.x *= 2.0
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 30.0);
 }
 
 #[test]
 fn match_float_with_else() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 2.0 }
         fn on_init(s: State) -> State {
             match s.x {
@@ -418,13 +422,13 @@ fn match_float_with_else() {
             }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 20.0);
 }
 
 #[test]
 fn match_no_match_no_else() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 99.0 }
         fn on_init(s: State) -> State {
             match s.x {
@@ -433,13 +437,13 @@ fn match_no_match_no_else() {
             }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 99.0);
 }
 
 #[test]
 fn match_multi_value_arm() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 3.0 }
         fn on_init(s: State) -> State {
             match s.x {
@@ -449,13 +453,13 @@ fn match_multi_value_arm() {
             }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 34.0);
 }
 
 #[test]
 fn inc_dec_prefix_postfix() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 5.0 }
         fn on_init(s: State) -> State {
             let a = s.x++   // a = 5, s.x = 6
@@ -464,39 +468,39 @@ fn inc_dec_prefix_postfix() {
             let c = --s.x   // c = 5, s.x = 5
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 5.0);
 }
 
 #[test]
 fn inc_dec_on_list_index() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let xs: list[float] = [10.0, 20.0] }
         fn on_init(s: State) -> State {
             s.xs[0]++
             s.xs[1]--
             return s
         }
-    "#);
+    ");
     assert_eq!(list_floats(&rt, "xs"), [11.0, 19.0]);
 }
 
 #[test]
 fn else_if_branches() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             let v = 2.0
             if v < 1.0 { s.x = 1.0 } else if v < 3.0 { s.x = 2.0 } else { s.x = 3.0 }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 2.0);
 }
 
 #[test]
 fn while_runs_correct_iterations() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let count: float = 0.0 }
         fn on_init(s: State) -> State {
             let i = 0.0
@@ -506,25 +510,25 @@ fn while_runs_correct_iterations() {
             }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "count"), 5.0);
 }
 
 #[test]
 fn while_false_condition_never_runs() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let count: float = 0.0 }
         fn on_init(s: State) -> State {
             while false { s.count = s.count + 1.0 }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "count"), 0.0);
 }
 
 #[test]
 fn for_loop_runs_n_times() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let sum: float = 0.0 }
         fn on_init(s: State) -> State {
             for let i = 0.0; i < 5.0; i = i + 1.0 {
@@ -532,26 +536,26 @@ fn for_loop_runs_n_times() {
             }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "sum"), 10.0); // 0+1+2+3+4
 }
 
 #[test]
 fn foreach_iterates_all_elements() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let sum: float = 0.0 }
         fn on_init(s: State) -> State {
             let xs: list[float] = [1.0, 2.0, 3.0, 4.0]
             foreach v in xs { s.sum = s.sum + v }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "sum"), 10.0);
 }
 
 #[test]
 fn nested_if_in_for() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let evens: float = 0.0 }
         fn on_init(s: State) -> State {
             for let i = 0.0; i < 6.0; i = i + 1.0 {
@@ -559,13 +563,13 @@ fn nested_if_in_for() {
             }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "evens"), 3.0); // 0, 2, 4
 }
 
 #[test]
 fn nested_for_loops() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let count: float = 0.0 }
         fn on_init(s: State) -> State {
             for let i = 0.0; i < 3.0; i = i + 1.0 {
@@ -575,31 +579,31 @@ fn nested_for_loops() {
             }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "count"), 9.0);
 }
 
 #[test]
 fn ternary_true_branch() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             s.x = 1.0 > 0.0 ? 10.0 : 20.0
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 10.0);
 }
 
 #[test]
 fn ternary_false_branch() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             s.x = 1.0 < 0.0 ? 10.0 : 20.0
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 20.0);
 }
 
@@ -607,38 +611,38 @@ fn ternary_false_branch() {
 
 #[test]
 fn fn_basic_call() {
-    let rt = run(r#"
+    let rt = run(r"
         fn add(a: float, b: float) -> float { return a + b }
         state { let x: float = add(3.0, 4.0) }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 7.0);
 }
 
 #[test]
 fn fn_called_in_init() {
-    let rt = run(r#"
+    let rt = run(r"
         fn square(x: float) -> float { return x * x }
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             s.x = square(5.0)
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 25.0);
 }
 
 #[test]
 fn fn_visible_before_declaration() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = add(1.0, 2.0) }
         fn add(a: float, b: float) -> float { return a + b }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 3.0);
 }
 
 #[test]
 fn fn_higher_order() {
-    let rt = run(r#"
+    let rt = run(r"
         fn apply(f: fn(float) -> float, x: float) -> float { return f(x) }
         fn double(x: float) -> float { return x * 2.0 }
         state { let x: float = 0.0 }
@@ -646,20 +650,20 @@ fn fn_higher_order() {
             s.x = apply(double, 5.0)
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 10.0);
 }
 
 #[test]
 fn fn_lambda() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             fn triple = (x: float) -> float { return x * 3.0 }
             s.x = triple(4.0)
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 12.0);
 }
 
@@ -667,9 +671,9 @@ fn fn_lambda() {
 
 #[test]
 fn vec2_construction_and_fields() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let v: vec2 = vec2(3.0, 4.0) }
-    "#);
+    ");
     let (x, y) = v2(&rt, "v");
     assert_eq!(x, 3.0);
     assert_eq!(y, 4.0);
@@ -677,69 +681,69 @@ fn vec2_construction_and_fields() {
 
 #[test]
 fn vec2_add() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let v: vec2 = vec2(1.0, 2.0) + vec2(3.0, 4.0) }
-    "#);
+    ");
     assert_eq!(v2(&rt, "v"), (4.0, 6.0));
 }
 
 #[test]
 fn vec2_sub() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let v: vec2 = vec2(5.0, 5.0) - vec2(1.0, 2.0) }
-    "#);
+    ");
     assert_eq!(v2(&rt, "v"), (4.0, 3.0));
 }
 
 #[test]
 fn vec2_scalar_mul() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let v: vec2 = vec2(1.0, 2.0) * 3.0 }
-    "#);
+    ");
     assert_eq!(v2(&rt, "v"), (3.0, 6.0));
 }
 
 #[test]
 fn vec2_scalar_div() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let v: vec2 = vec2(4.0, 6.0) / 2.0 }
-    "#);
+    ");
     assert_eq!(v2(&rt, "v"), (2.0, 3.0));
 }
 
 #[test]
 fn vec2_length() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             s.x = vec2(3.0, 4.0).length()
             return s
         }
-    "#);
+    ");
     assert!((f(&rt, "x") - 5.0).abs() < 1e-10);
 }
 
 #[test]
 fn vec2_dot_product() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             s.x = vec2(1.0, 0.0).dot(vec2(0.0, 1.0))
             return s
         }
-    "#);
+    ");
     assert!((f(&rt, "x") - 0.0).abs() < 1e-10);
 }
 
 #[test]
 fn vec2_normalize() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let v: vec2 = vec2(0.0, 0.0) }
         fn on_init(s: State) -> State {
             s.v = vec2(3.0, 0.0).normalize()
             return s
         }
-    "#);
+    ");
     let (x, y) = v2(&rt, "v");
     assert!((x - 1.0).abs() < 1e-10);
     assert!(y.abs() < 1e-10);
@@ -747,28 +751,28 @@ fn vec2_normalize() {
 
 #[test]
 fn vec2_normalize_zero_vector_error() {
-    run_err(r#"
+    run_err(r"
         state { let v: vec2 = vec2(0.0, 0.0) }
         fn on_init(s: State) -> State {
             s.v = vec2(0.0, 0.0).normalize()
             return s
         }
-    "#);
+    ");
 }
 
 #[test]
 fn vec2_eq() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let r: bool = vec2(1.0, 2.0) == vec2(1.0, 2.0) }
-    "#);
+    ");
     assert!(b(&rt, "r"));
 }
 
 #[test]
 fn vec2_neq() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let r: bool = vec2(1.0, 2.0) != vec2(3.0, 4.0) }
-    "#);
+    ");
     assert!(b(&rt, "r"));
 }
 
@@ -776,7 +780,7 @@ fn vec2_neq() {
 
 #[test]
 fn list_push_increases_len() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let xs: list[float] = [] }
         fn on_init(s: State) -> State {
             s.xs.push(1.0)
@@ -784,13 +788,13 @@ fn list_push_increases_len() {
             s.xs.push(3.0)
             return s
         }
-    "#);
+    ");
     assert_eq!(list_floats(&rt, "xs"), vec![1.0, 2.0, 3.0]);
 }
 
 #[test]
 fn list_pop_removes_last() {
-    let rt = run(r#"
+    let rt = run(r"
         state {
             let xs: list[float] = []
             let last: float = 0.0
@@ -802,26 +806,26 @@ fn list_pop_removes_last() {
             s.last = s.xs.pop()
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "last"), 30.0);
     assert_eq!(list_floats(&rt, "xs"), vec![10.0, 20.0]);
 }
 
 #[test]
 fn list_pop_empty_runtime_error() {
-    run_err(r#"
+    run_err(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             let empty: list[float] = []
             s.x = empty.pop()
             return s
         }
-    "#);
+    ");
 }
 
 #[test]
 fn list_index_assignment() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             let xs: list[float] = [10.0, 20.0, 30.0]
@@ -829,13 +833,13 @@ fn list_index_assignment() {
             s.x = xs[1]
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 99.0);
 }
 
 #[test]
 fn list_index_compound_assignment() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             let xs: list[float] = [10.0, 20.0, 30.0]
@@ -843,66 +847,66 @@ fn list_index_compound_assignment() {
             s.x = xs[1]
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 25.0);
 }
 
 #[test]
 fn list_index_access() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             let xs: list[float] = [10.0, 20.0, 30.0]
             s.x = xs[1]
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 20.0);
 }
 
 #[test]
 fn list_len_field() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let n: float = 0.0 }
         fn on_init(s: State) -> State {
             let xs: list[float] = [1.0, 2.0, 3.0]
             s.n = xs.len
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "n"), 3.0);
 }
 
 #[test]
 fn list_len_method() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let n: float = 0.0 }
         fn on_init(s: State) -> State {
             let xs: list[float] = [1.0, 2.0]
             s.n = xs.len()
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "n"), 2.0);
 }
 
 #[test]
 fn list_foreach_sum() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let sum: float = 0.0 }
         fn on_init(s: State) -> State {
             let xs: list[float] = [1.0, 2.0, 3.0, 4.0, 5.0]
             foreach v in xs { s.sum = s.sum + v }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "sum"), 15.0);
 }
 
 #[test]
 fn list_mutation_is_shared() {
     // Pushing to a list stored in state mutates in-place.
-    let rt = run(r#"
+    let rt = run(r"
         state { let xs: list[float] = [] }
         fn on_init(s: State) -> State {
             for let i = 1.0; i <= 5.0; i = i + 1.0 {
@@ -910,7 +914,7 @@ fn list_mutation_is_shared() {
             }
             return s
         }
-    "#);
+    ");
     assert_eq!(list_floats(&rt, "xs"), vec![1.0, 2.0, 3.0, 4.0, 5.0]);
 }
 
@@ -924,37 +928,37 @@ fn list_literal_initial_values() {
 
 #[test]
 fn state_initializers_run() {
-    let rt = run(r#"
+    let rt = run(r"
         state {
             let a: float = 2.0 + 3.0
             let b: bool  = 10.0 > 5.0
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "a"), 5.0);
     assert!(b(&rt, "b"));
 }
 
 #[test]
 fn init_runs_before_first_tick() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             s.x = 99.0
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 99.0);
 }
 
 #[test]
 fn update_accumulates_over_ticks() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         state { let t: float = 0.0 }
         fn on_update(s: State, input: Input) -> State {
             s.t = s.t + 1.0
             return s
         }
-    "#);
+    ");
     tick(&mut rt);
     tick(&mut rt);
     tick(&mut rt);
@@ -963,13 +967,13 @@ fn update_accumulates_over_ticks() {
 
 #[test]
 fn update_uses_input_dt() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         state { let t: float = 0.0 }
         fn on_update(s: State, input: Input) -> State {
             s.t = s.t + input.dt
             return s
         }
-    "#);
+    ");
     tick(&mut rt);
     // dt is 0.016 per tick
     assert!((f(&rt, "t") - 0.016).abs() < 1e-10);
@@ -977,7 +981,7 @@ fn update_uses_input_dt() {
 
 #[test]
 fn init_and_update_together() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             s.x = 10.0
@@ -987,7 +991,7 @@ fn init_and_update_together() {
             s.x = s.x + 1.0
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 10.0);
     tick(&mut rt);
     assert_eq!(f(&rt, "x"), 11.0);
@@ -997,7 +1001,7 @@ fn init_and_update_together() {
 
 #[test]
 fn on_exit_runs_when_exit_called() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         state { let x: float = 0.0 }
         fn on_update(s: State, input: Input) -> State {
             s.x = s.x + 1.0
@@ -1007,7 +1011,7 @@ fn on_exit_runs_when_exit_called() {
             s.x = 999.0
             return s
         }
-    "#);
+    ");
     tick(&mut rt);
     tick(&mut rt);
     assert_eq!(f(&rt, "x"), 2.0);
@@ -1019,7 +1023,7 @@ fn on_exit_runs_when_exit_called() {
 
 #[test]
 fn res_ok_fields() {
-    let rt = run(r#"
+    let rt = run(r"
         state {
             let flag: bool = false
             let val: float = 0.0
@@ -1030,7 +1034,7 @@ fn res_ok_fields() {
             s.val  = r.value
             return s
         }
-    "#);
+    ");
     assert!(b(&rt, "flag"));
     assert_eq!(f(&rt, "val"), 42.0);
 }
@@ -1089,7 +1093,7 @@ fn res_from_fn_failure() {
 
 #[test]
 fn try_successful_expr() {
-    let rt = run(r#"
+    let rt = run(r"
         state {
             let flag: bool = false
             let val: float = 0.0
@@ -1100,21 +1104,21 @@ fn try_successful_expr() {
             s.val  = r.value
             return s
         }
-    "#);
+    ");
     assert!(b(&rt, "flag"));
     assert_eq!(f(&rt, "val"), 5.0);
 }
 
 #[test]
 fn try_catches_div_by_zero() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let flag: bool = true }
         fn on_init(s: State) -> State {
             let r: res<float> = try 1.0 / 0.0
             s.flag = r.ok
             return s
         }
-    "#);
+    ");
     assert!(!b(&rt, "flag"));
 }
 
@@ -1122,10 +1126,10 @@ fn try_catches_div_by_zero() {
 
 #[test]
 fn draw_static_emits_circle() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         import shapes { circle }
         out << circle(vec2(0.0, 0.0), 0.5)
-    "#);
+    ");
     let cmds = tick(&mut rt);
     assert_eq!(cmds.len(), 1);
     let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
@@ -1134,10 +1138,10 @@ fn draw_static_emits_circle() {
 
 #[test]
 fn draw_static_emits_rect() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         import shapes { rect }
         out << rect(vec2(0.0, 0.0), vec2(1.0, 1.0))
-    "#);
+    ");
     let cmds = tick(&mut rt);
     assert_eq!(cmds.len(), 1);
     let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
@@ -1146,30 +1150,30 @@ fn draw_static_emits_rect() {
 
 #[test]
 fn draw_static_multiple_shapes() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         import shapes { circle, rect }
         out << rect(vec2(0.0, 0.0), vec2(2.0, 2.0))
         out << circle(vec2(0.0, 0.0), 0.3)
-    "#);
+    ");
     let cmds = tick(&mut rt);
     assert_eq!(cmds.len(), 2);
 }
 
 #[test]
 fn draw_static_chained_out() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         import shapes { circle, rect }
         let bg = rect(vec2(0.0, 0.0), vec2(2.0, 2.0))
         let c  = circle(vec2(0.0, 0.0), 0.3)
         out << bg << c
-    "#);
+    ");
     let cmds = tick(&mut rt);
     assert_eq!(cmds.len(), 2);
 }
 
 #[test]
 fn draw_update_emits_each_tick() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         import shapes { circle }
         state { let t: float = 0.0 }
         fn on_update(s: State, input: Input) -> State {
@@ -1177,7 +1181,7 @@ fn draw_update_emits_each_tick() {
             out << circle(vec2(sin(s.t) * 0.5, 0.0), 0.2)
             return s
         }
-    "#);
+    ");
     let c1 = tick(&mut rt);
     let c2 = tick(&mut rt);
     assert_eq!(c1.len(), 1);
@@ -1186,7 +1190,7 @@ fn draw_update_emits_each_tick() {
 
 #[test]
 fn draw_foreach_emits_one_per_element() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         import shapes { circle }
         state { let xs: list[float] = [] }
         fn on_init(s: State) -> State {
@@ -1197,19 +1201,19 @@ fn draw_foreach_emits_one_per_element() {
             foreach v in s.xs { out << circle(vec2(v, 0.0), 0.05) }
             return s
         }
-    "#);
+    ");
     let cmds = tick(&mut rt);
     assert_eq!(cmds.len(), 5);
 }
 
 #[test]
 fn draw_transform_attached_to_shape() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         import shapes { circle }
         let t = transform().scale(2.0)
         let s = circle(vec2(0.0, 0.0), 0.2)
         out << s@t
-    "#);
+    ");
     let cmds = tick(&mut rt);
     assert_eq!(cmds.len(), 1);
     let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
@@ -1220,13 +1224,13 @@ fn draw_transform_attached_to_shape() {
 
 #[test]
 fn draw_multiple_transforms_accumulated() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         import shapes { circle }
         let t1 = transform().scale(2.0)
         let t2 = transform().move(0.5, 0.0)
         let s  = circle(vec2(0.0, 0.0), 0.2)
         out << s@(t1, t2)
-    "#);
+    ");
     let cmds = tick(&mut rt);
     let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
     assert_eq!(data.transforms.len(), 2);
@@ -1236,12 +1240,12 @@ fn draw_multiple_transforms_accumulated() {
 
 #[test]
 fn resolution_sets_coord_meta() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         import shapes { circle }
         import coords { resolution }
         resolution(800.0, 600.0)
         out << circle(vec2(400.0, 300.0), 50.0)
-    "#);
+    ");
     let cmds = tick(&mut rt);
     let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
     assert_eq!(data.coord_meta.px_width,  800.0);
@@ -1250,7 +1254,7 @@ fn resolution_sets_coord_meta() {
 
 #[test]
 fn resolution_in_init_persists_to_tick() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         import shapes { circle }
         import coords { resolution, origin, top_left }
         state { }
@@ -1263,7 +1267,7 @@ fn resolution_in_init_persists_to_tick() {
             out << circle(vec2(100.0, 100.0), 30.0)
             return s
         }
-    "#);
+    ");
     let cmds = tick(&mut rt);
     let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
     assert_eq!(data.coord_meta.px_width,  1024.0);
@@ -1274,55 +1278,55 @@ fn resolution_in_init_persists_to_tick() {
 
 #[test]
 fn complex_recursive_fn() {
-    let rt = run(r#"
+    let rt = run(r"
         fn factorial(n: float) -> float {
             if n <= 1.0 { return 1.0 }
             return n * factorial(n - 1.0)
         }
         state { let x: float = factorial(5.0) }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 120.0);
 }
 
 #[test]
 fn complex_fibonacci() {
-    let rt = run(r#"
+    let rt = run(r"
         fn fib(n: float) -> float {
             if n <= 1.0 { return n }
             return fib(n - 1.0) + fib(n - 2.0)
         }
         state { let x: float = fib(7.0) }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 13.0);
 }
 
 #[test]
 fn complex_nested_fn_calls_in_expr() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             s.x = sqrt(pow(3.0, 2.0) + pow(4.0, 2.0))
             return s
         }
-    "#);
+    ");
     assert!((f(&rt, "x") - 5.0).abs() < 1e-10);
 }
 
 #[test]
 fn complex_math_expression_chain() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             s.x = clamp(abs(-15.0), 0.0, 10.0)
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "x"), 10.0);
 }
 
 #[test]
 fn complex_list_built_in_loop_then_sum() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let sum: float = 0.0 }
         fn on_init(s: State) -> State {
             let xs: list[float] = []
@@ -1330,13 +1334,13 @@ fn complex_list_built_in_loop_then_sum() {
             foreach v in xs { s.sum = s.sum + v }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "sum"), 55.0); // 1+2+...+10
 }
 
 #[test]
 fn complex_conditional_accumulation() {
-    let rt = run(r#"
+    let rt = run(r"
         state {
             let pos: float = 0.0
             let neg: float = 0.0
@@ -1348,20 +1352,20 @@ fn complex_conditional_accumulation() {
             }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "pos"), 10.0);
     assert_eq!(f(&rt, "neg"), -6.0);
 }
 
 #[test]
 fn complex_state_persists_across_many_ticks() {
-    let mut rt = run(r#"
+    let mut rt = run(r"
         state { let count: float = 0.0 }
         fn on_update(s: State, input: Input) -> State {
             s.count = s.count + 1.0
             return s
         }
-    "#);
+    ");
     for _ in 0..100 {
         tick(&mut rt);
     }
@@ -1444,8 +1448,8 @@ fn string_equality() {
             let neq: bool = "abc" != "xyz"
         }
     "#);
-    assert_eq!(b(&rt, "eq"), true);
-    assert_eq!(b(&rt, "neq"), true);
+    assert!(b(&rt, "eq"));
+    assert!(b(&rt, "neq"));
 }
 
 #[test]
@@ -1553,7 +1557,7 @@ fn coalesce_value_uses_left() {
 #[test]
 fn none_eq_none() {
     let rt = run("state { let val: bool = none == none }");
-    assert_eq!(b(&rt, "val"), true);
+    assert!(b(&rt, "val"));
 }
 
 #[test]
@@ -1562,7 +1566,7 @@ fn some_neq_none() {
         let x: float? = 5.0
         state { let val: bool = x != none }
     ");
-    assert_eq!(b(&rt, "val"), true);
+    assert!(b(&rt, "val"));
 }
 
 #[test]
@@ -1790,13 +1794,13 @@ fn truthy_optional_vec2_present_true() {
 #[test]
 fn truthy_not_float() {
     let rt = run("state { let a: bool = not 0.0 }");
-    assert_eq!(b(&rt, "a"), true);
+    assert!(b(&rt, "a"));
 }
 
 #[test]
 fn truthy_not_float_nonzero() {
     let rt = run("state { let a: bool = not 1.0 }");
-    assert_eq!(b(&rt, "a"), false);
+    assert!(!b(&rt, "a"));
 }
 
 #[test]
@@ -1806,7 +1810,7 @@ fn truthy_and_short_circuit() {
         let xs: list[float] = []
         state { let v: bool = false and xs[99] }
     ");
-    assert_eq!(b(&rt, "v"), false);
+    assert!(!b(&rt, "v"));
 }
 
 #[test]
@@ -1816,31 +1820,31 @@ fn truthy_or_short_circuit() {
         let xs: list[float] = []
         state { let v: bool = true or xs[99] }
     ");
-    assert_eq!(b(&rt, "v"), true);
+    assert!(b(&rt, "v"));
 }
 
 #[test]
 fn truthy_and_mixed_types() {
     let rt = run("state { let v: bool = 1.0 and \"hello\" }");
-    assert_eq!(b(&rt, "v"), true);
+    assert!(b(&rt, "v"));
 }
 
 #[test]
 fn truthy_and_mixed_false() {
     let rt = run("state { let v: bool = 0.0 and \"hello\" }");
-    assert_eq!(b(&rt, "v"), false);
+    assert!(!b(&rt, "v"));
 }
 
 #[test]
 fn truthy_or_mixed_types() {
     let rt = run("state { let v: bool = 0.0 or \"\" }");
-    assert_eq!(b(&rt, "v"), false);
+    assert!(!b(&rt, "v"));
 }
 
 #[test]
 fn truthy_or_mixed_true() {
     let rt = run("state { let v: bool = 0.0 or \"hi\" }");
-    assert_eq!(b(&rt, "v"), true);
+    assert!(b(&rt, "v"));
 }
 
 #[test]
@@ -1929,29 +1933,29 @@ fn bool_chain_arithmetic() {
 
 #[test]
 fn runtime_error_has_code_r005() {
-    let e = run_err(r#"
+    let e = run_err(r"
         state { let xs: list[float] = [] }
         fn on_init(s: State) -> State {
             let v: float = s.xs[0]
             return s
         }
-    "#);
+    ");
     assert_eq!(e.code, ErrorCode::R005);
 }
 
 #[test]
 fn runtime_error_index_out_of_bounds_with_details() {
-    let e = run_err(r#"
+    let e = run_err(r"
         state { let xs: list[float] = [] }
         fn on_init(s: State) -> State {
             s.xs.push(1)
             let v: float = s.xs[5]
             return s
         }
-    "#);
+    ");
     assert_eq!(e.code, ErrorCode::R005);
-    assert!(e.message.contains("5"), "should include the index: {}", e.message);
-    assert!(e.message.contains("1"), "should include the list length: {}", e.message);
+    assert!(e.message.contains('5'), "should include the index: {}", e.message);
+    assert!(e.message.contains('1'), "should include the list length: {}", e.message);
 }
 
 #[test]
@@ -1962,14 +1966,14 @@ fn runtime_error_division_by_zero_has_code() {
 
 #[test]
 fn runtime_error_stack_trace_on_nested_call() {
-    let e = run_err(r#"
+    let e = run_err(r"
         fn inner(x: float) -> float { return 1.0 / 0.0 }
         fn outer(x: float) -> float { return inner(x) }
         fn on_init(s: State) -> State {
             let v: float = outer(1)
             return s
         }
-    "#);
+    ");
     assert_eq!(e.code, ErrorCode::R007);
     assert!(!e.stack.is_empty(), "should have stack frames, got: {:?}", e.stack);
 }
@@ -1995,7 +1999,7 @@ fn runtime_error_display_includes_code() {
 
 #[test]
 fn break_exits_while_loop() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let v: float = 0 }
         fn on_init(s: State) -> State {
             let i: float = 0
@@ -2006,13 +2010,13 @@ fn break_exits_while_loop() {
             s.v = i
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "v"), 5.0);
 }
 
 #[test]
 fn continue_skips_iteration() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let v: float = 0 }
         fn on_init(s: State) -> State {
             let i: float = 0
@@ -2023,14 +2027,14 @@ fn continue_skips_iteration() {
             }
             return s
         }
-    "#);
+    ");
     // 10 iterations, skip 2 (i==3 and i==7), so 8 increments
     assert_eq!(f(&rt, "v"), 8.0);
 }
 
 #[test]
 fn break_exits_for_loop() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let v: float = 0 }
         fn on_init(s: State) -> State {
             for let i = 0; i < 100; i = i + 1 {
@@ -2039,13 +2043,13 @@ fn break_exits_for_loop() {
             }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "v"), 3.0);
 }
 
 #[test]
 fn break_exits_foreach_loop() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let xs: list[float] = [1, 2, 3, 4, 5] let v: float = 0 }
         fn on_init(s: State) -> State {
             foreach x in s.xs {
@@ -2054,7 +2058,7 @@ fn break_exits_foreach_loop() {
             }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "v"), 6.0); // 1 + 2 + 3
 }
 
@@ -2065,10 +2069,10 @@ fn infinite_recursion_hits_depth_limit() {
     let result = std::thread::Builder::new()
         .stack_size(32 * 1024 * 1024)
         .spawn(|| {
-            run_err(r#"
+            run_err(r"
                 fn boom(x: float) -> float { return boom(x) }
                 state { let v: float = boom(1) }
-            "#)
+            ")
         })
         .unwrap()
         .join()
@@ -2079,7 +2083,7 @@ fn infinite_recursion_hits_depth_limit() {
 
 #[test]
 fn continue_in_foreach() {
-    let rt = run(r#"
+    let rt = run(r"
         state { let xs: list[float] = [1, 2, 3, 4, 5] let v: float = 0 }
         fn on_init(s: State) -> State {
             foreach x in s.xs {
@@ -2088,6 +2092,6 @@ fn continue_in_foreach() {
             }
             return s
         }
-    "#);
+    ");
     assert_eq!(f(&rt, "v"), 9.0); // 1 + 3 + 5
 }

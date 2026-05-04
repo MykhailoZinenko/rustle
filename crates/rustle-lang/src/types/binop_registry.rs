@@ -1,4 +1,4 @@
-//! Operator overload registry — maps (BinOp, lhs_type, rhs_type) → implementation.
+//! Operator overload registry — maps (`BinOp`, `lhs_type`, `rhs_type`) → implementation.
 //!
 //! Adding operators for a new type = calling `register()` here.
 //! No edits to interpreter.rs needed.
@@ -21,6 +21,7 @@ pub struct BinopRegistry {
 }
 
 impl BinopRegistry {
+    #[must_use] 
     pub fn new() -> Self {
         Self { ops: HashMap::new() }
     }
@@ -31,12 +32,14 @@ impl BinopRegistry {
 
     /// Return the result type key for `lhs op rhs`, or `None` if not registered.
     /// Used by the type checker at compile time.
+    #[must_use] 
     pub fn result_type(&self, op: &BinOp, lhs: &'static str, rhs: &'static str) -> Option<&'static str> {
         self.ops.get(&(op.clone(), lhs, rhs)).map(|(ret, _)| *ret)
     }
 
     /// Evaluate `l op r`. Returns `None` if no handler is registered for this
     /// type combination — the caller should produce an appropriate error.
+    #[must_use] 
     pub fn eval(
         &self,
         op:   &BinOp,
@@ -54,7 +57,8 @@ impl BinopRegistry {
 
 use crate::syntax::ast::Type;
 
-/// Map a `Type` to its BinopRegistry key. Returns `None` for generic/compound types.
+/// Map a `Type` to its `BinopRegistry` key. Returns `None` for generic/compound types.
+#[must_use] 
 pub fn type_to_key(ty: &Type) -> Option<&'static str> {
     match ty {
         Type::Float     => Some("float"),
@@ -71,7 +75,8 @@ pub fn type_to_key(ty: &Type) -> Option<&'static str> {
     }
 }
 
-/// Map a BinopRegistry return-type key back to a `Type`.
+/// Map a `BinopRegistry` return-type key back to a `Type`.
+#[must_use] 
 pub fn key_to_type(key: &str) -> Type {
     match key {
         "float"     => Type::Float,
@@ -105,8 +110,10 @@ impl Default for BinopRegistry {
 
 // ─── float ────────────────────────────────────────────────────────────────────
 
+// Language equality uses exact float comparison — this is intentional Rustle semantics.
+#[allow(clippy::float_cmp, clippy::many_single_char_names)]
 fn register_float(r: &mut BinopRegistry) {
-    use BinOp::*;
+    use BinOp::{Add, Sub, Mul, Div, Mod, Lt, LtEq, Gt, GtEq, Eq, NotEq};
     r.register(Add, "float", "float", "float", |l, r, _| {
         let (Value::Float(a), Value::Float(b)) = (l, r) else { unreachable!() };
         Ok(Value::Float(a + b))
@@ -139,8 +146,9 @@ fn register_float(r: &mut BinopRegistry) {
 
 // ─── vec2 ─────────────────────────────────────────────────────────────────────
 
+#[allow(clippy::float_cmp, clippy::many_single_char_names)]
 fn register_vec2(r: &mut BinopRegistry) {
-    use BinOp::*;
+    use BinOp::{Add, Sub, Mul, Div, Eq, NotEq};
     r.register(Add, "vec2", "vec2", "vec2", |l, r, _| {
         let (Value::Vec2(ax, ay), Value::Vec2(bx, by)) = (l, r) else { unreachable!() };
         Ok(Value::Vec2(ax + bx, ay + by))
@@ -168,8 +176,9 @@ fn register_vec2(r: &mut BinopRegistry) {
 
 // ─── vec3 ─────────────────────────────────────────────────────────────────────
 
+#[allow(clippy::float_cmp, clippy::many_single_char_names)]
 fn register_vec3(r: &mut BinopRegistry) {
-    use BinOp::*;
+    use BinOp::{Add, Sub, Mul, Div, Eq, NotEq};
     r.register(Add, "vec3", "vec3", "vec3", |l, r, _| {
         let (Value::Vec3(ax,ay,az), Value::Vec3(bx,by,bz)) = (l, r) else { unreachable!() };
         Ok(Value::Vec3(ax+bx, ay+by, az+bz))
@@ -197,8 +206,9 @@ fn register_vec3(r: &mut BinopRegistry) {
 
 // ─── vec4 ─────────────────────────────────────────────────────────────────────
 
+#[allow(clippy::float_cmp, clippy::many_single_char_names)]
 fn register_vec4(r: &mut BinopRegistry) {
-    use BinOp::*;
+    use BinOp::{Add, Sub, Mul, Div, Eq, NotEq};
     r.register(Add, "vec4", "vec4", "vec4", |l, r, _| {
         let (Value::Vec4(ax,ay,az,aw), Value::Vec4(bx,by,bz,bw)) = (l, r) else { unreachable!() };
         Ok(Value::Vec4(ax+bx, ay+by, az+bz, aw+bw))
@@ -226,8 +236,9 @@ fn register_vec4(r: &mut BinopRegistry) {
 
 // ─── color ────────────────────────────────────────────────────────────────────
 
+#[allow(clippy::float_cmp)]
 fn register_color(r: &mut BinopRegistry) {
-    use BinOp::*;
+    use BinOp::{Add, Mul, Eq, NotEq};
     r.register(Add, "color", "color", "color", |l, r, _| {
         let (Value::Color { r: ar, g: ag, b: ab, a: aa }, Value::Color { r: br, g: bg, b: bb, a: ba }) = (l, r) else { unreachable!() };
         Ok(Value::Color { r: (ar+br).min(1.0), g: (ag+bg).min(1.0), b: (ab+bb).min(1.0), a: (aa+ba).min(1.0) })
@@ -249,7 +260,7 @@ fn register_color(r: &mut BinopRegistry) {
 // ─── bool ─────────────────────────────────────────────────────────────────────
 
 fn register_bool(r: &mut BinopRegistry) {
-    use BinOp::*;
+    use BinOp::{Eq, NotEq, Add, Sub, Mul, Div, Mod};
     // And/Or are handled as special cases in checker + interpreter (truthy short-circuit).
     r.register(Eq,    "bool", "bool", "bool", |l, r, _| { let (Value::Bool(a), Value::Bool(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a == b)) });
     r.register(NotEq, "bool", "bool", "bool", |l, r, _| { let (Value::Bool(a), Value::Bool(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a != b)) });
@@ -258,18 +269,22 @@ fn register_bool(r: &mut BinopRegistry) {
     macro_rules! bool_arith {
         ($r:expr, $op:expr, $f:expr) => {
             $r.register($op, "bool", "float", "float", |l, r, _| {
-                let a = match l { Value::Bool(b) => if b { 1.0 } else { 0.0 }, _ => unreachable!() };
-                let b = match r { Value::Float(f) => f, _ => unreachable!() };
+                let Value::Bool(bv) = l else { unreachable!() };
+                let a = if bv { 1.0 } else { 0.0 };
+                let Value::Float(b) = r else { unreachable!() };
                 Ok(Value::Float($f(a, b)))
             });
             $r.register($op, "float", "bool", "float", |l, r, _| {
-                let a = match l { Value::Float(f) => f, _ => unreachable!() };
-                let b = match r { Value::Bool(b) => if b { 1.0 } else { 0.0 }, _ => unreachable!() };
+                let Value::Float(a) = l else { unreachable!() };
+                let Value::Bool(bv) = r else { unreachable!() };
+                let b = if bv { 1.0 } else { 0.0 };
                 Ok(Value::Float($f(a, b)))
             });
             $r.register($op, "bool", "bool", "float", |l, r, _| {
-                let a = match l { Value::Bool(b) => if b { 1.0 } else { 0.0 }, _ => unreachable!() };
-                let b = match r { Value::Bool(b) => if b { 1.0 } else { 0.0 }, _ => unreachable!() };
+                let Value::Bool(bv_a) = l else { unreachable!() };
+                let Value::Bool(bv_b) = r else { unreachable!() };
+                let a = if bv_a { 1.0 } else { 0.0 };
+                let b = if bv_b { 1.0 } else { 0.0 };
                 Ok(Value::Float($f(a, b)))
             });
         };
@@ -283,9 +298,10 @@ fn register_bool(r: &mut BinopRegistry) {
 
 // ─── mat3 ─────────────────────────────────────────────────────────────────────
 
+#[allow(clippy::many_single_char_names)]
 fn register_mat3(r: &mut BinopRegistry) {
-    use BinOp::*;
-    use crate::types::mat::*;
+    use BinOp::Mul;
+    use crate::types::mat::{m3_mul, m3_mul_vec, m3_scale};
     r.register(Mul, "mat3", "mat3", "mat3", |l, r, _| {
         let (Value::Mat3(a), Value::Mat3(b)) = (l, r) else { unreachable!() };
         Ok(Value::Mat3(Box::new(m3_mul(&a, &b))))
@@ -307,9 +323,10 @@ fn register_mat3(r: &mut BinopRegistry) {
 
 // ─── mat4 ─────────────────────────────────────────────────────────────────────
 
+#[allow(clippy::many_single_char_names)]
 fn register_mat4(r: &mut BinopRegistry) {
-    use BinOp::*;
-    use crate::types::mat::*;
+    use BinOp::Mul;
+    use crate::types::mat::{m4_mul, m4_mul_vec, m4_scale};
     r.register(Mul, "mat4", "mat4", "mat4", |l, r, _| {
         let (Value::Mat4(a), Value::Mat4(b)) = (l, r) else { unreachable!() };
         Ok(Value::Mat4(Box::new(m4_mul(&a, &b))))

@@ -21,6 +21,7 @@ fn err(src: &str) -> Vec<Error> {
     }
 }
 
+#[expect(clippy::needless_pass_by_value, reason = "ErrorCode is not Copy; taking by value is clearer at call sites")]
 fn has(errs: &[Error], code: ErrorCode) -> bool {
     errs.iter().any(|e| e.code == code)
 }
@@ -30,7 +31,7 @@ fn has_msg(errs: &[Error], s: &str) -> bool {
 }
 
 fn has_hint(errs: &[Error], s: &str) -> bool {
-    errs.iter().any(|e| e.hint.as_deref().map_or(false, |h| h.contains(s)))
+    errs.iter().any(|e| e.hint.as_deref().is_some_and(|h| h.contains(s)))
 }
 
 // ─── S001: undefined symbol ───────────────────────────────────────────────────
@@ -69,10 +70,10 @@ fn s001_undefined_in_call() {
 
 #[test]
 fn s001_undefined_in_foreach_body() {
-    let errs = err(r#"
+    let errs = err(r"
         let xs: list[float] = [1.0, 2.0]
         foreach v in xs { let z = v + missing }
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S001));
 }
 
@@ -84,13 +85,13 @@ fn s001_undefined_nested_binop() {
 
 #[test]
 fn s001_used_before_decl_in_fn() {
-    let errs = err(r#"
+    let errs = err(r"
         fn f() -> float {
             let x = y + 1.0
             let y = 2.0
             return x
         }
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S001));
 }
 
@@ -161,11 +162,11 @@ fn s002_ternary_branches_different_types() {
 
 #[test]
 fn s002_transform_on_non_shape() {
-    let errs = err(r#"
+    let errs = err(r"
         let t = transform()
         let x = 3.14
         out << x@t
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S002));
 }
 
@@ -189,19 +190,19 @@ fn s002_foreach_iterable_not_list() {
 
 #[test]
 fn s002_circle_expects_vec2_not_float() {
-    let errs = err(r#"
+    let errs = err(r"
         import shapes { circle }
         let s = circle(1.0, 0.5)
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S002));
 }
 
 #[test]
 fn s002_circle_expects_vec2_not_vec3() {
-    let errs = err(r#"
+    let errs = err(r"
         import shapes { circle }
         let s = circle(vec3(1.0, 0.0, 0.0), 0.5)
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S002));
     assert!(has_msg(&errs, "vec2"));
 }
@@ -216,10 +217,10 @@ fn s003_duplicate_var() {
 
 #[test]
 fn s003_duplicate_fn() {
-    let errs = err(r#"
+    let errs = err(r"
         fn f() -> float { return 1.0 }
         fn f() -> float { return 2.0 }
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S003));
 }
 
@@ -231,22 +232,22 @@ fn s003_duplicate_import_member() {
 
 #[test]
 fn s003_var_same_name_as_fn() {
-    let errs = err(r#"
+    let errs = err(r"
         fn add(a: float, b: float) -> float { return a + b }
         let add = 3.14
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S003));
 }
 
 #[test]
 fn s003_local_shadow_in_inner_scope_ok() {
-    ok(r#"
+    ok(r"
         let x = 1.0
         fn f() -> float {
             let x = 2.0
             return x
         }
-    "#);
+    ");
 }
 
 // ─── S004: const reassignment ─────────────────────────────────────────────────
@@ -351,19 +352,19 @@ fn s007_color_too_few_args() {
 
 #[test]
 fn s007_user_fn_too_few_args() {
-    let errs = err(r#"
+    let errs = err(r"
         fn add(a: float, b: float) -> float { return a + b }
         let x = add(1.0)
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S007));
 }
 
 #[test]
 fn s007_user_fn_too_many_args() {
-    let errs = err(r#"
+    let errs = err(r"
         fn add(a: float, b: float) -> float { return a + b }
         let x = add(1.0, 2.0, 3.0)
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S007));
 }
 
@@ -442,20 +443,20 @@ fn s009_res_invalid_field() {
 
 #[test]
 fn s009_shape_invalid_method() {
-    let errs = err(r#"
+    let errs = err(r"
         import shapes { circle }
         let s = circle(vec2(0.0, 0.0), 0.2)
         let x = s.bad_method()
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S009));
 }
 
 #[test]
 fn s009_list_no_such_method() {
-    let errs = err(r#"
+    let errs = err(r"
         let xs: list[float] = []
         xs.nonexistent()
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S009));
 }
 
@@ -483,37 +484,37 @@ fn s010_call_bool() {
 
 #[test]
 fn s012_update_wrong_param_count() {
-    let errs = err(r#"
+    let errs = err(r"
         state { let t: float = 0.0 }
         fn on_update(s: State) -> State { return s }
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S012));
 }
 
 #[test]
 fn s012_update_wrong_first_param() {
-    let errs = err(r#"
+    let errs = err(r"
         state { let t: float = 0.0 }
         fn on_update(s: float, input: Input) -> State { return s }
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S012));
 }
 
 #[test]
 fn s012_update_wrong_return_type() {
-    let errs = err(r#"
+    let errs = err(r"
         state { let t: float = 0.0 }
         fn on_update(s: State, input: Input) -> float { return 1.0 }
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S012));
 }
 
 #[test]
 fn s012_on_exit_wrong_signature() {
-    let errs = err(r#"
+    let errs = err(r"
         state { let t: float = 0.0 }
         fn on_exit(s: State, input: Input) -> State { return s }
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S012));
 }
 
@@ -521,12 +522,12 @@ fn s012_on_exit_wrong_signature() {
 
 #[test]
 fn ok_simple_program() {
-    ok(r#"
+    ok(r"
         import shapes { circle }
         let x: float = 3.14
         let flag = true
         fn add(a: float, b: float) -> float { return a + b }
-    "#);
+    ");
 }
 
 #[test]
@@ -551,14 +552,14 @@ fn ok_color_fields() {
 
 #[test]
 fn ok_vec2_arithmetic() {
-    ok(r#"
+    ok(r"
         let a = vec2(1.0, 2.0)
         let b = vec2(3.0, 4.0)
         let c = a + b
         let d = a - b
         let e = a * 2.0
         let f = b / 2.0
-    "#);
+    ");
 }
 
 #[test]
@@ -581,49 +582,49 @@ fn ok_transform_chain() {
 
 #[test]
 fn ok_transform_on_shape() {
-    ok(r#"
+    ok(r"
         import shapes { circle }
         let t = transform().scale(2.0)
         let s = circle(vec2(0.0, 0.0), 0.2)
         out << s@t
-    "#);
+    ");
 }
 
 #[test]
 fn ok_transform_multi_apply() {
-    ok(r#"
+    ok(r"
         import shapes { circle }
         let t1 = transform().scale(2.0)
         let t2 = transform().move(0.1, 0.0)
         let s = circle(vec2(0.0, 0.0), 0.2)
         out << s@(t1, t2)
-    "#);
+    ");
 }
 
 #[test]
 fn ok_list_and_foreach() {
-    ok(r#"
+    ok(r"
         let xs: list[float] = [1.0, 2.0, 3.0]
         foreach v in xs { let doubled = v * 2.0 }
-    "#);
+    ");
 }
 
 #[test]
 fn ok_list_push_pop() {
-    ok(r#"
+    ok(r"
         let xs: list[float] = []
         xs.push(1.0)
         xs.push(2.0)
         let v = xs.pop()
-    "#);
+    ");
 }
 
 #[test]
 fn ok_list_len() {
-    ok(r#"
+    ok(r"
         let xs: list[float] = [1.0, 2.0, 3.0]
         let n = xs.len
-    "#);
+    ");
 }
 
 #[test]
@@ -638,40 +639,40 @@ fn ok_list_index_assign() {
 
 #[test]
 fn ok_list_of_vec2() {
-    ok(r#"
+    ok(r"
         let pts: list[vec2] = [vec2(0.0, 0.0), vec2(1.0, 1.0)]
         foreach p in pts {
             let x = p.x
         }
-    "#);
+    ");
 }
 
 #[test]
 fn ok_higher_order_fn() {
-    ok(r#"
+    ok(r"
         fn apply(f: fn(float) -> float, x: float) -> float { return f(x) }
         fn double(a: float) -> float { return a * 2.0 }
         let y = apply(double, 5.0)
-    "#);
+    ");
 }
 
 #[test]
 fn ok_lambda_top_level() {
-    ok(r#"
+    ok(r"
         fn add = (a: float, b: float) -> float { return a + b }
         let x = add(1.0, 2.0)
-    "#);
+    ");
 }
 
 #[test]
 fn ok_lambda_local_in_fn_body() {
-    ok(r#"
+    ok(r"
         fn f() -> float {
             fn double = (x: float) -> float { return x * 2.0 }
             return double(5.0)
         }
         let y = f()
-    "#);
+    ");
 }
 
 #[test]
@@ -688,10 +689,10 @@ fn ok_result_from_fn() {
 
 #[test]
 fn ok_try_expr() {
-    ok(r#"
+    ok(r"
         let r: res<float> = try 10.0 / 2.0
         if r.ok { let val = r.value }
-    "#);
+    ");
 }
 
 #[test]
@@ -706,18 +707,18 @@ fn ok_cast_expr() {
 
 #[test]
 fn ok_static_render() {
-    ok(r#"
+    ok(r"
         import shapes { circle, rect }
         import render { sdf, fill }
         let bg = rect(vec2(0.0, 0.0), vec2(2.0, 2.0), render: fill)
         let c = circle(vec2(0.0, 0.0), 0.5, render: sdf)
         out << bg << c
-    "#);
+    ");
 }
 
 #[test]
 fn ok_animated_update() {
-    ok(r#"
+    ok(r"
         import shapes { circle }
         state { let t: float = 0.0 }
         fn on_update(s: State, input: Input) -> State {
@@ -725,23 +726,23 @@ fn ok_animated_update() {
             out << circle(vec2(sin(s.t), 0.0), 0.3)
             return s
         }
-    "#);
+    ");
 }
 
 #[test]
 fn ok_state_inferred_type() {
-    ok(r#"
+    ok(r"
         state {
             let t = 0.0
             let active = true
         }
         fn on_update(s: State, input: Input) -> State { return s }
-    "#);
+    ");
 }
 
 #[test]
 fn ok_init_fn() {
-    ok(r#"
+    ok(r"
         state { let xs: list[float] = [] }
         fn on_init(s: State) -> State {
             for let i = 0.0; i < 5.0; i = i + 1.0 {
@@ -750,36 +751,36 @@ fn ok_init_fn() {
             return s
         }
         fn on_update(s: State, input: Input) -> State { return s }
-    "#);
+    ");
 }
 
 #[test]
 fn ok_update_uses_input_dt() {
-    ok(r#"
+    ok(r"
         state { let t: float = 0.0 }
         fn on_update(s: State, input: Input) -> State {
             s.t = s.t + input.dt
             return s
         }
-    "#);
+    ");
 }
 
 // ─── Success: control flow ────────────────────────────────────────────────────
 
 #[test]
 fn ok_if_else() {
-    ok(r#"
+    ok(r"
         let x = 5.0
         if x > 0.0 { let y = x } else { let y = 0.0 }
-    "#);
+    ");
 }
 
 #[test]
 fn ok_while_loop() {
-    ok(r#"
+    ok(r"
         let i = 0.0
         while i < 10.0 { i = i + 1.0 }
-    "#);
+    ");
 }
 
 #[test]
@@ -789,18 +790,18 @@ fn ok_for_loop() {
 
 #[test]
 fn ok_inc_dec() {
-    ok(r#"
+    ok(r"
         state { let x: float = 0.0 }
         fn on_init(s: State) -> State {
             s.x++
             return s
         }
-    "#);
+    ");
 }
 
 #[test]
 fn ok_match() {
-    ok(r#"
+    ok(r"
         state { let x: float = 1.0 }
         fn on_init(s: State) -> State {
             match s.x {
@@ -810,18 +811,18 @@ fn ok_match() {
             }
             return s
         }
-    "#);
+    ");
 }
 
 #[test]
 fn s008_match_non_comparable() {
-    let errs = err(r#"
+    let errs = err(r"
         state { let xs: list[float] = [] }
         fn on_init(s: State) -> State {
             match s.xs { }
             return s
         }
-    "#);
+    ");
     assert!(has(&errs, ErrorCode::S008));
 }
 
@@ -833,32 +834,32 @@ fn s008_inc_dec_requires_assignable() {
 
 #[test]
 fn ok_foreach_with_type_annotation() {
-    ok(r#"
+    ok(r"
         let xs: list[float] = [1.0, 2.0]
         foreach v: float in xs { let d = v * 2.0 }
-    "#);
+    ");
 }
 
 #[test]
 fn ok_nested_control_flow() {
-    ok(r#"
+    ok(r"
         let i = 0.0
         while i < 10.0 {
             if i > 5.0 { let x = i * 2.0 }
             i = i + 1.0
         }
-    "#);
+    ");
 }
 
 #[test]
 fn ok_nested_for_loops() {
-    ok(r#"
+    ok(r"
         for let i = 0.0; i < 3.0; i = i + 1.0 {
             for let j = 0.0; j < 3.0; j = j + 1.0 {
                 let x = i + j
             }
         }
-    "#);
+    ");
 }
 
 // ─── Success: namespaces ──────────────────────────────────────────────────────
@@ -875,29 +876,29 @@ fn ok_whole_namespace_field_access() {
 
 #[test]
 fn ok_render_stroke() {
-    ok(r#"
+    ok(r"
         import shapes { circle }
         import render { stroke }
         out << circle(vec2(0.0, 0.0), 0.2, render: stroke(2.0))
-    "#);
+    ");
 }
 
 #[test]
 fn ok_shapes_origin_named_arg() {
-    ok(r#"
+    ok(r"
         import shapes { rect }
         import coords { origin, top_left }
         let r = rect(vec2(0.0, 0.0), vec2(1.0, 1.0), origin: top_left)
-    "#);
+    ");
 }
 
 #[test]
 fn ok_coords_resolution_origin() {
-    ok(r#"
+    ok(r"
         import coords { resolution, origin, top_left }
         resolution(800.0, 600.0)
         origin(top_left)
-    "#);
+    ");
 }
 
 // ─── Success: constants ────────────────────────────────────────────────────────
@@ -919,19 +920,19 @@ fn ok_const_declaration() {
 
 #[test]
 #[should_panic]
+#[expect(clippy::should_panic_without_expect, reason = "known pre-existing failure — TAU conflicts with core constant")]
 fn ok_const_usage_tau() {
-    // known pre-existing failure — TAU conflicts with core constant
-    ok(r#"
+    ok(r"
         const TAU = 6.28318
         fn circumference(r: float) -> float { return TAU * r }
-    "#);
+    ");
 }
 
 // ─── Success: math methods ────────────────────────────────────────────────────
 
 #[test]
 fn ok_vec2_methods() {
-    ok(r#"
+    ok(r"
         let v = vec2(3.0, 4.0)
         let l = v.length()
         let n = v.normalize()
@@ -945,22 +946,22 @@ fn ok_vec2_methods() {
         let mx = v.max(vec2(1.0, 1.0))
         let p = v.perp()
         let ang = v.angle()
-    "#);
+    ");
 }
 
 #[test]
 fn ok_color_methods() {
-    ok(r#"
+    ok(r"
         let c = color(1.0, 0.0, 0.0)
         let c2 = c.lerp(blue, 0.5)
         let c3 = c.with_alpha(0.5)
         let v = c.to_vec4()
-    "#);
+    ");
 }
 
 #[test]
 fn ok_mat3_construction_and_methods() {
-    ok(r#"
+    ok(r"
         let m = mat3_translate(1.0, 2.0)
         let r = mat3_rotate(45.0)
         let s = mat3_scale(2.0, 2.0)
@@ -968,40 +969,40 @@ fn ok_mat3_construction_and_methods() {
         let d = m.det()
         let inv = m.inverse()
         let v = m.mul_vec(vec3(1.0, 0.0, 1.0))
-    "#);
+    ");
 }
 
 #[test]
 fn ok_mat4_construction_and_methods() {
-    ok(r#"
+    ok(r"
         let m = mat4_translate(1.0, 2.0, 3.0)
         let t = m.transpose()
         let d = m.det()
         let inv = m.inverse()
         let v = m.mul_vec(vec4(1.0, 0.0, 0.0, 1.0))
-    "#);
+    ");
 }
 
 // ─── Complex / edge cases ─────────────────────────────────────────────────────
 
 #[test]
 fn complex_multiple_errors_collected() {
-    let errs = err(r#"
+    let errs = err(r"
         import fake { x }
         import shapes { circle }
         let c = circle(vec2(0.0, 0.0))
         out << undefined_var
-    "#);
+    ");
     assert!(errs.len() >= 2);
     assert!(has(&errs, ErrorCode::S005));
 }
 
 #[test]
 fn complex_fns_visible_before_decl() {
-    ok(r#"
+    ok(r"
         let x = add(1.0, 2.0)
         fn add(a: float, b: float) -> float { return a + b }
-    "#);
+    ");
 }
 
 #[test]
@@ -1011,19 +1012,19 @@ fn complex_empty_typed_list() {
 
 #[test]
 fn complex_nested_fn_calls() {
-    ok(r#"
+    ok(r"
         import shapes { circle }
         let s = circle(vec2(sin(PI * 0.5), cos(0.0)), sqrt(0.25))
-    "#);
+    ");
 }
 
 #[test]
 fn complex_bool_expr_chain() {
-    ok(r#"
+    ok(r"
         let a = true
         let b = false
         let c = (a and not b) or (b and a)
-    "#);
+    ");
 }
 
 #[test]
@@ -1033,22 +1034,22 @@ fn complex_deep_nested_arithmetic() {
 
 #[test]
 fn complex_chained_out() {
-    ok(r#"
+    ok(r"
         import shapes { circle, rect }
         let bg = rect(vec2(0.0, 0.0), vec2(2.0, 2.0))
         let c = circle(vec2(0.0, 0.0), 0.3)
         out << bg << c
-    "#);
+    ");
 }
 
 #[test]
 fn complex_shape_in_method() {
-    ok(r#"
+    ok(r"
         import shapes { rect }
         let r = rect(vec2(0.0, 0.0), vec2(1.0, 1.0))
         let p = r.in(0.5, 0.5)
         let x = p.x
-    "#);
+    ");
 }
 
 // ─── Optional types (none, T?, ??) ──────────────────────────────────────────
@@ -1127,7 +1128,7 @@ fn optional_state_field() {
 
 #[test]
 fn optional_string_type() {
-    ok(r#"let x: string? = none"#);
+    ok(r"let x: string? = none");
 }
 
 #[test]
@@ -1323,7 +1324,7 @@ fn s009_field_not_found_lists_available() {
     assert!(has(&errs, ErrorCode::S009));
     // should hint about available fields
     let has_field_hint = errs.iter().any(|e| {
-        e.hint.as_deref().map_or(false, |h| h.contains("x") && h.contains("y"))
+        e.hint.as_deref().is_some_and(|h| h.contains('x') && h.contains('y'))
     });
     assert!(has_field_hint, "expected hint listing available fields");
 }

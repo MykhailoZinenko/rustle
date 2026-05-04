@@ -1,5 +1,5 @@
 //! Tree-walking interpreter. Evaluates AST → Vec<DrawCommand>.
-//! All domain-specific calls are dispatched through the NamespaceRegistry.
+//! All domain-specific calls are dispatched through the `NamespaceRegistry`.
 //! The interpreter itself contains no hardcoded function implementations.
 
 use crate::syntax::ast::{self, AssignTarget, BinOp, Expr, Item, Param, Span, Stmt, UnOp};
@@ -32,7 +32,7 @@ impl Env {
     fn pop_scope(&mut self)  { if self.scopes.len() > 1 { self.scopes.pop(); } }
 
     fn declare(&mut self, name: &str, val: Value) {
-        self.scopes.last_mut().unwrap().insert(name.to_string(), val);
+        self.scopes.last_mut().expect("scope stack is never empty").insert(name.to_string(), val);
     }
 
     fn set(&mut self, name: &str, val: Value) -> bool {
@@ -77,6 +77,7 @@ pub struct Interpreter<'a> {
 }
 
 impl<'a> Interpreter<'a> {
+    #[must_use] 
     pub fn new(
         program: &'a ast::Program,
         registry: &'a NamespaceRegistry,
@@ -85,7 +86,7 @@ impl<'a> Interpreter<'a> {
     ) -> Self {
         let fn_table = program.items.iter().filter_map(|item| match item {
             ast::Item::FnDef(f) => Some((f.name.as_str(), f)),
-            _ => None,
+            ast::Item::Stmt(_) => None,
         }).collect();
         Self {
             program,
@@ -103,8 +104,9 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    /// Seed the interpreter with persisted runtime state (coord_meta, etc.) from
+    /// Seed the interpreter with persisted runtime state (`coord_meta`, etc.) from
     /// a prior init or tick so that resolution/origin survive across frames.
+    #[must_use] 
     pub fn with_runtime_state(mut self, rs: RuntimeState) -> Self {
         self.runtime_state = rs;
         self
@@ -112,26 +114,28 @@ impl<'a> Interpreter<'a> {
 
     /// Set a cancellation token. When the flag is set to `true`, the interpreter
     /// will abort at the next loop iteration or function call boundary.
+    #[must_use]
     pub fn with_cancel(mut self, cancel: Arc<AtomicBool>) -> Self {
         self.cancel = Some(cancel);
         self
     }
 
     fn check_cancel(&self, line: usize) -> Result<(), RuntimeError> {
-        if let Some(ref c) = self.cancel {
-            if c.load(Ordering::Relaxed) {
+        if let Some(ref c) = self.cancel
+            && c.load(Ordering::Relaxed) {
                 return Err(self.err(ErrorCode::R010, line, "script cancelled"));
             }
-        }
         Ok(())
     }
 
     /// Check whether a named function is defined in the program.
+    #[must_use] 
     pub fn has_fn(&self, name: &str) -> bool {
         self.fn_table.contains_key(name)
     }
 
     /// Extract the final runtime state after running (captures resolution/origin calls).
+    #[must_use] 
     pub fn take_runtime_state(&self) -> RuntimeState {
         self.runtime_state.clone()
     }
@@ -140,6 +144,7 @@ impl<'a> Interpreter<'a> {
         self.return_value.is_some() || self.break_flag || self.continue_flag
     }
 
+    #[expect(clippy::unused_self, reason = "kept as method for convenient call site syntax")]
     fn err(&self, code: ErrorCode, line: usize, msg: impl Into<String>) -> RuntimeError {
         RuntimeError::new(code, line, msg)
     }
@@ -177,6 +182,8 @@ impl<'a> Interpreter<'a> {
 
     // ─── Entry points ─────────────────────────────────────────────────────────
 
+    /// # Errors
+    /// Returns a runtime error if any top-level statement fails.
     pub fn run_top_level(&mut self) -> Result<(), RuntimeError> {
         self.setup_imports();
         let program = self.program;
@@ -186,6 +193,8 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns a runtime error if `on_update` fails during execution.
     pub fn run_update(&mut self, state: State, input: &Input) -> Result<State, RuntimeError> {
         let Some(f) = self.fn_table.get("on_update").copied() else { return Ok(state); };
 
@@ -220,6 +229,8 @@ impl<'a> Interpreter<'a> {
         Ok(State(new_map))
     }
 
+    /// # Errors
+    /// Returns a runtime error if `on_init` fails during execution.
     pub fn run_init(&mut self, state: State) -> Result<State, RuntimeError> {
         let Some(f) = self.fn_table.get("on_init").copied() else { return Ok(state); };
 
@@ -250,6 +261,8 @@ impl<'a> Interpreter<'a> {
         Ok(State(new_map))
     }
 
+    /// # Errors
+    /// Returns a runtime error if `on_exit` fails during execution.
     pub fn run_on_exit(&mut self, state: State) -> Result<State, RuntimeError> {
         let Some(f) = self.fn_table.get("on_exit").copied() else { return Ok(state); };
 
@@ -280,12 +293,16 @@ impl<'a> Interpreter<'a> {
         Ok(State(new_map))
     }
 
+    #[must_use] 
     pub fn take_output(&self) -> Vec<DrawCommand> {
         self.env.output.borrow_mut().drain(..).collect()
     }
 
     // ─── Expression evaluator ─────────────────────────────────────────────────
 
+    /// # Errors
+    /// Returns a runtime error if the expression cannot be evaluated.
+    #[expect(clippy::too_many_lines, reason = "large match on Expr variants; splitting would add indirection")]
     pub fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Float(v, _)     => Ok(Value::Float(*v)),
@@ -331,13 +348,12 @@ impl<'a> Interpreter<'a> {
                 let l = self.eval_expr(left)?;
                 let r = self.eval_expr(right)?;
                 // == / != with none values
-                if matches!(op, BinOp::Eq | BinOp::NotEq) {
-                    if matches!(&l, Value::None) || matches!(&r, Value::None) {
+                if matches!(op, BinOp::Eq | BinOp::NotEq)
+                    && (matches!(&l, Value::None) || matches!(&r, Value::None)) {
                         let both_none = matches!((&l, &r), (Value::None, Value::None));
                         return Ok(Value::Bool(if *op == BinOp::Eq { both_none } else { !both_none }));
                     }
-                }
-                eval_binop(op, l, r, span.line, &self.binops)
+                eval_binop(op, l, r, span.line, self.binops)
             }
 
             Expr::UnOp { op, operand, span } => {
@@ -394,14 +410,14 @@ impl<'a> Interpreter<'a> {
 
             Expr::Field { expr, field, span } => {
                 let obj = self.eval_expr(expr)?;
-                eval_field(&self.types, &obj, field, span.line)
+                eval_field(self.types, &obj, field, span.line)
             }
 
             Expr::OptionalChain { expr, field, span } => {
                 let obj = self.eval_expr(expr)?;
                 match obj {
                     Value::None => Ok(Value::None),
-                    other => eval_field(&self.types, &other, field, span.line),
+                    other => eval_field(self.types, &other, field, span.line),
                 }
             }
 
@@ -577,6 +593,7 @@ impl<'a> Interpreter<'a> {
 
     // ─── Method dispatch ──────────────────────────────────────────────────────
 
+    #[expect(clippy::needless_pass_by_value, reason = "obj is used by-ref internally; taking by value keeps call sites clean")]
     fn eval_method(
         &mut self,
         obj: Value,
@@ -589,8 +606,8 @@ impl<'a> Interpreter<'a> {
         // named args, and per-namespace dispatch).
         if let Value::Namespace(ns_name) = &obj {
             let ns_name = ns_name.clone();
-            if let Some(ns) = self.registry.get(&ns_name) {
-                if let Some(export) = ns.get_export(method) {
+            if let Some(ns) = self.registry.get(&ns_name)
+                && let Some(export) = ns.get_export(method) {
                     use crate::namespaces::ExportKind;
                     if export.kind == ExportKind::Constant {
                         return ns.get_constant(method)
@@ -598,20 +615,18 @@ impl<'a> Interpreter<'a> {
                             .ok_or_else(|| self.err(ErrorCode::R004, span.line, format!(
                                 "`{ns_name}.{method}` has no runtime value"
                             )));
-                    } else {
-                        let arg_vals: Vec<Value> = args.iter()
-                            .map(|a| self.eval_expr(a))
-                            .collect::<Result<_, _>>()?;
-                        let named_vals: HashMap<String, Value> = named_args.iter()
-                            .map(|(k, v)| self.eval_expr(v).map(|val| (k.clone(), val)))
-                            .collect::<Result<_, _>>()?;
-                        return ns.call(method, &arg_vals, &named_vals, &mut self.runtime_state, span.line)?
-                            .ok_or_else(|| self.err(ErrorCode::R004, span.line, format!(
-                                "`{ns_name}` does not implement `{method}`"
-                            )));
                     }
+                    let arg_vals: Vec<Value> = args.iter()
+                        .map(|a| self.eval_expr(a))
+                        .collect::<Result<_, _>>()?;
+                    let named_vals: HashMap<String, Value> = named_args.iter()
+                        .map(|(k, v)| self.eval_expr(v).map(|val| (k.clone(), val)))
+                        .collect::<Result<_, _>>()?;
+                    return ns.call(method, &arg_vals, &named_vals, &mut self.runtime_state, span.line)?
+                        .ok_or_else(|| self.err(ErrorCode::R004, span.line, format!(
+                            "`{ns_name}` does not implement `{method}`"
+                        )));
                 }
-            }
             return Err(self.err(ErrorCode::R004, span.line, format!("`{ns_name}` has no member `{method}`")));
         }
 
@@ -628,6 +643,9 @@ impl<'a> Interpreter<'a> {
 
     // ─── Statement executor ───────────────────────────────────────────────────
 
+    /// # Errors
+    /// Returns a runtime error if the statement cannot be executed.
+    #[expect(clippy::too_many_lines, reason = "large match on Stmt variants; splitting would add indirection")]
     pub fn exec_stmt(&mut self, stmt: &Stmt) -> Result<(), RuntimeError> {
         match stmt {
             Stmt::VarDecl(v) => {
@@ -649,9 +667,9 @@ impl<'a> Interpreter<'a> {
                         let obj = self.env.get(root)
                             .ok_or_else(|| self.err(ErrorCode::R002, a.span.line, format!("undefined: `{root}`")))?;
                         if let Value::State(rc) = &obj {
-                            assign_state_path(rc, &p[1..], val, a.span.line, &self.types)?;
+                            assign_state_path(rc, &p[1..], val, a.span.line, self.types)?;
                         } else {
-                            let updated = set_field_path(&self.types, obj, &p[1..], val, a.span.line)?;
+                            let updated = set_field_path(self.types, obj, &p[1..], val, a.span.line)?;
                             self.env.set(root, updated);
                         }
                     }
@@ -869,16 +887,16 @@ impl<'a> Interpreter<'a> {
                     .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{}`", p[0])))?;
                 let mut v = root;
                 for seg in &p[1..] {
-                    v = eval_field(&self.types, &v, seg, line)?;
+                    v = eval_field(self.types, &v, seg, line)?;
                 }
                 Ok(v)
             }
             AssignTarget::Indexed { path: p, indices } => {
                 let mut coll = self.env.get(&p[0])
                     .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{}`", p[0])))?
-                    .clone();
+                    ;
                 for seg in &p[1..] {
-                    coll = eval_field(&self.types, &coll, seg, line)?;
+                    coll = eval_field(self.types, &coll, seg, line)?;
                 }
                 for idx_expr in indices {
                     let idx = self.eval_expr(idx_expr)?;
@@ -912,9 +930,9 @@ impl<'a> Interpreter<'a> {
                 let obj = self.env.get(root)
                     .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{root}`")))?;
                 if let Value::State(rc) = &obj {
-                    assign_state_path(rc, &p[1..], val, line, &self.types)?;
+                    assign_state_path(rc, &p[1..], val, line, self.types)?;
                 } else {
-                    let updated = set_field_path(&self.types, obj, &p[1..], val, line)?;
+                    let updated = set_field_path(self.types, obj, &p[1..], val, line)?;
                     self.env.set(root, updated);
                 }
             }
@@ -935,9 +953,9 @@ impl<'a> Interpreter<'a> {
         let root = &path[0];
         let mut coll = self.env.get(root)
             .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{root}`")))?
-            .clone();
+            ;
         for p in path.iter().skip(1) {
-            coll = eval_field(&self.types, &coll, p, line)?;
+            coll = eval_field(self.types, &coll, p, line)?;
         }
         for idx_expr in &indices[..indices.len().saturating_sub(1)] {
             let idx = self.eval_expr(idx_expr)?;
@@ -954,7 +972,7 @@ impl<'a> Interpreter<'a> {
                 ))),
             }?;
         }
-        let last_idx = indices.last().unwrap();
+        let last_idx = indices.last().expect("indices is non-empty");
         let idx = self.eval_expr(last_idx)?;
         let i = safe_index(&idx, line)?;
         match &coll {
@@ -974,7 +992,7 @@ impl<'a> Interpreter<'a> {
     }
 }
 
-/// Convert an assignable Expr (Ident, Field, Index) to AssignTarget.
+/// Convert an assignable Expr (Ident, Field, Index) to `AssignTarget`.
 fn expr_to_assign_target(expr: &Expr) -> Option<AssignTarget> {
     match expr {
         Expr::Ident(name, _) => Some(AssignTarget::Path(vec![name.clone()])),
@@ -1008,8 +1026,8 @@ fn eval_field(types: &TypeRegistry, obj: &Value, field: &str, line: usize) -> Re
         let guard = rc.borrow();
         return guard.get(field).cloned()
             .ok_or_else(|| {
-                let mut keys: Vec<&str> = guard.keys().map(|k| k.as_str()).collect();
-                keys.sort();
+                let mut keys: Vec<&str> = guard.keys().map(std::string::String::as_str).collect();
+                keys.sort_unstable();
                 RuntimeError::new(ErrorCode::R003, line,
                     format!("state has no field `{field}` (available: {})", keys.join(", ")))
             });
@@ -1037,8 +1055,8 @@ fn assign_state_path(
         let guard = rc.borrow();
         let intermediate = guard.get(field.as_str()).cloned()
             .ok_or_else(|| {
-                let mut keys: Vec<&str> = guard.keys().map(|k| k.as_str()).collect();
-                keys.sort();
+                let mut keys: Vec<&str> = guard.keys().map(std::string::String::as_str).collect();
+                keys.sort_unstable();
                 RuntimeError::new(ErrorCode::R003, line,
                     format!("state has no field `{field}` (available: {})", keys.join(", ")))
             })?;
@@ -1136,6 +1154,8 @@ fn as_float(v: &Value, line: usize) -> Result<f64, RuntimeError> {
     }
 }
 
+// Language-level equality uses exact float comparison (== on f64), matching the spec.
+#[allow(clippy::float_cmp)]
 fn values_equal(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Float(x),  Value::Float(y))  => x == y,
@@ -1183,7 +1203,8 @@ fn collect_free_expr(expr: &Expr, bound: &HashSet<String>, free: &mut HashSet<St
             collect_free_expr(then_expr, bound, free);
             collect_free_expr(else_expr, bound, free);
         }
-        Expr::Cast { expr, .. } | Expr::Try { expr, .. } => collect_free_expr(expr, bound, free),
+        Expr::Cast { expr, .. } | Expr::Try { expr, .. }
+        | Expr::Field { expr, .. } | Expr::OptionalChain { expr, .. } => collect_free_expr(expr, bound, free),
         Expr::Call { callee, args, named_args, .. } => {
             if !bound.contains(callee) {
                 free.insert(callee.clone());
@@ -1195,7 +1216,6 @@ fn collect_free_expr(expr: &Expr, bound: &HashSet<String>, free: &mut HashSet<St
             collect_free_expr(expr, bound, free);
             collect_free_expr(index, bound, free);
         }
-        Expr::Field { expr, .. } | Expr::OptionalChain { expr, .. } => collect_free_expr(expr, bound, free),
         Expr::MethodCall { expr, args, named_args, .. } => {
             collect_free_expr(expr, bound, free);
             for a in args { collect_free_expr(a, bound, free); }
@@ -1309,14 +1329,16 @@ fn safe_index(v: &Value, line: usize) -> Result<usize, RuntimeError> {
         return Err(RuntimeError::new(ErrorCode::R006, line, "index is infinite"));
     }
     if f < 0.0 {
+        #[allow(clippy::cast_possible_truncation)]
         return Err(RuntimeError::new(ErrorCode::R006, line, format!("index is negative ({})", f as i64)));
     }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     Ok(f as usize)
 }
 
 fn parse_hex_color(hex: &str) -> Result<Value, RuntimeError> {
     let parse = |s: &str| u8::from_str_radix(s, 16)
-        .map(|n| n as f64 / 255.0)
+        .map(|n| f64::from(n) / 255.0)
         .map_err(|_| RuntimeError::new(ErrorCode::R001, 0, format!("invalid hex: #{hex}")));
     match hex.len() {
         6 => Ok(Value::Color { r: parse(&hex[0..2])?, g: parse(&hex[2..4])?, b: parse(&hex[4..6])?, a: 1.0 }),

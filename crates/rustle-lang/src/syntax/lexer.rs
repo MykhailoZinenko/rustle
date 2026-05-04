@@ -9,10 +9,13 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
+    #[must_use] 
     pub fn new(source: &'a str) -> Self {
         Self { source: source.as_bytes(), pos: 0, line: 1, column: 1 }
     }
 
+    /// # Errors
+    /// Returns a list of lexer errors if any invalid tokens are encountered.
     pub fn tokenize(mut self) -> Result<Vec<Token>, Vec<Error>> {
         let mut tokens = Vec::new();
         let mut errors = Vec::new();
@@ -175,7 +178,7 @@ impl<'a> Lexer<'a> {
     /// Returns true when the next 6 bytes are all hex digits.
     fn is_hex_sequence(&self) -> bool {
         self.pos + 6 <= self.source.len()
-            && self.source[self.pos..self.pos + 6].iter().all(|b| b.is_ascii_hexdigit())
+            && self.source[self.pos..self.pos + 6].iter().all(u8::is_ascii_hexdigit)
     }
 
     fn read_hex_color(&mut self) -> String {
@@ -183,7 +186,7 @@ impl<'a> Lexer<'a> {
         for _ in 0..6 { s.push(self.advance() as char); }
         // optional 2-digit alpha channel
         if self.pos + 2 <= self.source.len()
-            && self.source[self.pos..self.pos + 2].iter().all(|b| b.is_ascii_hexdigit())
+            && self.source[self.pos..self.pos + 2].iter().all(u8::is_ascii_hexdigit)
         {
             s.push(self.advance() as char);
             s.push(self.advance() as char);
@@ -278,6 +281,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::approx_constant, reason = "3.14 is a test literal for the lexer, not an approximation of PI")]
     fn float_literal() {
         assert_eq!(lex("3.14"), vec![TokenKind::Float(3.14), TokenKind::Eof]);
     }
@@ -404,6 +408,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::approx_constant, reason = "3.14 is a test literal for the lexer, not an approximation of PI")]
     fn variable_declaration() {
         assert_eq!(
             lex("let x: float = 3.14"),

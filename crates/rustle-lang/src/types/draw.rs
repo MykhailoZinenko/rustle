@@ -29,13 +29,14 @@ impl std::str::FromStr for Origin {
 
 impl Origin {
     /// Canvas origins where y=0 is at the top and y increases downward (screen convention).
+    #[must_use] 
     pub fn is_y_down(self) -> bool {
         matches!(self, Origin::TopLeft | Origin::TopRight | Origin::Top)
     }
 }
 
 /// Coordinate conversion parameters — snapshotted from the interpreter
-/// into every DrawCommand so the renderer has full context.
+/// into every `DrawCommand` so the renderer has full context.
 #[derive(Debug, Clone, Default)]
 pub struct CoordMeta {
     /// Canvas width in pixels. 0.0 = not set (identity / NDC pass-through).
@@ -44,7 +45,7 @@ pub struct CoordMeta {
     pub px_height: f64,
     /// Canvas origin — where (0,0) maps on screen, and y-axis direction.
     /// Center = (0,0) is screen center, y-up.
-    /// TopLeft = (0,0) is top-left corner, y-down (screen/pixel convention).
+    /// `TopLeft` = (0,0) is top-left corner, y-down (screen/pixel convention).
     pub origin: Origin,
 }
 
@@ -52,9 +53,10 @@ impl CoordMeta {
     /// Convert a position x coordinate to NDC [-1, 1].
     ///
     /// x=0 placement:
-    ///   Left-edge origins  (TopLeft, BottomLeft, Left)  → NDC x = -1
-    ///   Right-edge origins (TopRight, BottomRight, Right) → NDC x = +1
+    ///   Left-edge origins  (`TopLeft`, `BottomLeft`, Left)  → NDC x = -1
+    ///   Right-edge origins (`TopRight`, `BottomRight`, Right) → NDC x = +1
     ///   Center-x origins   (Center, Top, Bottom)          → NDC x = 0
+    #[must_use] 
     pub fn x_to_ndc(&self, x: f64) -> f64 {
         if self.px_width > 0.0 {
             match self.origin {
@@ -76,6 +78,7 @@ impl CoordMeta {
     ///   y-down (Top*)  → y=0 at screen top (NDC +1), y increases downward
     ///   y-up   (Bot*)  → y=0 at screen bottom (NDC -1), y increases upward
     ///   center (Center, Left, Right) → y=0 at screen center, y-up
+    #[must_use] 
     pub fn y_to_ndc(&self, y: f64) -> f64 {
         if self.px_height > 0.0 {
             match self.origin {
@@ -92,22 +95,26 @@ impl CoordMeta {
     }
 
     /// Convert a width/x-extent to NDC scale (no position bias).
+    #[must_use] 
     pub fn w_to_ndc(&self, w: f64) -> f64 {
         if self.px_width > 0.0 { 2.0 * w / self.px_width } else { w }
     }
 
     /// Convert a height/y-extent to NDC scale (no position bias, always positive).
+    #[must_use] 
     pub fn h_to_ndc(&self, h: f64) -> f64 {
         if self.px_height > 0.0 { 2.0 * h / self.px_height } else { h }
     }
 
     /// Convert a y-direction translation delta to NDC (respects y-axis direction).
+    #[must_use] 
     pub fn dy_to_ndc(&self, dy: f64) -> f64 {
         let scale = if self.px_height > 0.0 { 2.0 / self.px_height } else { 1.0 };
         if self.origin.is_y_down() { -dy * scale } else { dy * scale }
     }
 
     /// Convert a user-space x to screen pixels (0 = left edge of canvas).
+    #[must_use] 
     pub fn x_to_screen_px(&self, x: f64) -> f64 {
         if self.px_width > 0.0 {
             match self.origin {
@@ -124,6 +131,7 @@ impl CoordMeta {
     }
 
     /// Convert a user-space y to screen pixels (0 = top edge of canvas, y-down).
+    #[must_use] 
     pub fn y_to_screen_px(&self, y: f64) -> f64 {
         if self.px_height > 0.0 {
             match self.origin {
@@ -155,10 +163,10 @@ pub enum ShapeDesc {
 impl ShapeDesc {
     /// Stored anchor point — the literal first argument to the shape constructor.
     /// This is the reference point for `.in()` offsets.
+    #[must_use] 
     pub fn anchor(&self) -> (f64, f64) {
         match self {
-            Self::Circle { center, .. } => *center,
-            Self::Rect   { center, .. } => *center,
+            Self::Circle { center, .. } | Self::Rect { center, .. } => *center,
             Self::Line   { from, .. }   => *from,
             Self::Polygon(pts) => pts.first().copied().unwrap_or((0.0, 0.0)),
         }
@@ -167,6 +175,7 @@ impl ShapeDesc {
 
 /// Offset from stored origin anchor to visual center, in NDC y-up space.
 /// Used by the tessellator after converting anchor and half-size to NDC.
+#[must_use] 
 pub fn origin_offset(origin: &Origin, hw: f64, hh: f64) -> (f64, f64) {
     match origin {
         Origin::Center      => ( 0.0,  0.0),
@@ -222,6 +231,7 @@ pub struct ShapeData {
 }
 
 impl ShapeData {
+    #[must_use] 
     pub fn new(desc: ShapeDesc, render_mode: RenderMode, coord_meta: CoordMeta) -> Self {
         Self { desc, render_mode, coord_meta, transforms: Vec::new() }
     }

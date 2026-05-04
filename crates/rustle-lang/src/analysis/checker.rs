@@ -4,7 +4,7 @@
 //! compatibility. Updates the symbol table where types were left as `None`
 //! by the collector.
 
-use crate::syntax::ast::*;
+use crate::syntax::ast::{Type, Program, Item, StateBlock, FnDef, Stmt, VarDecl, Assign, AssignTarget, OutStmt, PrintStmt, MatchStmt, IfStmt, Expr, Span, WhileStmt, ForStmt, ForeachStmt, BinOp, UnOp};
 use crate::error::{Error, ErrorCode, suggest_similar};
 use crate::namespaces::NamespaceRegistry;
 use crate::types::binop_registry::{BinopRegistry, type_to_key, key_to_type};
@@ -14,7 +14,7 @@ use super::symbols::{ScopeKind, Symbol, SymbolKind, SymbolTable};
 pub struct TypeResolver<'a> {
     pub table: SymbolTable,
     pub errors: Vec<Error>,
-    /// The declaration_order of the function currently being checked.
+    /// The `declaration_order` of the function currently being checked.
     /// `None` at the top level.
     current_fn_order: Option<usize>,
     /// Expected return type of the current function (`None` = void).
@@ -28,6 +28,7 @@ pub struct TypeResolver<'a> {
 }
 
 impl<'a> TypeResolver<'a> {
+    #[must_use] 
     pub fn new(table: SymbolTable, registry: &'a NamespaceRegistry) -> Self {
         Self {
             table,
@@ -40,6 +41,7 @@ impl<'a> TypeResolver<'a> {
         }
     }
 
+    #[must_use] 
     pub fn run(mut self, program: &'a Program) -> (SymbolTable, Vec<Error>) {
         self.program = Some(program);
         self.lookup = LookupContext::new(Some(program), self.lookup.registry);
@@ -82,8 +84,7 @@ impl<'a> TypeResolver<'a> {
     fn check_fn(&mut self, f: &FnDef) {
         // Find this function's declaration order for strict scoping
         let fn_order = self.table.lookup(&f.name)
-            .map(|s| s.declaration_order)
-            .unwrap_or(0);
+            .map_or(0, |s| s.declaration_order);
 
         let prev_order  = self.current_fn_order.replace(fn_order);
         let prev_return = std::mem::replace(&mut self.current_fn_return, f.return_ty.clone());
@@ -158,14 +159,12 @@ impl<'a> TypeResolver<'a> {
 
         if self.table.current_scope_kind() == &ScopeKind::Global {
             // Update the already-declared top-level symbol's type
-            self.table.update_type(&v.name, sym.ty.clone().unwrap());
-        } else {
-            if !self.table.declare(sym) {
-                self.errors.push(Error::new(
-                    ErrorCode::S003, v.span.line, v.span.column,
-                    format!("`{}` already declared in this scope", v.name),
-                ));
-            }
+            self.table.update_type(&v.name, sym.ty.expect("type was just resolved"));
+        } else if !self.table.declare(sym) {
+            self.errors.push(Error::new(
+                ErrorCode::S003, v.span.line, v.span.column,
+                format!("`{}` already declared in this scope", v.name),
+            ));
         }
     }
 
@@ -213,6 +212,7 @@ impl<'a> TypeResolver<'a> {
         }
     }
 
+    #[expect(clippy::unused_self, reason = "kept as method for consistent call site syntax")]
     fn indexed_type(&self, ty: &Type) -> Option<Type> {
         match ty {
             Type::List(elem) | Type::Array(elem, _) => Some(*elem.clone()),
@@ -353,8 +353,7 @@ impl<'a> TypeResolver<'a> {
 
     fn check_foreach(&mut self, f: &ForeachStmt) {
         let elem_ty = match self.infer_expr(&f.iterable) {
-            Ok(Type::List(elem))        => Some(*elem),
-            Ok(Type::Array(elem, _))    => Some(*elem),
+            Ok(Type::List(elem) | Type::Array(elem, _)) => Some(*elem),
             Ok(other) => {
                 self.errors.push(Error::new(
                     ErrorCode::S002,
@@ -443,6 +442,9 @@ impl<'a> TypeResolver<'a> {
 
     // ── Expression type inference ─────────────────────────────────────────────
 
+    /// # Errors
+    /// Returns errors if the expression contains type mismatches or undefined symbols.
+    #[expect(clippy::too_many_lines, reason = "large match on Expr variants; splitting would add indirection")]
     pub fn infer_expr(&mut self, expr: &Expr) -> Result<Type, Vec<Error>> {
         match expr {
             Expr::Float(_, _)     => Ok(Type::Float),
@@ -507,8 +509,7 @@ impl<'a> TypeResolver<'a> {
                     ));
                 }
                 match coll_ty {
-                    Type::List(elem)     => Ok(*elem),
-                    Type::Array(elem, _) => Ok(*elem),
+                    Type::List(elem) | Type::Array(elem, _) => Ok(*elem),
                     other => Err(vec![Error::new(
                         ErrorCode::S008, span.line, span.column,
                         format!("cannot index into `{}`", type_name(&other)),
@@ -526,7 +527,7 @@ impl<'a> TypeResolver<'a> {
                     );
                     let available = self.lookup.field_names(&obj_ty);
                     if !available.is_empty() {
-                        let candidates: Vec<&str> = available.iter().map(|s| s.as_str()).collect();
+                        let candidates: Vec<&str> = available.iter().map(std::string::String::as_str).collect();
                         if let Some(suggestion) = suggest_similar(field, &candidates, 2) {
                             err = err.with_hint(format!("did you mean '{suggestion}'?"));
                         } else {
@@ -547,24 +548,21 @@ impl<'a> TypeResolver<'a> {
                     )]),
                 };
                 let field_ty = self.lookup.resolve_field(inner, field);
-                match field_ty {
-                    Some(t) => Ok(Type::Optional(Box::new(t))),
-                    None => {
-                        let mut err = Error::new(
-                            ErrorCode::S009, span.line, span.column,
-                            format!("type `{}` has no field `{field}`", type_name(inner)),
-                        );
-                        let available = self.lookup.field_names(inner);
-                        if !available.is_empty() {
-                            let candidates: Vec<&str> = available.iter().map(|s| s.as_str()).collect();
-                            if let Some(suggestion) = suggest_similar(field, &candidates, 2) {
-                                err = err.with_hint(format!("did you mean '{suggestion}'?"));
-                            } else {
-                                err = err.with_hint(format!("available fields: {}", candidates.join(", ")));
-                            }
+                if let Some(t) = field_ty { Ok(Type::Optional(Box::new(t))) } else {
+                    let mut err = Error::new(
+                        ErrorCode::S009, span.line, span.column,
+                        format!("type `{}` has no field `{field}`", type_name(inner)),
+                    );
+                    let available = self.lookup.field_names(inner);
+                    if !available.is_empty() {
+                        let candidates: Vec<&str> = available.iter().map(std::string::String::as_str).collect();
+                        if let Some(suggestion) = suggest_similar(field, &candidates, 2) {
+                            err = err.with_hint(format!("did you mean '{suggestion}'?"));
+                        } else {
+                            err = err.with_hint(format!("available fields: {}", candidates.join(", ")));
                         }
-                        Err(vec![err])
                     }
+                    Err(vec![err])
                 }
             }
 
@@ -578,7 +576,7 @@ impl<'a> TypeResolver<'a> {
                     );
                     let available = self.lookup.method_names(&obj_ty);
                     if !available.is_empty() {
-                        let candidates: Vec<&str> = available.iter().map(|s| s.as_str()).collect();
+                        let candidates: Vec<&str> = available.iter().map(std::string::String::as_str).collect();
                         if let Some(suggestion) = suggest_similar(method, &candidates, 2) {
                             err = err.with_hint(format!("did you mean '{suggestion}'?"));
                         } else {
@@ -598,14 +596,13 @@ impl<'a> TypeResolver<'a> {
                     ));
                 }
                 for t in transforms {
-                    if let Ok(t_ty) = self.infer_expr(t) {
-                        if t_ty != Type::Transform {
+                    if let Ok(t_ty) = self.infer_expr(t)
+                        && t_ty != Type::Transform {
                             self.errors.push(Error::new(
                                 ErrorCode::S002, t.span().line, t.span().column,
                                 format!("`@` expects `transform`, found `{}`", type_name(&t_ty)),
                             ));
                         }
-                    }
                 }
                 // Preserve the specific shape type through a transform.
                 Ok(shape_ty)
@@ -619,8 +616,8 @@ impl<'a> TypeResolver<'a> {
                 }
                 let first_ty = self.infer_expr(&items[0])?;
                 for item in items.iter().skip(1) {
-                    if let Ok(ty) = self.infer_expr(item) {
-                        if ty != first_ty {
+                    if let Ok(ty) = self.infer_expr(item)
+                        && ty != first_ty {
                             self.errors.push(Error::new(
                                 ErrorCode::S002, span.line, span.column,
                                 format!(
@@ -629,7 +626,6 @@ impl<'a> TypeResolver<'a> {
                                 ),
                             ));
                         }
-                    }
                 }
                 Ok(Type::List(Box::new(first_ty)))
             }
@@ -724,7 +720,7 @@ impl<'a> TypeResolver<'a> {
                 if has_arg_error {
                     return Err(vec![]); // Errors already extended; signal failure
                 }
-                Ok(ret_ty.map(|t| *t).unwrap_or(Type::Unit))
+                Ok(ret_ty.map_or(Type::Unit, |t| *t))
             }
             other => Err(vec![Error::new(
                 ErrorCode::S010, span.line, span.column,
@@ -779,11 +775,10 @@ impl<'a> TypeResolver<'a> {
             return Ok(Type::Bool);
         }
 
-        if let (Some(lk), Some(rk)) = (type_to_key(l), type_to_key(r)) {
-            if let Some(ret_key) = self.binops.result_type(op, lk, rk) {
+        if let (Some(lk), Some(rk)) = (type_to_key(l), type_to_key(r))
+            && let Some(ret_key) = self.binops.result_type(op, lk, rk) {
                 return Ok(key_to_type(ret_key));
             }
-        }
         Err(vec![Error::new(
             ErrorCode::S008, span.line, span.column,
             format!("operator `{op}` not applicable to `{}` and `{}`", type_name(l), type_name(r)),
@@ -793,23 +788,23 @@ impl<'a> TypeResolver<'a> {
     fn check_unop(&mut self, op: &UnOp, operand: &Expr, ty: &Type, span: &Span) -> Result<Type, Vec<Error>> {
         match op {
             UnOp::Neg => {
-                if *ty != Type::Float {
+                if *ty == Type::Float {
+                    Ok(Type::Float)
+                } else {
                     Err(vec![Error::new(
                         ErrorCode::S008, span.line, span.column,
                         format!("unary `-` requires `float`, found `{}`", type_name(ty)),
                     )])
-                } else {
-                    Ok(Type::Float)
                 }
             }
             UnOp::Not => {
-                if !is_truthy_type(ty) {
+                if is_truthy_type(ty) {
+                    Ok(Type::Bool)
+                } else {
                     Err(vec![Error::new(
                         ErrorCode::S008, span.line, span.column,
                         format!("`not` requires a truthy type, found `{}`", type_name(ty)),
                     )])
-                } else {
-                    Ok(Type::Bool)
                 }
             }
             UnOp::PrefixInc | UnOp::PrefixDec | UnOp::PostfixInc | UnOp::PostfixDec => {
@@ -841,7 +836,7 @@ impl<'a> TypeResolver<'a> {
                             format!("undefined: `{name}`"),
                         );
                         let visible = self.table.all_visible_names();
-                        let candidates: Vec<&str> = visible.iter().map(|s| s.as_str()).collect();
+                        let candidates: Vec<&str> = visible.iter().map(std::string::String::as_str).collect();
                         if let Some(suggestion) = suggest_similar(name, &candidates, 2) {
                             err = err.with_hint(format!("did you mean '{suggestion}'?"));
                         }
@@ -869,9 +864,9 @@ impl<'a> TypeResolver<'a> {
         args: &[Expr],
         span: &Span,
     ) -> Option<Type> {
-        let member_ty = self.lookup.get_method_type(&obj_ty, method)?;
-        if let Type::Fn(param_types, ret_ty) = &member_ty {
-            if args.len() == param_types.len() {
+        let member_ty = self.lookup.get_method_type(obj_ty, method)?;
+        if let Type::Fn(param_types, ret_ty) = &member_ty
+            && args.len() == param_types.len() {
                 for (arg, expected) in args.iter().zip(param_types.iter()) {
                     match self.infer_expr(arg) {
                         Ok(actual) => self.expect_type(expected, &actual, span),
@@ -880,9 +875,8 @@ impl<'a> TypeResolver<'a> {
                 }
                 // Void methods return Unit so the caller can distinguish
                 // "method found, void return" from "method not found".
-                return Some(ret_ty.clone().map(|t| *t).unwrap_or(Type::Unit));
+                return Some(ret_ty.clone().map_or(Type::Unit, |t| *t));
             }
-        }
         for arg in args {
             self.infer_expr(arg).ok();
         }
@@ -899,26 +893,23 @@ impl<'a> TypeResolver<'a> {
 
     fn lookup_type(&mut self, name: &str, span: &Span) -> Result<Type, Vec<Error>> {
         let sym = self.lookup_symbol(name, span);
-        match sym {
-            Some(s) => match &s.ty {
-                Some(t) => Ok(t.clone()),
-                None => Err(vec![Error::new(
-                    ErrorCode::S001, span.line, span.column,
-                    format!("`{name}` used before its type could be resolved"),
-                )]),
-            },
-            None => {
-                let mut err = Error::new(
-                    ErrorCode::S001, span.line, span.column,
-                    format!("undefined: `{name}`"),
-                );
-                let visible = self.table.all_visible_names();
-                let candidates: Vec<&str> = visible.iter().map(|s| s.as_str()).collect();
-                if let Some(suggestion) = suggest_similar(name, &candidates, 2) {
-                    err = err.with_hint(format!("did you mean '{suggestion}'?"));
-                }
-                Err(vec![err])
+        if let Some(s) = sym { match &s.ty {
+            Some(t) => Ok(t.clone()),
+            None => Err(vec![Error::new(
+                ErrorCode::S001, span.line, span.column,
+                format!("`{name}` used before its type could be resolved"),
+            )]),
+        } } else {
+            let mut err = Error::new(
+                ErrorCode::S001, span.line, span.column,
+                format!("undefined: `{name}`"),
+            );
+            let visible = self.table.all_visible_names();
+            let candidates: Vec<&str> = visible.iter().map(std::string::String::as_str).collect();
+            if let Some(suggestion) = suggest_similar(name, &candidates, 2) {
+                err = err.with_hint(format!("did you mean '{suggestion}'?"));
             }
+            Err(vec![err])
         }
     }
 
@@ -935,17 +926,20 @@ impl<'a> TypeResolver<'a> {
 // ─── Shape helpers ────────────────────────────────────────────────────────────
 
 /// True for types that support equality (usable in match).
+#[must_use] 
 pub fn is_matchable(ty: &Type) -> bool {
     matches!(ty, Type::Float | Type::Bool | Type::String | Type::Vec2 | Type::Vec3 | Type::Vec4 | Type::Color)
 }
 
 /// True for any type that can be pushed to `out <<` or used with `@`.
+#[must_use] 
 pub fn is_drawable(ty: &Type) -> bool {
     matches!(ty, Type::Shape | Type::Circle | Type::Rect | Type::Line | Type::Polygon)
 }
 
 /// True if `actual` is compatible where `expected` is required.
 /// Adds coercion: any concrete shape kind is assignable to `shape`.
+#[must_use] 
 pub fn types_compatible(expected: &Type, actual: &Type) -> bool {
     if expected == actual { return true; }
     // Concrete shape kind → erased shape
@@ -958,9 +952,8 @@ pub fn types_compatible(expected: &Type, actual: &Type) -> bool {
         if types_compatible(inner, actual) { return true; }
         // Optional(T) is assignable to Optional(T) — already handled by == above
         // Also handle Optional(T) where inner types are compatible
-        if let Type::Optional(actual_inner) = actual {
-            if types_compatible(inner, actual_inner) { return true; }
-        }
+        if let Type::Optional(actual_inner) = actual
+            && types_compatible(inner, actual_inner) { return true; }
     }
     false
 }

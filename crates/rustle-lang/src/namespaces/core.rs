@@ -33,6 +33,7 @@ fn named(s: &str) -> Type {
 
 // ─── Type exports (used by resolver/collector) ─────────────────────────────
 
+#[must_use] 
 pub fn core_exports() -> Vec<Export> {
     vec![
         // Math
@@ -101,6 +102,9 @@ impl NamespaceInfo for CoreNamespace {
 }
 
 impl NamespaceProvider for CoreNamespace {
+    /// # Errors
+    /// Returns an error if arguments are the wrong type or count for the named function.
+    #[expect(clippy::too_many_lines, reason = "large match on built-in function names; splitting would add indirection")]
     fn call(
         &self,
         name: &str,

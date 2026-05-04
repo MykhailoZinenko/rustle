@@ -7,7 +7,7 @@
 //! - Records top-level variable declarations with declaration order
 //! - Records `state {}` field names
 
-use crate::syntax::ast::*;
+use crate::syntax::ast::{Span, Program, Item, ImportDecl, Type, StateBlock, FnDef, Stmt, Expr};
 use crate::error::{Error, ErrorCode};
 use crate::namespaces::{NamespaceRegistry, core::core_exports};
 use super::symbols::{Symbol, SymbolKind, SymbolTable};
@@ -19,6 +19,7 @@ pub struct Collector<'a> {
 }
 
 impl<'a> Collector<'a> {
+    #[must_use] 
     pub fn new(registry: &'a NamespaceRegistry) -> Self {
         let mut table = SymbolTable::new();
         // Pre-seed with core symbols (always available, no import needed)
@@ -29,6 +30,7 @@ impl<'a> Collector<'a> {
         Self { registry, table, errors: Vec::new() }
     }
 
+    #[must_use] 
     pub fn collect(mut self, program: &Program) -> (SymbolTable, Vec<Error>) {
         // Process imports first so imported names are available for the rest
         for import in &program.imports {
@@ -75,39 +77,36 @@ impl<'a> Collector<'a> {
         } else {
             // `import shapes { circle, rect }`
             for member in &import.members {
-                match ns.get_export(member) {
-                    Some(export) => {
-                        let kind = match export.kind {
-                            crate::namespaces::ExportKind::Function => SymbolKind::Function,
-                            crate::namespaces::ExportKind::Constant => SymbolKind::Variable,
-                        };
-                        let sym = Symbol::new(
-                            export.name,
-                            Some(export.ty),
-                            kind,
-                            import.span.clone(),
-                        );
-                        if !self.table.declare_top_level(sym) {
-                            self.errors.push(Error::new(
-                                ErrorCode::S003,
-                                import.span.line, import.span.column,
-                                format!("`{member}` already declared"),
-                            ));
-                        }
-                    }
-                    None => {
-                        let mut err = Error::new(
-                            ErrorCode::S006,
+                if let Some(export) = ns.get_export(member) {
+                    let kind = match export.kind {
+                        crate::namespaces::ExportKind::Function => SymbolKind::Function,
+                        crate::namespaces::ExportKind::Constant => SymbolKind::Variable,
+                    };
+                    let sym = Symbol::new(
+                        export.name,
+                        Some(export.ty),
+                        kind,
+                        import.span.clone(),
+                    );
+                    if !self.table.declare_top_level(sym) {
+                        self.errors.push(Error::new(
+                            ErrorCode::S003,
                             import.span.line, import.span.column,
-                            format!("`{}` does not export `{member}`", import.namespace),
-                        );
-                        if let Some(ns) = self.registry.get(&import.namespace) {
-                            let exports = ns.exports();
-                            let names: Vec<&str> = exports.iter().map(|e| e.name).collect();
-                            err = err.with_hint(format!("available exports: {}", names.join(", ")));
-                        }
-                        self.errors.push(err);
+                            format!("`{member}` already declared"),
+                        ));
                     }
+                } else {
+                    let mut err = Error::new(
+                        ErrorCode::S006,
+                        import.span.line, import.span.column,
+                        format!("`{}` does not export `{member}`", import.namespace),
+                    );
+                    if let Some(ns) = self.registry.get(&import.namespace) {
+                        let exports = ns.exports();
+                        let names: Vec<&str> = exports.iter().map(|e| e.name).collect();
+                        err = err.with_hint(format!("available exports: {}", names.join(", ")));
+                    }
+                    self.errors.push(err);
                 }
             }
         }
@@ -183,17 +182,18 @@ impl<'a> Collector<'a> {
 
 /// Try to determine the type of a simple literal expression without a full
 /// inference pass. Returns `None` for complex expressions.
+#[must_use] 
 pub fn infer_literal_type(expr: &Expr) -> Option<Type> {
     match expr {
         Expr::Float(_, _)     => Some(Type::Float),
         Expr::Bool(_, _)      => Some(Type::Bool),
         Expr::StringLit(_, _) => Some(Type::String),
         Expr::HexColor(_, _)  => Some(Type::Color),
-        Expr::None(_)         => None, // can't infer inner type from bare none
+        // can't infer inner type from bare none
         Expr::List(items, _)  => {
             // Infer element type from the first item
             items.first()
-                .and_then(|e| infer_literal_type(e))
+                .and_then(infer_literal_type)
                 .map(|elem_ty| Type::List(Box::new(elem_ty)))
         }
         _ => None,

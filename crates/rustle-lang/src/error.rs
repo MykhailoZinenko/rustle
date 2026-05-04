@@ -52,8 +52,10 @@ pub enum ErrorCode {
 impl ErrorCode {
     /// All current codes are hard errors (not warnings).
     /// Extend this when warning codes are added.
+    #[must_use] 
     pub fn is_error(&self) -> bool { true }
 
+    #[must_use] 
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::L001 => "L001",
@@ -113,6 +115,7 @@ impl Error {
         Self { code, line, column, message: message.into(), hint: None }
     }
 
+    #[must_use]
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
         self.hint = Some(hint.into());
         self
@@ -128,6 +131,8 @@ impl std::fmt::Display for Error {
         Ok(())
     }
 }
+
+impl std::error::Error for Error {}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -165,10 +170,13 @@ impl std::fmt::Display for RuntimeError {
     }
 }
 
+impl std::error::Error for RuntimeError {}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Suggestion helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+#[must_use] 
 pub fn levenshtein(a: &str, b: &str) -> usize {
     let (a, b) = (a.as_bytes(), b.as_bytes());
     let (m, n) = (a.len(), b.len());
@@ -177,7 +185,7 @@ pub fn levenshtein(a: &str, b: &str) -> usize {
     for i in 1..=m {
         curr[0] = i;
         for j in 1..=n {
-            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            let cost = usize::from(a[i - 1] != b[j - 1]);
             curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
         }
         std::mem::swap(&mut prev, &mut curr);
@@ -185,6 +193,7 @@ pub fn levenshtein(a: &str, b: &str) -> usize {
     prev[n]
 }
 
+#[must_use] 
 pub fn suggest_similar<'a>(name: &str, candidates: &[&'a str], max_dist: usize) -> Option<&'a str> {
     candidates
         .iter()

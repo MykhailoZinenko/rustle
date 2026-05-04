@@ -1,10 +1,10 @@
 //! Type descriptor registry — single source of truth for built-in value types.
 //!
 //! Consumed by:
-//!   • The resolver  — field_type / method_signature (compile-time)
-//!   • The interpreter — get_field / set_field / call_method (runtime)
+//!   • The resolver  — `field_type` / `method_signature` (compile-time)
+//!   • The interpreter — `get_field` / `set_field` / `call_method` (runtime)
 //!
-//! Adding a new built-in type = registering one TypeDesc here.
+//! Adding a new built-in type = registering one `TypeDesc` here.
 //! No edits to interpreter.rs or resolver/ needed.
 
 use std::collections::HashMap;
@@ -59,6 +59,7 @@ pub struct TypeRegistry {
 }
 
 impl TypeRegistry {
+    #[must_use] 
     pub fn new() -> Self {
         Self { types: HashMap::new() }
     }
@@ -70,6 +71,7 @@ impl TypeRegistry {
     // ── Resolver API — by name (used internally) ──────────────────────────────
 
     /// Return the type of `field` on a concrete type named `type_name`.
+    #[must_use] 
     pub fn field_type(&self, type_name: &str, field: &str) -> Option<Type> {
         self.types.get(type_name)?
             .fields.iter()
@@ -77,7 +79,8 @@ impl TypeRegistry {
             .map(|f| f.ty.clone())
     }
 
-    /// Return (param_types, return_type) for `method` on a concrete type named `type_name`.
+    /// Return (`param_types`, `return_type`) for `method` on a concrete type named `type_name`.
+    #[must_use] 
     pub fn method_signature(&self, type_name: &str, method: &str)
         -> Option<(Vec<Type>, Option<Type>)>
     {
@@ -88,6 +91,7 @@ impl TypeRegistry {
     }
 
     /// Return all field names for a concrete type named `type_name`.
+    #[must_use] 
     pub fn field_names_by_name(&self, type_name: &str) -> Vec<&'static str> {
         self.types.get(type_name)
             .map(|d| d.fields.iter().map(|f| f.name).collect())
@@ -95,6 +99,7 @@ impl TypeRegistry {
     }
 
     /// Return all method names for a concrete type named `type_name`.
+    #[must_use] 
     pub fn method_names_by_name(&self, type_name: &str) -> Vec<&'static str> {
         self.types.get(type_name)
             .map(|d| d.methods.iter().map(|m| m.name).collect())
@@ -102,6 +107,7 @@ impl TypeRegistry {
     }
 
     /// Return all field names available on any `Type` (including generics).
+    #[must_use] 
     pub fn field_names_for_type(&self, ty: &Type) -> Vec<&str> {
         match ty {
             Type::Res(_) => vec!["ok", "value", "error"],
@@ -114,6 +120,7 @@ impl TypeRegistry {
     }
 
     /// Return all method names available on any `Type` (including generics).
+    #[must_use] 
     pub fn method_names_for_type(&self, ty: &Type) -> Vec<&str> {
         match ty {
             Type::List(_)     => vec!["push", "pop", "len"],
@@ -129,6 +136,7 @@ impl TypeRegistry {
 
     /// Resolve the type of `field` on any `Type`, including generic types like
     /// `res<T>` (where `.value` returns `T`) and `list<T>` (where `.len` returns float).
+    #[must_use] 
     pub fn resolve_field_type(&self, ty: &Type, field: &str) -> Option<Type> {
         match ty {
             Type::Res(inner) => match field {
@@ -146,8 +154,9 @@ impl TypeRegistry {
         }
     }
 
-    /// Resolve (param_types, return_type) for `method` on any `Type`.
-    /// For generic types like `list<T>`, pop() correctly returns `T`.
+    /// Resolve (`param_types`, `return_type`) for `method` on any `Type`.
+    /// For generic types like `list<T>`, `pop()` correctly returns `T`.
+    #[must_use] 
     pub fn resolve_method_signature(&self, ty: &Type, method: &str)
         -> Option<(Vec<Type>, Option<Type>)>
     {
@@ -174,6 +183,7 @@ impl TypeRegistry {
 
     /// Get the value of `field` from `v`.
     /// Returns None if the type or field isn't registered.
+    #[must_use] 
     pub fn get_field(&self, v: &Value, field: &str) -> Option<Value> {
         let key = value_type_key(v);
         self.types.get(key)?
@@ -184,6 +194,7 @@ impl TypeRegistry {
 
     /// Return a new Value with `field` set to `new_val`.
     /// Returns None if the type/field isn't registered or the field is read-only.
+    #[must_use] 
     pub fn set_field(&self, v: Value, field: &str, new_val: Value) -> Option<Value> {
         let key = value_type_key(&v);
         let setter = self.types.get(key)?
@@ -195,6 +206,7 @@ impl TypeRegistry {
 
     /// Call `method` on `recv` with pre-evaluated `args`.
     /// Returns None if the type or method isn't registered.
+    #[must_use] 
     pub fn call_method(
         &self,
         recv:   &Value,
@@ -249,8 +261,9 @@ impl Default for TypeRegistry {
 // ─── Type key ─────────────────────────────────────────────────────────────────
 
 /// Map a Value to its type registry key. Returns "" for types not in the registry
-/// (Namespace, NativeFn, Closure, State — these are internal/dynamic and
+/// (Namespace, `NativeFn`, Closure, State — these are internal/dynamic and
 /// don't have statically-known field/method descriptors).
+#[must_use] 
 pub fn value_type_key(v: &Value) -> &'static str {
     match v {
         Value::Float(_)             => "float",
@@ -341,7 +354,7 @@ fn string_desc() -> TypeDesc {
             FieldDesc {
                 name: "len",
                 ty:   float(),
-                get:  |v| { let Value::Str(s) = v else { unreachable!() }; Value::Float(s.len() as f64) },
+                get:  |v| { let Value::Str(s) = v else { unreachable!() }; #[allow(clippy::cast_precision_loss)] let n = s.len() as f64; Value::Float(n) },
                 set:  None,
             },
         ],
@@ -368,6 +381,7 @@ fn input_desc() -> TypeDesc {
 
 // ─── vec2 ─────────────────────────────────────────────────────────────────────
 
+#[expect(clippy::too_many_lines, reason = "comprehensive type descriptor; splitting would add indirection")]
 fn vec2_desc() -> TypeDesc {
     TypeDesc {
         name: "vec2",
@@ -509,6 +523,7 @@ fn vec2_desc() -> TypeDesc {
 
 // ─── vec3 ─────────────────────────────────────────────────────────────────────
 
+#[expect(clippy::too_many_lines, reason = "comprehensive type descriptor; splitting would add indirection")]
 fn vec3_desc() -> TypeDesc {
     TypeDesc {
         name: "vec3",
@@ -1008,7 +1023,7 @@ fn list_desc() -> TypeDesc {
         fields: vec![
             FieldDesc {
                 name: "len", ty: float(),
-                get: |v| { let Value::List(items) = v else { unreachable!() }; Value::Float(items.borrow().len() as f64) },
+                get: |v| { let Value::List(items) = v else { unreachable!() }; #[allow(clippy::cast_precision_loss)] let n = items.borrow().len() as f64; Value::Float(n) },
                 set: None,
             },
         ],
@@ -1017,6 +1032,7 @@ fn list_desc() -> TypeDesc {
                 name: "len", params: vec![], ret: Some(float()),
                 call: |v, _args, _line| {
                     let Value::List(items) = v else { unreachable!() };
+                    #[allow(clippy::cast_precision_loss)]
                     Ok(Value::Float(items.borrow().len() as f64))
                 },
             },
@@ -1084,7 +1100,7 @@ fn res_desc() -> TypeDesc {
 // ─── mat3 ─────────────────────────────────────────────────────────────────────
 
 fn mat3_desc() -> TypeDesc {
-    use crate::types::mat::*;
+    use crate::types::mat::{m3_transpose, m3_det, m3_inverse, m3_mul_vec, m3_scale};
     TypeDesc {
         name: "mat3",
         fields: vec![],
@@ -1135,8 +1151,9 @@ fn mat3_desc() -> TypeDesc {
 
 // ─── mat4 ─────────────────────────────────────────────────────────────────────
 
+#[expect(clippy::many_single_char_names, reason = "x, y, z, w are standard math vector component names")]
 fn mat4_desc() -> TypeDesc {
-    use crate::types::mat::*;
+    use crate::types::mat::{m4_transpose, m4_det, m4_inverse, m4_mul_vec, m4_scale};
     TypeDesc {
         name: "mat4",
         fields: vec![],

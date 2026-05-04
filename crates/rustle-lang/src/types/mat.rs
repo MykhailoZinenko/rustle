@@ -1,7 +1,7 @@
-//! Pure matrix math helpers — no Value types, no RuntimeError.
+//! Pure matrix math helpers — no Value types, no `RuntimeError`.
 //! Row-major storage: element at (row, col) = data[row * N + col].
 //!
-//! Used by both types/registry.rs (method impls) and types/binop_registry.rs (operator impls).
+//! Used by both types/registry.rs (method impls) and `types/binop_registry.rs` (operator impls).
 
 use crate::error::{ErrorCode, RuntimeError};
 
@@ -9,14 +9,17 @@ use crate::error::{ErrorCode, RuntimeError};
 
 pub type M3 = [f64; 9];
 
-#[inline] pub fn m3_at(m: &M3, row: usize, col: usize) -> f64 { m[row * 3 + col] }
+#[inline] #[must_use] 
+pub fn m3_at(m: &M3, row: usize, col: usize) -> f64 { m[row * 3 + col] }
 
+#[must_use] 
 pub fn m3_identity() -> M3 {
     [1., 0., 0.,
      0., 1., 0.,
      0., 0., 1.]
 }
 
+#[must_use] 
 pub fn m3_mul(a: &M3, b: &M3) -> M3 {
     let mut c = [0.0f64; 9];
     for i in 0..3 {
@@ -29,6 +32,7 @@ pub fn m3_mul(a: &M3, b: &M3) -> M3 {
     c
 }
 
+#[must_use] 
 pub fn m3_mul_vec(m: &M3, (vx, vy, vz): (f64, f64, f64)) -> (f64, f64, f64) {
     (
         m[0] * vx + m[1] * vy + m[2] * vz,
@@ -37,24 +41,29 @@ pub fn m3_mul_vec(m: &M3, (vx, vy, vz): (f64, f64, f64)) -> (f64, f64, f64) {
     )
 }
 
+#[must_use] 
 pub fn m3_scale(m: &M3, s: f64) -> M3 {
     let mut r = *m;
-    for v in r.iter_mut() { *v *= s; }
+    for v in &mut r { *v *= s; }
     r
 }
 
+#[must_use] 
 pub fn m3_transpose(m: &M3) -> M3 {
     [m[0], m[3], m[6],
      m[1], m[4], m[7],
      m[2], m[5], m[8]]
 }
 
+#[must_use] 
 pub fn m3_det(m: &M3) -> f64 {
     m[0] * (m[4] * m[8] - m[5] * m[7])
   - m[1] * (m[3] * m[8] - m[5] * m[6])
   + m[2] * (m[3] * m[7] - m[4] * m[6])
 }
 
+/// # Errors
+/// Returns an error if the matrix is singular (determinant is near zero).
 pub fn m3_inverse(m: &M3, line: usize) -> Result<M3, RuntimeError> {
     let det = m3_det(m);
     if det.abs() < 1e-15 {
@@ -72,8 +81,10 @@ pub fn m3_inverse(m: &M3, line: usize) -> Result<M3, RuntimeError> {
 
 pub type M4 = [f64; 16];
 
-#[inline] pub fn m4_at(m: &M4, row: usize, col: usize) -> f64 { m[row * 4 + col] }
+#[inline] #[must_use] 
+pub fn m4_at(m: &M4, row: usize, col: usize) -> f64 { m[row * 4 + col] }
 
+#[must_use] 
 pub fn m4_identity() -> M4 {
     [1., 0., 0., 0.,
      0., 1., 0., 0.,
@@ -81,6 +92,7 @@ pub fn m4_identity() -> M4 {
      0., 0., 0., 1.]
 }
 
+#[must_use] 
 pub fn m4_mul(a: &M4, b: &M4) -> M4 {
     let mut c = [0.0f64; 16];
     for i in 0..4 {
@@ -93,6 +105,7 @@ pub fn m4_mul(a: &M4, b: &M4) -> M4 {
     c
 }
 
+#[must_use] 
 pub fn m4_mul_vec(m: &M4, (vx, vy, vz, vw): (f64, f64, f64, f64)) -> (f64, f64, f64, f64) {
     (
         m[ 0]*vx + m[ 1]*vy + m[ 2]*vz + m[ 3]*vw,
@@ -102,12 +115,14 @@ pub fn m4_mul_vec(m: &M4, (vx, vy, vz, vw): (f64, f64, f64, f64)) -> (f64, f64, 
     )
 }
 
+#[must_use] 
 pub fn m4_scale(m: &M4, s: f64) -> M4 {
     let mut r = *m;
-    for v in r.iter_mut() { *v *= s; }
+    for v in &mut r { *v *= s; }
     r
 }
 
+#[must_use] 
 pub fn m4_transpose(m: &M4) -> M4 {
     let mut t = [0.0f64; 16];
     for i in 0..4 {
@@ -136,6 +151,7 @@ fn minor3(m: &M4, skip_row: usize, skip_col: usize) -> f64 {
   + a(0,2) * (a(1,0)*a(2,1) - a(1,1)*a(2,0))
 }
 
+#[must_use] 
 pub fn m4_det(m: &M4) -> f64 {
     (0..4).map(|j| {
         let sign = if j % 2 == 0 { 1.0 } else { -1.0 };
@@ -143,6 +159,8 @@ pub fn m4_det(m: &M4) -> f64 {
     }).sum()
 }
 
+/// # Errors
+/// Returns an error if the matrix is singular (determinant is near zero).
 pub fn m4_inverse(m: &M4, line: usize) -> Result<M4, RuntimeError> {
     let det = m4_det(m);
     if det.abs() < 1e-15 {
@@ -162,12 +180,14 @@ pub fn m4_inverse(m: &M4, line: usize) -> Result<M4, RuntimeError> {
 
 // ─── Mat3 graphics constructors ──────────────────────────────────────────────
 
+#[must_use] 
 pub fn m3_translate2d(tx: f64, ty: f64) -> M3 {
     [1., 0., tx,
      0., 1., ty,
      0., 0.,  1.]
 }
 
+#[must_use] 
 pub fn m3_rotate2d(angle_rad: f64) -> M3 {
     let (s, c) = angle_rad.sin_cos();
     [ c, -s, 0.,
@@ -175,6 +195,7 @@ pub fn m3_rotate2d(angle_rad: f64) -> M3 {
       0., 0., 1.]
 }
 
+#[must_use] 
 pub fn m3_scale2d(sx: f64, sy: f64) -> M3 {
     [sx,  0., 0.,
       0., sy, 0.,
@@ -183,6 +204,7 @@ pub fn m3_scale2d(sx: f64, sy: f64) -> M3 {
 
 // ─── Mat4 graphics constructors ──────────────────────────────────────────────
 
+#[must_use] 
 pub fn m4_translate(tx: f64, ty: f64, tz: f64) -> M4 {
     [1., 0., 0., tx,
      0., 1., 0., ty,
@@ -190,6 +212,7 @@ pub fn m4_translate(tx: f64, ty: f64, tz: f64) -> M4 {
      0., 0., 0., 1.]
 }
 
+#[must_use] 
 pub fn m4_scale_xyz(sx: f64, sy: f64, sz: f64) -> M4 {
     [sx,  0.,  0.,  0.,
      0.,  sy,  0.,  0.,
@@ -197,6 +220,7 @@ pub fn m4_scale_xyz(sx: f64, sy: f64, sz: f64) -> M4 {
      0.,  0.,  0.,  1.]
 }
 
+#[must_use] 
 pub fn m4_rotate_x(angle: f64) -> M4 {
     let (s, c) = angle.sin_cos();
     [1., 0.,  0., 0.,
@@ -205,6 +229,7 @@ pub fn m4_rotate_x(angle: f64) -> M4 {
      0., 0.,  0., 1.]
 }
 
+#[must_use] 
 pub fn m4_rotate_y(angle: f64) -> M4 {
     let (s, c) = angle.sin_cos();
     [ c,  0., s,  0.,
@@ -213,6 +238,7 @@ pub fn m4_rotate_y(angle: f64) -> M4 {
       0., 0., 0., 1.]
 }
 
+#[must_use] 
 pub fn m4_rotate_z(angle: f64) -> M4 {
     let (s, c) = angle.sin_cos();
     [c, -s,  0., 0.,

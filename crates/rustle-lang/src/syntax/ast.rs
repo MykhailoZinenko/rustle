@@ -8,6 +8,7 @@ pub struct Span {
 }
 
 impl Span {
+    #[must_use] 
     pub fn new(line: usize, column: usize) -> Self {
         Self { line, column }
     }
@@ -138,6 +139,7 @@ pub enum AssignTarget {
 }
 
 impl AssignTarget {
+    #[must_use] 
     pub fn path(&self) -> &[String] {
         match self {
             AssignTarget::Path(p) => p,
@@ -322,27 +324,24 @@ pub enum Expr {
 }
 
 impl Expr {
+    #[must_use] 
     pub fn span(&self) -> &Span {
         match self {
-            Expr::Float(_, s)       => s,
-            Expr::Bool(_, s)        => s,
-            Expr::None(s)           => s,
-            Expr::StringLit(_, s)   => s,
-            Expr::HexColor(_, s)    => s,
-            Expr::Ident(_, s)       => s,
-            Expr::BinOp { span, .. }    => span,
-            Expr::UnOp { span, .. }     => span,
-            Expr::Ternary { span, .. }  => span,
-            Expr::Cast { span, .. }     => span,
-            Expr::Try { span, .. }      => span,
-            Expr::Call { span, .. }     => span,
-            Expr::Index { span, .. }    => span,
-            Expr::Field { span, .. }    => span,
-            Expr::OptionalChain { span, .. } => span,
-            Expr::MethodCall { span, .. } => span,
-            Expr::Transform { span, .. } => span,
-            Expr::List(_, s)        => s,
-            Expr::Lambda { span, .. } => span,
+            Expr::Float(_, s) | Expr::Bool(_, s) | Expr::StringLit(_, s)
+            | Expr::HexColor(_, s) | Expr::Ident(_, s)
+            | Expr::None(s) | Expr::List(_, s) => s,
+            Expr::BinOp { span, .. }
+            | Expr::UnOp { span, .. }
+            | Expr::Ternary { span, .. }
+            | Expr::Cast { span, .. }
+            | Expr::Try { span, .. }
+            | Expr::Call { span, .. }
+            | Expr::Index { span, .. }
+            | Expr::Field { span, .. }
+            | Expr::OptionalChain { span, .. }
+            | Expr::MethodCall { span, .. }
+            | Expr::Transform { span, .. }
+            | Expr::Lambda { span, .. } => span,
         }
     }
 }

@@ -28,6 +28,21 @@ Derived `Default` on `Origin` (`#[default]` on `Center`), `CoordMeta`, and `Rend
 ### 1. No clippy lint configuration
 Added `[workspace.lints.clippy]` to root `Cargo.toml` with `all`, `pedantic`, `redundant_clone`, `large_enum_variant`, `needless_collect`. Added `[lints] workspace = true` to all 3 crate Cargo.tomls.
 
+### 13. Collapsible if statements
+Fixed all 17 collapsible `if` patterns across checker, interpreter, collector.
+
+### 14. Redundant reference creation
+Removed 11 unnecessary `&` references that the compiler auto-derefs.
+
+### 26. assert_eq! with literal bool in tests
+Changed `assert_eq!(x, true)` → `assert!(x)` and `assert_eq!(x, false)` → `assert!(!x)` across 12 test sites.
+
+### 3. Error types don't implement std::error::Error
+Added `impl std::error::Error for Error {}` and `impl std::error::Error for RuntimeError {}`.
+
+### 4. unwrap() in production code
+Replaced 5 `unwrap()` calls with `expect("reason")` in `symbols.rs`, `interpreter.rs`, `checker.rs`.
+
 ### 17. No rustfmt.toml configuration
 Created `rustfmt.toml` with `reorder_imports`, `imports_granularity = "Crate"`, `group_imports = "StdExternalCrate"`.
 

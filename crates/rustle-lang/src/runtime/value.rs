@@ -38,6 +38,7 @@ pub enum Value {
 
 impl Value {
     /// Returns whether this value is "truthy" in a boolean context.
+    #[must_use] 
     pub fn is_truthy(&self) -> bool {
         match self {
             Value::Bool(b) => *b,
@@ -51,9 +52,11 @@ impl Value {
 }
 
 impl fmt::Display for Value {
+    #[expect(clippy::many_single_char_names, reason = "f, x, y, z, w are conventional in fmt and math contexts")]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Float(v) => {
+                #[allow(clippy::cast_possible_truncation)]
                 if v.fract() == 0.0 && v.abs() < 1e15 { write!(f, "{}", *v as i64) }
                 else { write!(f, "{v}") }
             }

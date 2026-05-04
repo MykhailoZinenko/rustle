@@ -8,17 +8,13 @@ use std::collections::HashMap;
 
 /// Interpreter-level state passed to every namespace call.
 /// Holds the current coordinate context — updated by `resolution`, `default`,
-/// `normalize`, `origin` and snapshotted into each ShapeData at build time.
+/// `normalize`, `origin` and snapshotted into each `ShapeData` at build time.
 #[derive(Clone)]
+#[derive(Default)]
 pub struct RuntimeState {
     pub coord_meta: crate::types::draw::CoordMeta,
 }
 
-impl Default for RuntimeState {
-    fn default() -> Self {
-        Self { coord_meta: crate::types::draw::CoordMeta::default() }
-    }
-}
 
 pub mod core;
 pub mod shapes;
@@ -55,6 +51,8 @@ pub trait NamespaceInfo: Send + Sync {
 /// What the interpreter needs: call dispatch + constant lookup.
 /// Extends `NamespaceInfo` so a single object serves both roles.
 pub trait NamespaceProvider: NamespaceInfo {
+    /// # Errors
+    /// Returns an error if the call fails (wrong argument types, count, or runtime failure).
     fn call(
         &self,
         name: &str,
@@ -74,14 +72,18 @@ pub struct NamespaceRegistry {
 }
 
 impl NamespaceRegistry {
+    #[must_use] 
     pub fn new() -> Self { Self { providers: Vec::new() } }
 
     pub fn register(&mut self, p: Box<dyn NamespaceProvider>) { self.providers.push(p); }
 
+    #[must_use] 
     pub fn get(&self, name: &str) -> Option<&dyn NamespaceProvider> {
-        self.providers.iter().find(|p| p.name() == name).map(|p| p.as_ref())
+        self.providers.iter().find(|p| p.name() == name).map(std::convert::AsRef::as_ref)
     }
 
+    /// # Errors
+    /// Returns an error if the matching provider's call fails.
     pub fn call_any(
         &self,
         name: &str,
@@ -98,10 +100,12 @@ impl NamespaceRegistry {
         Ok(None)
     }
 
+    #[must_use] 
     pub fn get_constant(&self, name: &str) -> Option<Value> {
         self.providers.iter().find_map(|p| p.get_constant(name))
     }
 
+    #[must_use] 
     pub fn standard() -> Self {
         let mut r = Self::new();
         r.register(Box::new(core::CoreNamespace));
@@ -140,10 +144,10 @@ pub(crate) fn as_vertices(v: &Value, line: usize) -> Result<Vec<(f64, f64)>, Run
 }
 
 pub(crate) fn check_argc(name: &str, args: &[Value], n: usize, line: usize) -> Result<(), RuntimeError> {
-    if args.len() != n {
-        Err(RuntimeError::new(ErrorCode::R008, line, format!("`{name}` expects {n} args, got {}", args.len())))
-    } else {
+    if args.len() == n {
         Ok(())
+    } else {
+        Err(RuntimeError::new(ErrorCode::R008, line, format!("`{name}` expects {n} args, got {}", args.len())))
     }
 }
 
@@ -173,8 +177,7 @@ pub(crate) fn value_type_name(v: &Value) -> &'static str {
         Value::ResOk(_)      => "res<ok>",
         Value::ResErr(_)     => "res<err>",
         Value::Namespace(_)  => "namespace",
-        Value::NativeFn(_)   => "fn",
-        Value::Closure {..}  => "fn",
+        Value::NativeFn(_) | Value::Closure { .. } => "fn",
         Value::State(_)      => "State",
         Value::Input {..}    => "Input",
         Value::None          => "none",

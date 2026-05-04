@@ -44,6 +44,9 @@ pub struct Program {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /// Parse and type-check source text. Returns a compiled program ready for execution.
+///
+/// # Errors
+/// Returns a list of parse or semantic errors if the source is invalid.
 pub fn compile(source: &str) -> Result<Program, Vec<Error>> {
     let tokens = syntax::lexer::Lexer::new(source).tokenize()?;
     let ast = syntax::parser::Parser::new(tokens).parse()?;
@@ -60,7 +63,8 @@ pub fn compile(source: &str) -> Result<Program, Vec<Error>> {
 ///   1. `Runtime::new(program)` — runs top-level config (`resolution`, `origin`),
 ///      evaluates `state {}` field initializers, and calls `init(state)` if present.
 ///   2. `runtime.tick(input)` — runs `update(state, input)` each frame, persisting
-///      both state and coord_meta (resolution/origin) across ticks.
+///      both state and `coord_meta` (resolution/origin) across ticks.
+#[expect(clippy::struct_field_names, reason = "runtime_state is the clearest name for the field; abbreviating would reduce clarity")]
 pub struct Runtime {
     program: Program,
     state: State,
@@ -69,12 +73,17 @@ pub struct Runtime {
 }
 
 impl Runtime {
+    /// # Errors
+    /// Returns an error if the script's `on_init` fails at runtime.
     pub fn new(program: Program) -> Result<Self, RuntimeError> {
         Self::new_inner(program, None)
     }
 
     /// Create a runtime with a cancellation token. When the flag is set to `true`,
     /// the interpreter aborts at the next loop iteration or function call boundary.
+    ///
+    /// # Errors
+    /// Returns an error if the script's `on_init` fails at runtime.
     pub fn new_cancellable(program: Program, cancel: Arc<AtomicBool>) -> Result<Self, RuntimeError> {
         Self::new_inner(program, Some(cancel))
     }
@@ -110,6 +119,9 @@ impl Runtime {
 
     /// Execute one frame. Runs `update(state, input)` if present, otherwise
     /// re-runs top-level draw statements.
+    ///
+    /// # Errors
+    /// Returns an error if the script's `on_update` fails at runtime.
     pub fn tick(&mut self, input: &Input) -> Result<Vec<DrawCommand>, RuntimeError> {
         use runtime::interpreter::Interpreter;
 
@@ -129,9 +141,13 @@ impl Runtime {
         Ok(interp.take_output())
     }
 
+    #[must_use] 
     pub fn state(&self) -> &State { &self.state }
 
     /// Run `on_exit(s)` if defined, then drop. Call when the app stops.
+    ///
+    /// # Errors
+    /// Returns an error if the script's `on_exit` fails at runtime.
     pub fn exit(&mut self) -> Result<(), RuntimeError> {
         use runtime::interpreter::Interpreter;
 

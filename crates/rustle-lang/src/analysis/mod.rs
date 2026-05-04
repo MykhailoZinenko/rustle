@@ -23,10 +23,12 @@ pub struct ResolveResult {
 
 /// Full resolver pipeline:
 /// 1. Collector   — build symbol table from declarations and imports
-/// 2. TypeResolver — infer and check all types
+/// 2. `TypeResolver` — infer and check all types
 /// 3. Validator   — final semantic checks
 ///
-/// Returns `Ok(ResolveResult)` if there are no errors, `Err(errors)` otherwise.
+/// # Errors
+/// Returns a list of semantic errors if any type mismatches, undefined symbols,
+/// or other semantic violations are found.
 pub fn resolve(
     program: &ast::Program,
     registry: &NamespaceRegistry,
