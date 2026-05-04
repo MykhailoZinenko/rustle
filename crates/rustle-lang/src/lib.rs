@@ -17,6 +17,8 @@ use std::sync::atomic::AtomicBool;
 
 use crate::syntax::ast::Program as AstProgram;
 use namespaces::NamespaceRegistry;
+use types::binop_registry::BinopRegistry;
+use types::registry::TypeRegistry;
 use analysis::resolve;
 
 // ─── Public API types ─────────────────────────────────────────────────────────
@@ -35,6 +37,8 @@ pub struct Input {
 pub struct Program {
     pub(crate) ast: AstProgram,
     pub(crate) registry: NamespaceRegistry,
+    pub(crate) types: TypeRegistry,
+    pub(crate) binops: BinopRegistry,
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -45,7 +49,7 @@ pub fn compile(source: &str) -> Result<Program, Vec<Error>> {
     let ast = syntax::parser::Parser::new(tokens).parse()?;
     let registry = NamespaceRegistry::standard();
     resolve(&ast, &registry)?;
-    Ok(Program { ast, registry })
+    Ok(Program { ast, registry, types: TypeRegistry::default(), binops: BinopRegistry::default() })
 }
 
 // ─── Runtime ──────────────────────────────────────────────────────────────────
@@ -78,7 +82,7 @@ impl Runtime {
     fn new_inner(program: Program, cancel: Option<Arc<AtomicBool>>) -> Result<Self, RuntimeError> {
         use runtime::interpreter::Interpreter;
 
-        let mut interp = Interpreter::new(&program.ast, &program.registry);
+        let mut interp = Interpreter::new(&program.ast, &program.registry, &program.types, &program.binops);
         if let Some(ref c) = cancel {
             interp = interp.with_cancel(c.clone());
         }
@@ -109,7 +113,7 @@ impl Runtime {
     pub fn tick(&mut self, input: &Input) -> Result<Vec<DrawCommand>, RuntimeError> {
         use runtime::interpreter::Interpreter;
 
-        let mut interp = Interpreter::new(&self.program.ast, &self.program.registry)
+        let mut interp = Interpreter::new(&self.program.ast, &self.program.registry, &self.program.types, &self.program.binops)
             .with_runtime_state(self.runtime_state.clone());
         if let Some(ref c) = self.cancel {
             interp = interp.with_cancel(c.clone());
@@ -131,7 +135,7 @@ impl Runtime {
     pub fn exit(&mut self) -> Result<(), RuntimeError> {
         use runtime::interpreter::Interpreter;
 
-        let mut interp = Interpreter::new(&self.program.ast, &self.program.registry)
+        let mut interp = Interpreter::new(&self.program.ast, &self.program.registry, &self.program.types, &self.program.binops)
             .with_runtime_state(self.runtime_state.clone());
         if let Some(ref c) = self.cancel {
             interp = interp.with_cancel(c.clone());

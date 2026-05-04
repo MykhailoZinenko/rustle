@@ -63,8 +63,8 @@ pub struct Interpreter<'a> {
     program: &'a ast::Program,
     fn_table: HashMap<&'a str, &'a ast::FnDef>,
     registry: &'a NamespaceRegistry,
-    binops: BinopRegistry,
-    types: TypeRegistry,
+    binops: &'a BinopRegistry,
+    types: &'a TypeRegistry,
     env: Env,
     return_value: Option<Value>,
     runtime_state: RuntimeState,
@@ -72,7 +72,12 @@ pub struct Interpreter<'a> {
 }
 
 impl<'a> Interpreter<'a> {
-    pub fn new(program: &'a ast::Program, registry: &'a NamespaceRegistry) -> Self {
+    pub fn new(
+        program: &'a ast::Program,
+        registry: &'a NamespaceRegistry,
+        types: &'a TypeRegistry,
+        binops: &'a BinopRegistry,
+    ) -> Self {
         let fn_table = program.items.iter().filter_map(|item| match item {
             ast::Item::FnDef(f) => Some((f.name.as_str(), f)),
             _ => None,
@@ -81,8 +86,8 @@ impl<'a> Interpreter<'a> {
             program,
             fn_table,
             registry,
-            binops: BinopRegistry::default(),
-            types: TypeRegistry::default(),
+            binops,
+            types,
             env: Env::new(),
             return_value: None,
             runtime_state: RuntimeState::default(),
