@@ -4,6 +4,9 @@ Tracking file for issues resolved from LANGUAGE_REVIEW.md.
 
 ---
 
+### 26. `for` Step Must Be an Assignment Statement
+Parser now accepts expression statements (like `i++`, `i--`, function calls) in the `for` loop step clause, not just assignments. Falls back to `parse_expr()` when `is_path_assign()` returns false.
+
 ### 2. Rc Cycle Memory Leaks / No Recursion Depth Limit (#2 + #9)
 Added a call depth limit (MAX_CALL_DEPTH = 64) to both `call_fn` and `call_closure`. Infinite recursion now produces a clean `R011` error with a descriptive message instead of crashing the Rust process with a stack overflow. The Rc cycle leak itself is documented as a known limitation — proper resolution requires either weak references (breaks user semantics), a GC, or arena allocation. The depth limit prevents the most common trigger (recursive closures) and is the actionable mitigation.
 

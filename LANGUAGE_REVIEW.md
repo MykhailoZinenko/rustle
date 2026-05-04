@@ -401,7 +401,7 @@ All numbers are `f64`. Array sizes are `f64` parsed as `usize`. Loop counters ar
 
 ---
 
-### 26. `for` Step Must Be an Assignment Statement (Priority: 3, Complexity: 3)
+### ✅ 26. `for` Step Must Be an Assignment Statement (Priority: 3, Complexity: 3)
 
 **File:** `syntax/parser.rs:387`
 
