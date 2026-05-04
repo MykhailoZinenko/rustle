@@ -14,7 +14,7 @@ Sorted by priority descending, then complexity descending.
 
 ## HIGH PRIORITY
 
-### 1. No Clippy Lint Configuration (Priority: 9, Complexity: 2)
+### ✅ 1. No Clippy Lint Configuration (Priority: 9, Complexity: 2)
 
 **Chapter:** 2 (Clippy and Linting)
 **Files:** `Cargo.toml` (workspace), `crates/rustle-lang/Cargo.toml`
@@ -34,7 +34,7 @@ Key warnings found:
 
 ---
 
-### 2. `Env::get` Clones Every Value on Read (Priority: 9, Complexity: 5)
+### ✅ 2. `Env::get` Clones Every Value on Read (Priority: 9, Complexity: 5)
 
 **Chapter:** 1.1 (Borrowing Over Cloning), 3.2 (Avoid Redundant Cloning)
 **File:** `runtime/interpreter.rs:48-51`
@@ -54,7 +54,7 @@ Every variable read deep-clones the value. For `List(Rc<RefCell<Vec<Value>>>)`, 
 
 ---
 
-### 3. Error Types Don't Implement `std::error::Error` (Priority: 8, Complexity: 2)
+### ✅ 3. Error Types Don't Implement `std::error::Error` (Priority: 8, Complexity: 2)
 
 **Chapter:** 4.3 (thiserror for Crate-level Errors)
 **File:** `error.rs`
@@ -70,7 +70,7 @@ This prevents:
 
 ---
 
-### 4. `unwrap()` in Production Code (Priority: 8, Complexity: 3)
+### ✅ 4. `unwrap()` in Production Code (Priority: 8, Complexity: 3)
 
 **Chapter:** 4.2 (Avoid unwrap/expect in Production)
 **Files:** `runtime/interpreter.rs:35,957`, `analysis/symbols.rs:94,100`, `analysis/checker.rs:161`
@@ -86,7 +86,7 @@ Per Ch.4.2: "Never use `unwrap()`/`expect()` outside tests." These are currently
 
 ---
 
-### 5. `Value` Enum Has Massive Variant Size Disparity (Priority: 7, Complexity: 4)
+### ✅ 5. `Value` Enum Has Massive Variant Size Disparity (Priority: 7, Complexity: 4)
 
 **Chapter:** 2.3 (`large_enum_variant` lint), 3.3 (Stack vs Heap)
 **File:** `runtime/value.rs`
@@ -97,7 +97,7 @@ Per Ch.4.2: "Never use `unwrap()`/`expect()` outside tests." These are currently
 
 ---
 
-### 6. Massive Code Duplication in `run_init`/`run_update`/`run_on_exit` (Priority: 7, Complexity: 3)
+### ✅ 6. Massive Code Duplication in `run_init`/`run_update`/`run_on_exit` (Priority: 7, Complexity: 3)
 
 **Chapter:** 1.6 (Breaking up long functions), 8.5 (Replace Comments with Code)
 **File:** `runtime/interpreter.rs:189-281`
@@ -108,7 +108,7 @@ Three lifecycle methods are nearly identical (~30 lines each, differing only in 
 
 ---
 
-### 7. `Span` Should Derive `Copy` (Priority: 6, Complexity: 1)
+### ✅ 7. `Span` Should Derive `Copy` (Priority: 6, Complexity: 1)
 
 **Chapter:** 1.2 (Copy trait for small types)
 **File:** `syntax/ast.rs:1-6`
@@ -123,7 +123,7 @@ pub struct Span { pub line: usize, pub column: usize }
 
 ---
 
-### 8. Functions Accept `String` Where `&str` Would Suffice (Priority: 6, Complexity: 4)
+### ✅ 8. Functions Accept `String` Where `&str` Would Suffice (Priority: 6, Complexity: 4)
 
 **Chapter:** 1.1 (Prefer `&str` over `String`, `&[T]` over `Vec<T>`)
 **Files:** Throughout
@@ -139,7 +139,7 @@ Per Ch.1.1: "Prefer `&str` instead of `String`" and "Clone a reference argument 
 
 ---
 
-### 9. No Doc Comments on Public API (Priority: 6, Complexity: 3)
+### ✅ 9. No Doc Comments on Public API (Priority: 6, Complexity: 3)
 
 **Chapter:** 8.7 (When to use doc comments), 8.9 (Checklist)
 **Files:** `lib.rs`, `error.rs`, `runtime/value.rs`
@@ -157,7 +157,7 @@ Per Ch.8.9: All public functions, structs, traits, enums should have `///` docs 
 
 ---
 
-### 10. `ErrorCode::as_str()` Could Be a Simple `Display` (Priority: 5, Complexity: 2)
+### ✅ 10. `ErrorCode::as_str()` Could Be a Simple `Display` (Priority: 5, Complexity: 2)
 
 **Chapter:** 4.3 (thiserror), 1.6 (Comments not Clutter)
 **File:** `error.rs:52-99`
@@ -170,7 +170,7 @@ Per Ch.8.9: All public functions, structs, traits, enums should have `///` docs 
 
 ## MEDIUM PRIORITY
 
-### 11. `Origin` Uses Manual `from_str` Instead of `FromStr` Trait (Priority: 5, Complexity: 1)
+### ✅ 11. `Origin` Uses Manual `from_str` Instead of `FromStr` Trait (Priority: 5, Complexity: 1)
 
 **Chapter:** Clippy warning: "method `from_str` can be confused for the standard trait"
 **File:** `types/draw.rs:15`
@@ -187,7 +187,7 @@ This shadows the standard `std::str::FromStr` trait. Clippy flags this.
 
 ---
 
-### 12. `Default` Implementations Could Be Derived (Priority: 5, Complexity: 1)
+### ✅ 12. `Default` Implementations Could Be Derived (Priority: 5, Complexity: 1)
 
 **Chapter:** Clippy: "this impl can be derived"
 **Files:** `types/draw.rs` (3 instances: `Origin::default()`, `CoordMeta::default()`, `TransformData::default()`)
@@ -198,7 +198,7 @@ Manual `impl Default` blocks where `#[derive(Default)]` would work. Clippy flags
 
 ---
 
-### 13. Collapsible `if` Statements (Priority: 5, Complexity: 1)
+### ✅ 13. Collapsible `if` Statements (Priority: 5, Complexity: 1)
 
 **Chapter:** 2.3 (Clippy lints), style
 **Files:** 17 occurrences across `checker.rs`, `interpreter.rs`, `collector.rs`
@@ -220,7 +220,7 @@ Clippy reports 17 of these.
 
 ---
 
-### 14. Redundant Reference Creation (Priority: 5, Complexity: 1)
+### ✅ 14. Redundant Reference Creation (Priority: 5, Complexity: 1)
 
 **Chapter:** 2.3 (`needless_borrow` lint)
 **Files:** 11 occurrences across `interpreter.rs`, `checker.rs`
@@ -231,7 +231,7 @@ Clippy reports "this expression creates a reference which is immediately derefer
 
 ---
 
-### 15. `named()` Helper Duplicated 5 Times (Priority: 5, Complexity: 2)
+### ✅ 15. `named()` Helper Duplicated 5 Times (Priority: 5, Complexity: 2)
 
 **Chapter:** 1.1, DRY principle
 **Files:** `namespaces/core.rs`, `namespaces/shapes.rs`, `namespaces/render.rs`, `namespaces/coords.rs`, `types/registry.rs`
@@ -242,7 +242,7 @@ Five separate `fn named(s: &str) -> Type` helpers, each with their own match-to-
 
 ---
 
-### 16. `read_number` Silently Swallows Parse Errors (Priority: 5, Complexity: 2)
+### ✅ 16. `read_number` Silently Swallows Parse Errors (Priority: 5, Complexity: 2)
 
 **Chapter:** 4.1 (Prefer Result, avoid panic)
 **File:** `syntax/lexer.rs:243`
@@ -257,7 +257,7 @@ If the number is too large or malformed (shouldn't happen given the digit scanni
 
 ---
 
-### 17. No `rustfmt.toml` Configuration (Priority: 4, Complexity: 1)
+### ✅ 17. No `rustfmt.toml` Configuration (Priority: 4, Complexity: 1)
 
 **Chapter:** 1.7 (Use Declarations — imports)
 **File:** Project root
@@ -273,7 +273,7 @@ group_imports = "StdExternalCrate"
 
 ---
 
-### 18. `interpreter.rs` is 1326 Lines (Priority: 4, Complexity: 5)
+### ✅ 18. `interpreter.rs` is 1326 Lines (Priority: 4, Complexity: 5)
 
 **Chapter:** 1.6 (Breaking up long functions), 8.5 (Replace Comments with Code)
 **File:** `runtime/interpreter.rs`
@@ -284,7 +284,7 @@ The interpreter is a single 1326-line file containing the `Env`, `Interpreter`, 
 
 ---
 
-### 19. `ExportKind` Should Derive `Copy` (Priority: 4, Complexity: 1)
+### ✅ 19. `ExportKind` Should Derive `Copy` (Priority: 4, Complexity: 1)
 
 **Chapter:** 1.2 (Copy for small types)
 **File:** `namespaces/mod.rs:30`
@@ -300,7 +300,7 @@ Fieldless enum, 1 byte. Perfect candidate for `Copy`. Currently requires `.clone
 
 ---
 
-### 20. `BinOp` and `UnOp` Should Derive `Copy` (Priority: 4, Complexity: 1)
+### ✅ 20. `BinOp` and `UnOp` Should Derive `Copy` (Priority: 4, Complexity: 1)
 
 **Chapter:** 1.2 (Copy for small types)
 **File:** `syntax/ast.rs`
@@ -311,7 +311,7 @@ Fieldless enum, 1 byte. Perfect candidate for `Copy`. Currently requires `.clone
 
 ---
 
-### 21. Tests Use Generic Names (Priority: 4, Complexity: 2)
+### ✅ 21. Tests Use Generic Names (Priority: 4, Complexity: 2)
 
 **Chapter:** 5.1 (Use descriptive names)
 **Files:** `tests/resolver.rs`, `tests/runtime.rs`, `syntax/lexer.rs` (tests)
@@ -326,7 +326,7 @@ Per Ch.5.1: "use a name which reads like a sentence, describing the desired beha
 
 ---
 
-### 22. Tests Assert Multiple Behaviors (Priority: 4, Complexity: 2)
+### ✅ 22. Tests Assert Multiple Behaviors (Priority: 4, Complexity: 2)
 
 **Chapter:** 5.1 (Only test one behavior per function)
 **Files:** `tests/runtime.rs`, `syntax/lexer.rs`
@@ -347,7 +347,7 @@ Per Ch.5.1: "To keep tests clear, they should describe one thing."
 
 ---
 
-### 23. `ErrorCode` Enum Variants Are Opaque Names (Priority: 4, Complexity: 3)
+### ✅ 23. `ErrorCode` Enum Variants Are Opaque Names (Priority: 4, Complexity: 3)
 
 **Chapter:** 4.3 (thiserror), 8.7 (Documentation)
 **File:** `error.rs:2-50`
@@ -367,7 +367,7 @@ Numeric codes without semantic names. A developer seeing `S009` in code must loo
 
 ## LOW PRIORITY
 
-### 24. `PrintLevel` Could Derive `Copy` (Priority: 3, Complexity: 1)
+### ✅ 24. `PrintLevel` Could Derive `Copy` (Priority: 3, Complexity: 1)
 
 **Chapter:** 1.2
 **File:** `syntax/ast.rs:156-157`
@@ -376,7 +376,7 @@ Numeric codes without semantic names. A developer seeing `S009` in code must loo
 
 ---
 
-### 25. `ScopeKind` Could Derive `Copy` (Priority: 3, Complexity: 1)
+### ✅ 25. `ScopeKind` Could Derive `Copy` (Priority: 3, Complexity: 1)
 
 **Chapter:** 1.2
 **File:** `analysis/symbols.rs:36`
@@ -385,7 +385,7 @@ Numeric codes without semantic names. A developer seeing `S009` in code must loo
 
 ---
 
-### 26. `assert_eq!` with Literal Bool in Tests (Priority: 3, Complexity: 1)
+### ✅ 26. `assert_eq!` with Literal Bool in Tests (Priority: 3, Complexity: 1)
 
 **Chapter:** 5.4 (How to assert)
 **Files:** 12 occurrences in `tests/runtime.rs`
@@ -394,7 +394,7 @@ Pattern: `assert_eq!(f(&rt, "flag"), true)` — should be `assert!(matches!(...)
 
 ---
 
-### 27. No `#[non_exhaustive]` on Public Enums (Priority: 3, Complexity: 1)
+### ✅ 27. No `#[non_exhaustive]` on Public Enums (Priority: 3, Complexity: 1)
 
 **Chapter:** 8.9 (Documentation Checklist)
 **Files:** `error.rs:ErrorCode`, `runtime/value.rs:Value`, `types/draw.rs:DrawCommand`
@@ -405,7 +405,7 @@ Public enums that downstream crates might match on should use `#[non_exhaustive]
 
 ---
 
-### 28. `NamespaceRegistry` Uses `Vec<Box<dyn NamespaceProvider>>` (Priority: 3, Complexity: 3)
+### ✅ 28. `NamespaceRegistry` Uses `Vec<Box<dyn NamespaceProvider>>` (Priority: 3, Complexity: 3)
 
 **Chapter:** 6.5 (Trait Object Ergonomics), 6.6
 **File:** `namespaces/mod.rs:72`
@@ -418,7 +418,7 @@ Dynamic dispatch is not needed here since the set of namespaces is fixed at comp
 
 ---
 
-### 29. `call_fn` and `call_closure` Are Nearly Identical (Priority: 3, Complexity: 3)
+### ✅ 29. `call_fn` and `call_closure` Are Nearly Identical (Priority: 3, Complexity: 3)
 
 **Chapter:** 1.6 (Breaking up long functions)
 **File:** `runtime/interpreter.rs:488-576`
@@ -429,7 +429,7 @@ Dynamic dispatch is not needed here since the set of namespaces is fixed at comp
 
 ---
 
-### 30. Intermediate Collections in Iterator Chains (Priority: 3, Complexity: 2)
+### ✅ 30. Intermediate Collections in Iterator Chains (Priority: 3, Complexity: 2)
 
 **Chapter:** 3.4 (Avoid intermediate collections)
 **Files:** `interpreter.rs:448-453`, `analysis/checker.rs:528-529`
@@ -446,7 +446,7 @@ This is actually correct since the `Vec` is consumed by the callee. However, pat
 
 ---
 
-### 31. `TokenKind` Contains Owned `String` Data (Priority: 2, Complexity: 6)
+### ✅ 31. `TokenKind` Contains Owned `String` Data (Priority: 2, Complexity: 6)
 
 **Chapter:** 1.1 (Borrowing), 3.2 (Redundant Cloning)
 **File:** `syntax/token.rs:1`
@@ -457,7 +457,7 @@ This is actually correct since the `Vec` is consumed by the callee. However, pat
 
 ---
 
-### 32. No Doc Tests (Priority: 2, Complexity: 2)
+### ✅ 32. No Doc Tests (Priority: 2, Complexity: 2)
 
 **Chapter:** 5.2 (Add Test Examples to Docs)
 **File:** `lib.rs`
@@ -468,7 +468,7 @@ The public API has no doc tests. `compile()` and `Runtime` have no `/// # Exampl
 
 ---
 
-### 33. `Scope::symbols` Field Is `pub` via `pub struct` but Accessed Through Methods (Priority: 2, Complexity: 1)
+### ✅ 33. `Scope::symbols` Field Is `pub` via `pub struct` but Accessed Through Methods (Priority: 2, Complexity: 1)
 
 **Chapter:** 8.7 (API documentation)
 **File:** `analysis/symbols.rs:43-44`
@@ -479,7 +479,7 @@ The public API has no doc tests. `compile()` and `Runtime` have no `/// # Exampl
 
 ---
 
-### 34. Import Ordering Not Standardized (Priority: 1, Complexity: 1)
+### ✅ 34. Import Ordering Not Standardized (Priority: 1, Complexity: 1)
 
 **Chapter:** 1.7 (Use Declarations)
 **Files:** Throughout
