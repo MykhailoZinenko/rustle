@@ -48,31 +48,22 @@ impl<'a> LookupContext<'a> {
     }
 
     /// Return all field names available on the given type.
-    #[must_use] 
-    pub fn field_names(&self, obj_ty: &Type) -> Vec<String> {
-        let mut names = Vec::new();
+    #[must_use]
+    pub fn field_names<'b>(&'b self, obj_ty: &Type) -> Vec<&'b str> {
         if *obj_ty == Type::State {
             if let Some(program) = self.program
                 && let Some(state) = &program.state {
-                    for f in &state.fields {
-                        names.push(f.name.clone());
-                    }
+                    return state.fields.iter().map(|f| f.name.as_str()).collect();
                 }
-            return names;
+            return Vec::new();
         }
-        for n in self.type_registry.field_names_for_type(obj_ty) {
-            names.push(n.to_string());
-        }
-        names
+        self.type_registry.field_names_for_type(obj_ty)
     }
 
     /// Return all method names available on the given type.
-    #[must_use] 
-    pub fn method_names(&self, obj_ty: &Type) -> Vec<String> {
+    #[must_use]
+    pub fn method_names(&self, obj_ty: &Type) -> Vec<&str> {
         self.type_registry.method_names_for_type(obj_ty)
-            .into_iter()
-            .map(std::string::ToString::to_string)
-            .collect()
     }
 
     /// Resolve the return type of `obj.method(args)`.

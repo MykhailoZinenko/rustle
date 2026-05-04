@@ -94,6 +94,15 @@ Documented the dynamic dispatch trade-off. Kept current design for future plugin
 ### 31. TokenKind contains owned Strings
 Changed `peek_kind()` to return `&TokenKind` instead of cloning. Eliminates string allocations on every parser peek. Documented the owned-string trade-off.
 
+### 18. interpreter.rs is 1326 lines
+Skipped — already well-organized with section comments, and DRY refactoring (#6, #29) reduced significant duplication. Splitting into submodules risks visibility issues for cosmetic gain.
+
+### 30. Intermediate collections in iterator chains
+Changed `field_names()` and `method_names()` in `lookup.rs` to return `Vec<&str>` instead of `Vec<String>`. Removed intermediate `Vec<&str>` conversions in `checker.rs` error paths. Eliminates one Vec allocation per error.
+
+### 34. Import ordering not standardized
+`rustfmt.toml` configured with `group_imports = "StdExternalCrate"`. Apply with `cargo +nightly fmt`.
+
 ### 17. No rustfmt.toml configuration
 Created `rustfmt.toml` with `reorder_imports`, `imports_granularity = "Crate"`, `group_imports = "StdExternalCrate"`.
 

@@ -525,9 +525,8 @@ impl<'a> TypeResolver<'a> {
                         ErrorCode::S009, span.line, span.column,
                         format!("type `{}` has no field `{field}`", type_name(&obj_ty)),
                     );
-                    let available = self.lookup.field_names(&obj_ty);
-                    if !available.is_empty() {
-                        let candidates: Vec<&str> = available.iter().map(std::string::String::as_str).collect();
+                    let candidates = self.lookup.field_names(&obj_ty);
+                    if !candidates.is_empty() {
                         if let Some(suggestion) = suggest_similar(field, &candidates, 2) {
                             err = err.with_hint(format!("did you mean '{suggestion}'?"));
                         } else {
@@ -553,9 +552,8 @@ impl<'a> TypeResolver<'a> {
                         ErrorCode::S009, span.line, span.column,
                         format!("type `{}` has no field `{field}`", type_name(inner)),
                     );
-                    let available = self.lookup.field_names(inner);
-                    if !available.is_empty() {
-                        let candidates: Vec<&str> = available.iter().map(std::string::String::as_str).collect();
+                    let candidates = self.lookup.field_names(inner);
+                    if !candidates.is_empty() {
                         if let Some(suggestion) = suggest_similar(field, &candidates, 2) {
                             err = err.with_hint(format!("did you mean '{suggestion}'?"));
                         } else {
@@ -574,9 +572,8 @@ impl<'a> TypeResolver<'a> {
                         ErrorCode::S009, span.line, span.column,
                         format!("type `{}` has no method `{method}`", type_name(&obj_ty)),
                     );
-                    let available = self.lookup.method_names(&obj_ty);
-                    if !available.is_empty() {
-                        let candidates: Vec<&str> = available.iter().map(std::string::String::as_str).collect();
+                    let candidates = self.lookup.method_names(&obj_ty);
+                    if !candidates.is_empty() {
                         if let Some(suggestion) = suggest_similar(method, &candidates, 2) {
                             err = err.with_hint(format!("did you mean '{suggestion}'?"));
                         } else {
