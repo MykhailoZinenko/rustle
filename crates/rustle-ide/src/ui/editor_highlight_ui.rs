@@ -138,6 +138,8 @@ fn token_source_len(text: &str, start: usize, token: &Token) -> usize {
         TokenKind::Or => 2,
         TokenKind::Not => 3,
         TokenKind::As => 2,
+        TokenKind::Break => 5,
+        TokenKind::Continue => 8,
         TokenKind::None => 4,
         TokenKind::TFloat => 5,
         TokenKind::TBool => 4,

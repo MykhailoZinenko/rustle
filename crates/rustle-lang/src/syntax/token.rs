@@ -28,6 +28,8 @@ pub enum TokenKind {
     Or,
     Not,
     As,
+    Break,
+    Continue,
     None,
 
     // Type keywords — only true primitives and parameterised collection types
@@ -127,6 +129,8 @@ impl TokenKind {
             Self::Or           => "'or'",
             Self::Not          => "'not'",
             Self::As           => "'as'",
+            Self::Break        => "'break'",
+            Self::Continue     => "'continue'",
             Self::None         => "'none'",
             Self::TFloat       => "'float'",
             Self::TBool        => "'bool'",
@@ -177,7 +181,8 @@ impl TokenKind {
             self,
             Self::Fn | Self::Let | Self::If | Self::Else | Self::Match | Self::While | Self::For | Self::Foreach
             | Self::In | Self::Return | Self::Const | Self::State | Self::Import
-            | Self::Out | Self::Console | Self::Try | Self::And | Self::Or | Self::Not | Self::As | Self::None
+            | Self::Out | Self::Console | Self::Try | Self::And | Self::Or | Self::Not | Self::As
+            | Self::Break | Self::Continue | Self::None
         )
     }
 }
@@ -204,6 +209,8 @@ pub fn keyword_or_ident(s: String) -> TokenKind {
         "or"        => TokenKind::Or,
         "not"       => TokenKind::Not,
         "as"        => TokenKind::As,
+        "break"     => TokenKind::Break,
+        "continue"  => TokenKind::Continue,
         "match"     => TokenKind::Match,
         "none"      => TokenKind::None,
         "true"      => TokenKind::Bool(true),

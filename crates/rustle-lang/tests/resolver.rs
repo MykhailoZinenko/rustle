@@ -1329,6 +1329,33 @@ fn s009_field_not_found_lists_available() {
 }
 
 #[test]
+fn break_outside_loop_is_error() {
+    let errs = err("fn f() { break }");
+    assert!(has(&errs, ErrorCode::S014));
+}
+
+#[test]
+fn continue_outside_loop_is_error() {
+    let errs = err("fn f() { continue }");
+    assert!(has(&errs, ErrorCode::S014));
+}
+
+#[test]
+fn break_inside_while_is_ok() {
+    ok("fn f() { while true { break } }");
+}
+
+#[test]
+fn continue_inside_for_is_ok() {
+    ok("for let i = 0; i < 10; i = i + 1 { continue }");
+}
+
+#[test]
+fn break_in_nested_if_inside_loop_is_ok() {
+    ok("while true { if true { break } }");
+}
+
+#[test]
 fn parser_error_uses_human_readable_tokens() {
     let errs = err("let x = (1 +");
     // should say something like "expected ')', found end of file" — NOT "RParen" or "Eof"

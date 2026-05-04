@@ -4,6 +4,9 @@ Tracking file for issues resolved from LANGUAGE_REVIEW.md.
 
 ---
 
+### 3. No break/continue Statements
+Added `break` and `continue` as keywords, AST nodes (`Stmt::Break`, `Stmt::Continue`), parser rules, and interpreter control flow. Validator checks they only appear inside loops (while/for/foreach). In loops: `break` clears its flag and exits; `continue` clears its flag and skips to next iteration. Both propagate through if/match blocks correctly via `should_stop_block()`. Added 10 new tests (5 resolver + 5 runtime).
+
 ### 5. TypeRegistry and BinopRegistry Recreated on Every Frame
 Moved `TypeRegistry` and `BinopRegistry` into the `Program` struct, constructed once at compile time. Interpreter now takes `&'a TypeRegistry` and `&'a BinopRegistry` references instead of constructing its own `Default` instances per frame.
 

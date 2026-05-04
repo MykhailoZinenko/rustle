@@ -4,6 +4,7 @@
 //! - `const` never reassigned (cross-check against symbol table)
 //! - `state {}` appears at most once (caught by parser, double-checked here)
 //! - `on_update`, `on_init`, `on_exit` have correct signatures if defined
+//! - `break` / `continue` only appear inside loops
 
 use crate::syntax::ast::*;
 use crate::error::{Error, ErrorCode};
@@ -12,11 +13,12 @@ use super::symbols::SymbolTable;
 pub struct Validator<'a> {
     table: &'a SymbolTable,
     pub errors: Vec<Error>,
+    loop_depth: usize,
 }
 
 impl<'a> Validator<'a> {
     pub fn new(table: &'a SymbolTable) -> Self {
-        Self { table, errors: Vec::new() }
+        Self { table, errors: Vec::new(), loop_depth: 0 }
     }
 
     pub fn validate(mut self, program: &Program) -> Vec<Error> {
@@ -24,6 +26,7 @@ impl<'a> Validator<'a> {
         self.check_on_init_signature(program);
         self.check_on_exit_signature(program);
         self.check_const_reassignment(program);
+        self.check_break_continue(program);
         self.errors
     }
 
@@ -132,6 +135,75 @@ impl<'a> Validator<'a> {
                 self.scan_stmts_for_const_assign(&f.body);
             }
             Stmt::Foreach(f) => self.scan_stmts_for_const_assign(&f.body),
+            _ => {}
+        }
+    }
+
+    // ── break / continue validation ──────────────────────────────────────────
+
+    fn check_break_continue(&mut self, program: &Program) {
+        for item in &program.items {
+            match item {
+                Item::FnDef(f) => self.scan_stmts_for_break_continue(&f.body),
+                Item::Stmt(s)  => self.scan_stmt_for_break_continue(s),
+            }
+        }
+    }
+
+    fn scan_stmts_for_break_continue(&mut self, stmts: &[Stmt]) {
+        for s in stmts { self.scan_stmt_for_break_continue(s); }
+    }
+
+    fn scan_stmt_for_break_continue(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Break(span) => {
+                if self.loop_depth == 0 {
+                    self.errors.push(Error::new(
+                        ErrorCode::S014, span.line, span.column,
+                        "`break` can only be used inside a loop",
+                    ));
+                }
+            }
+            Stmt::Continue(span) => {
+                if self.loop_depth == 0 {
+                    self.errors.push(Error::new(
+                        ErrorCode::S014, span.line, span.column,
+                        "`continue` can only be used inside a loop",
+                    ));
+                }
+            }
+            Stmt::While(w) => {
+                self.loop_depth += 1;
+                self.scan_stmts_for_break_continue(&w.body);
+                self.loop_depth -= 1;
+            }
+            Stmt::For(f) => {
+                self.loop_depth += 1;
+                self.scan_stmts_for_break_continue(&f.body);
+                self.loop_depth -= 1;
+            }
+            Stmt::Foreach(f) => {
+                self.loop_depth += 1;
+                self.scan_stmts_for_break_continue(&f.body);
+                self.loop_depth -= 1;
+            }
+            Stmt::If(i) => {
+                self.scan_stmts_for_break_continue(&i.then_block);
+                if let Some(e) = &i.else_block {
+                    self.scan_stmts_for_break_continue(e);
+                }
+            }
+            Stmt::IfLet { then_block, else_block, .. } => {
+                self.scan_stmts_for_break_continue(then_block);
+                if let Some(e) = else_block {
+                    self.scan_stmts_for_break_continue(e);
+                }
+            }
+            Stmt::Match(m) => {
+                for arm in &m.arms {
+                    self.scan_stmts_for_break_continue(&arm.body);
+                }
+            }
             _ => {}
         }
     }

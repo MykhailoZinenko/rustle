@@ -67,6 +67,8 @@ pub struct Interpreter<'a> {
     types: &'a TypeRegistry,
     env: Env,
     return_value: Option<Value>,
+    break_flag: bool,
+    continue_flag: bool,
     runtime_state: RuntimeState,
     cancel: Option<Arc<AtomicBool>>,
 }
@@ -90,6 +92,8 @@ impl<'a> Interpreter<'a> {
             types,
             env: Env::new(),
             return_value: None,
+            break_flag: false,
+            continue_flag: false,
             runtime_state: RuntimeState::default(),
             cancel: None,
         }
@@ -126,6 +130,10 @@ impl<'a> Interpreter<'a> {
     /// Extract the final runtime state after running (captures resolution/origin calls).
     pub fn take_runtime_state(&self) -> RuntimeState {
         self.runtime_state.clone()
+    }
+
+    fn should_stop_block(&self) -> bool {
+        self.return_value.is_some() || self.break_flag || self.continue_flag
     }
 
     fn err(&self, code: ErrorCode, line: usize, msg: impl Into<String>) -> RuntimeError {
@@ -197,7 +205,7 @@ impl<'a> Interpreter<'a> {
                     return Err(e);
                 }
             }
-            if self.return_value.is_some() { break; }
+            if self.should_stop_block() { break; }
         }
         self.env.pop_scope();
 
@@ -227,7 +235,7 @@ impl<'a> Interpreter<'a> {
                     return Err(e);
                 }
             }
-            if self.return_value.is_some() { break; }
+            if self.should_stop_block() { break; }
         }
         self.env.pop_scope();
 
@@ -257,7 +265,7 @@ impl<'a> Interpreter<'a> {
                     return Err(e);
                 }
             }
-            if self.return_value.is_some() { break; }
+            if self.should_stop_block() { break; }
         }
         self.env.pop_scope();
 
@@ -497,7 +505,7 @@ impl<'a> Interpreter<'a> {
                     break;
                 }
             }
-            if self.return_value.is_some() { break; }
+            if self.should_stop_block() { break; }
         }
         if let Some(e) = err_result {
             self.return_value = saved;
@@ -538,7 +546,7 @@ impl<'a> Interpreter<'a> {
                     break;
                 }
             }
-            if self.return_value.is_some() { break; }
+            if self.should_stop_block() { break; }
         }
         if let Some(e) = err_result {
             self.return_value = saved;
@@ -679,7 +687,7 @@ impl<'a> Interpreter<'a> {
                     self.env.push_scope();
                     for s in block {
                         self.exec_stmt(s)?;
-                        if self.return_value.is_some() { break; }
+                        if self.should_stop_block() { break; }
                     }
                     self.env.pop_scope();
                 }
@@ -693,7 +701,7 @@ impl<'a> Interpreter<'a> {
                             self.env.push_scope();
                             for s in els {
                                 self.exec_stmt(s)?;
-                                if self.return_value.is_some() { break; }
+                                if self.should_stop_block() { break; }
                             }
                             self.env.pop_scope();
                         }
@@ -703,7 +711,7 @@ impl<'a> Interpreter<'a> {
                         self.env.declare(binding, other);
                         for s in then_block {
                             self.exec_stmt(s)?;
-                            if self.return_value.is_some() { break; }
+                            if self.should_stop_block() { break; }
                         }
                         self.env.pop_scope();
                     }
@@ -730,7 +738,7 @@ impl<'a> Interpreter<'a> {
                         self.env.push_scope();
                         for s in &arm.body {
                             self.exec_stmt(s)?;
-                            if self.return_value.is_some() { break; }
+                            if self.should_stop_block() { break; }
                         }
                         self.env.pop_scope();
                         break;
@@ -746,9 +754,11 @@ impl<'a> Interpreter<'a> {
                     self.env.push_scope();
                     for s in &w.body {
                         self.exec_stmt(s)?;
-                        if self.return_value.is_some() { break; }
+                        if self.should_stop_block() { break; }
                     }
                     self.env.pop_scope();
+                    if self.continue_flag { self.continue_flag = false; continue; }
+                    if self.break_flag { self.break_flag = false; break; }
                     if self.return_value.is_some() { break; }
                 }
             }
@@ -762,10 +772,12 @@ impl<'a> Interpreter<'a> {
                     self.env.push_scope();
                     for s in &f.body {
                         self.exec_stmt(s)?;
-                        if self.return_value.is_some() { break; }
+                        if self.should_stop_block() { break; }
                     }
                     self.env.pop_scope();
-                    if self.return_value.is_some() { break; }
+                    if self.continue_flag { self.continue_flag = false; }
+                    else if self.break_flag { self.break_flag = false; break; }
+                    else if self.return_value.is_some() { break; }
                     self.exec_stmt(&f.step)?;
                 }
                 self.env.pop_scope();
@@ -784,9 +796,11 @@ impl<'a> Interpreter<'a> {
                     self.env.declare(&f.var_name, item);
                     for s in &f.body {
                         self.exec_stmt(s)?;
-                        if self.return_value.is_some() { break; }
+                        if self.should_stop_block() { break; }
                     }
                     self.env.pop_scope();
+                    if self.continue_flag { self.continue_flag = false; continue; }
+                    if self.break_flag { self.break_flag = false; break; }
                     if self.return_value.is_some() { break; }
                 }
             }
@@ -798,6 +812,9 @@ impl<'a> Interpreter<'a> {
                 };
                 self.return_value = Some(val);
             }
+
+            Stmt::Break(_) => { self.break_flag = true; }
+            Stmt::Continue(_) => { self.continue_flag = true; }
 
             Stmt::FnVar { name, value, .. } => {
                 let val = self.eval_expr(value)?;
@@ -1211,6 +1228,7 @@ fn collect_free_stmt(stmt: &Stmt, bound: &mut HashSet<String>, free: &mut HashSe
         Stmt::Return(expr, _) => {
             if let Some(e) = expr { collect_free_expr(e, bound, free); }
         }
+        Stmt::Break(_) | Stmt::Continue(_) => {}
         Stmt::IfLet { binding, expr, then_block, else_block, .. } => {
             collect_free_expr(expr, bound, free);
             let mut then_bound = bound.clone();

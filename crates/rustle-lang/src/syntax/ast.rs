@@ -102,6 +102,10 @@ pub enum Stmt {
     Match(MatchStmt),
     /// `return expr` or bare `return`
     Return(Option<Expr>, Span),
+    /// `break`
+    Break(Span),
+    /// `continue`
+    Continue(Span),
     /// `fn f = add` or `fn g = (a: float) -> float { ... }`
     FnVar {
         name: String,

@@ -173,7 +173,9 @@ impl Parser {
             TokenKind::While => self.parse_while(),
             TokenKind::For   => self.parse_for(),
             TokenKind::Foreach => self.parse_foreach(),
-            TokenKind::Return  => self.parse_return(),
+            TokenKind::Return   => self.parse_return(),
+            TokenKind::Break    => { let s = self.span(); self.advance(); Ok(Stmt::Break(s)) }
+            TokenKind::Continue => { let s = self.span(); self.advance(); Ok(Stmt::Continue(s)) }
             TokenKind::Out     => self.parse_out(),
             TokenKind::Console => self.parse_print(),
 
@@ -980,6 +982,8 @@ impl Parser {
                 | TokenKind::For
                 | TokenKind::Foreach
                 | TokenKind::Return
+                | TokenKind::Break
+                | TokenKind::Continue
                 | TokenKind::State
                 | TokenKind::Import
                 | TokenKind::RBrace => break,

@@ -123,6 +123,7 @@ impl<'a> TypeResolver<'a> {
             Stmt::Foreach(f) => self.check_foreach(f),
             Stmt::Return(expr, span) => self.check_return(expr.as_ref(), span),
             Stmt::FnVar { name, value, span } => self.check_fn_var(name, value, span),
+            Stmt::Break(_) | Stmt::Continue(_) => {}
             Stmt::Expr(e)    => {
                 if let Err(e) = self.infer_expr(e) {
                     self.errors.extend(e);

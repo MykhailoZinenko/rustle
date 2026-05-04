@@ -1990,3 +1990,85 @@ fn runtime_error_display_includes_code() {
     let display = format!("{e}");
     assert!(display.contains("[R007]"), "display should include error code: {display}");
 }
+
+// ─── break / continue ────────────────────────────────────────────────────────
+
+#[test]
+fn break_exits_while_loop() {
+    let rt = run(r#"
+        state { let v: float = 0 }
+        fn on_init(s: State) -> State {
+            let i: float = 0
+            while i < 100 {
+                if i == 5 { break }
+                i++
+            }
+            s.v = i
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 5.0);
+}
+
+#[test]
+fn continue_skips_iteration() {
+    let rt = run(r#"
+        state { let v: float = 0 }
+        fn on_init(s: State) -> State {
+            let i: float = 0
+            while i < 10 {
+                i++
+                if i == 3 or i == 7 { continue }
+                s.v += 1
+            }
+            return s
+        }
+    "#);
+    // 10 iterations, skip 2 (i==3 and i==7), so 8 increments
+    assert_eq!(f(&rt, "v"), 8.0);
+}
+
+#[test]
+fn break_exits_for_loop() {
+    let rt = run(r#"
+        state { let v: float = 0 }
+        fn on_init(s: State) -> State {
+            for let i = 0; i < 100; i = i + 1 {
+                if i == 3 { break }
+                s.v += 1
+            }
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
+}
+
+#[test]
+fn break_exits_foreach_loop() {
+    let rt = run(r#"
+        state { let xs: list[float] = [1, 2, 3, 4, 5] let v: float = 0 }
+        fn on_init(s: State) -> State {
+            foreach x in s.xs {
+                if x == 4 { break }
+                s.v += x
+            }
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 6.0); // 1 + 2 + 3
+}
+
+#[test]
+fn continue_in_foreach() {
+    let rt = run(r#"
+        state { let xs: list[float] = [1, 2, 3, 4, 5] let v: float = 0 }
+        fn on_init(s: State) -> State {
+            foreach x in s.xs {
+                if x == 2 or x == 4 { continue }
+                s.v += x
+            }
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 9.0); // 1 + 3 + 5
+}
