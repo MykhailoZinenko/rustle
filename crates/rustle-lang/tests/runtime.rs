@@ -2059,6 +2059,25 @@ fn break_exits_foreach_loop() {
 }
 
 #[test]
+fn infinite_recursion_hits_depth_limit() {
+    // Run on a thread with a larger stack to ensure the depth check fires
+    // before the Rust stack overflows in debug builds.
+    let result = std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(|| {
+            run_err(r#"
+                fn boom(x: float) -> float { return boom(x) }
+                state { let v: float = boom(1) }
+            "#)
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(result.code, ErrorCode::R011);
+    assert!(result.message.contains("call depth"), "message: {}", result.message);
+}
+
+#[test]
 fn continue_in_foreach() {
     let rt = run(r#"
         state { let xs: list[float] = [1, 2, 3, 4, 5] let v: float = 0 }

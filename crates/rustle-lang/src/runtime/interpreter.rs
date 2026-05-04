@@ -57,6 +57,8 @@ impl Env {
     }
 }
 
+const MAX_CALL_DEPTH: usize = 64;
+
 // ─── Interpreter ──────────────────────────────────────────────────────────────
 
 pub struct Interpreter<'a> {
@@ -69,6 +71,7 @@ pub struct Interpreter<'a> {
     return_value: Option<Value>,
     break_flag: bool,
     continue_flag: bool,
+    call_depth: usize,
     runtime_state: RuntimeState,
     cancel: Option<Arc<AtomicBool>>,
 }
@@ -94,6 +97,7 @@ impl<'a> Interpreter<'a> {
             return_value: None,
             break_flag: false,
             continue_flag: false,
+            call_depth: 0,
             runtime_state: RuntimeState::default(),
             cancel: None,
         }
@@ -490,6 +494,11 @@ impl<'a> Interpreter<'a> {
         call_line: usize,
     ) -> Result<Value, RuntimeError> {
         self.check_cancel(call_line)?;
+        if self.call_depth >= MAX_CALL_DEPTH {
+            return Err(self.err(ErrorCode::R011, call_line,
+                format!("maximum call depth ({MAX_CALL_DEPTH}) exceeded — possible infinite recursion")));
+        }
+        self.call_depth += 1;
         self.env.push_scope();
         for (p, v) in params.iter().zip(arg_vals) {
             self.env.declare(&p.name, v.clone());
@@ -507,6 +516,7 @@ impl<'a> Interpreter<'a> {
             }
             if self.should_stop_block() { break; }
         }
+        self.call_depth -= 1;
         if let Some(e) = err_result {
             self.return_value = saved;
             self.env.pop_scope();
@@ -532,6 +542,11 @@ impl<'a> Interpreter<'a> {
                 "closure expects {} args, got {}", params.len(), arg_vals.len()
             )));
         }
+        if self.call_depth >= MAX_CALL_DEPTH {
+            return Err(self.err(ErrorCode::R011, call_line,
+                format!("maximum call depth ({MAX_CALL_DEPTH}) exceeded — possible infinite recursion")));
+        }
+        self.call_depth += 1;
         self.env.push_scope();
         for (k, v) in captured { self.env.declare(k, v.clone()); }
         for (p, v) in params.iter().zip(arg_vals) { self.env.declare(&p.name, v.clone()); }
@@ -548,6 +563,7 @@ impl<'a> Interpreter<'a> {
             }
             if self.should_stop_block() { break; }
         }
+        self.call_depth -= 1;
         if let Some(e) = err_result {
             self.return_value = saved;
             self.env.pop_scope();

@@ -4,6 +4,9 @@ Tracking file for issues resolved from LANGUAGE_REVIEW.md.
 
 ---
 
+### 2. Rc Cycle Memory Leaks / No Recursion Depth Limit (#2 + #9)
+Added a call depth limit (MAX_CALL_DEPTH = 64) to both `call_fn` and `call_closure`. Infinite recursion now produces a clean `R011` error with a descriptive message instead of crashing the Rust process with a stack overflow. The Rc cycle leak itself is documented as a known limitation — proper resolution requires either weak references (breaks user semantics), a GC, or arena allocation. The depth limit prevents the most common trigger (recursive closures) and is the actionable mitigation.
+
 ### 4. Type::Named String Comparison is Fragile
 Added dedicated `Type` enum variants for all built-in types: `String`, `Vec2`, `Vec3`, `Vec4`, `Color`, `Mat3`, `Mat4`, `Transform`, `Shape`, `Circle`, `Rect`, `Line`, `Polygon`, `State`, `Input`. `Type::Named(String)` is now reserved exclusively for user-defined types (future structs/enums). Parser maps known identifiers in type position to proper variants. Updated all string comparisons (`n == "State"`, `n.as_str() == "shape"`, etc.) throughout checker, validator, lookup, registries, and namespaces. User-defined types can no longer collide with built-in type names.
 
