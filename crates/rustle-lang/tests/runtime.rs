@@ -2063,7 +2063,7 @@ fn infinite_recursion_hits_depth_limit() {
     // Run on a thread with a larger stack to ensure the depth check fires
     // before the Rust stack overflows in debug builds.
     let result = std::thread::Builder::new()
-        .stack_size(8 * 1024 * 1024)
+        .stack_size(32 * 1024 * 1024)
         .spawn(|| {
             run_err(r#"
                 fn boom(x: float) -> float { return boom(x) }

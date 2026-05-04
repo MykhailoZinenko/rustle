@@ -57,7 +57,7 @@ impl Env {
     }
 }
 
-const MAX_CALL_DEPTH: usize = 64;
+const MAX_CALL_DEPTH: usize = 256;
 
 // ─── Interpreter ──────────────────────────────────────────────────────────────
 
