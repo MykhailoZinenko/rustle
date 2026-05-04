@@ -57,8 +57,8 @@ impl NamespaceProvider for CoordsNamespace {
                         "`origin` expects an origin constant, got `{:?}`", other
                     ))),
                 };
-                state.coord_meta.origin = Origin::from_str(&s)
-                    .ok_or_else(|| RuntimeError::new(ErrorCode::R011, line, format!("unknown origin: `{s}`")))?;
+                state.coord_meta.origin = s.parse::<Origin>()
+                    .map_err(|e| RuntimeError::new(ErrorCode::R011, line, e))?;
                 Ok(Some(Value::Float(0.0)))
             }
             _ => Ok(None),

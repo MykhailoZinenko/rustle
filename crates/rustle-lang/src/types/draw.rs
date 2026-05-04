@@ -1,32 +1,33 @@
 /// Origin point — used both for per-shape anchoring and canvas coordinate origin.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Origin {
+    #[default]
     Center,
     TopLeft, TopRight,
     BottomLeft, BottomRight,
     Top, Bottom, Left, Right,
 }
 
-impl Default for Origin {
-    fn default() -> Self { Self::Center }
+impl std::str::FromStr for Origin {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "center"       => Ok(Self::Center),
+            "top_left"     => Ok(Self::TopLeft),
+            "top_right"    => Ok(Self::TopRight),
+            "bottom_left"  => Ok(Self::BottomLeft),
+            "bottom_right" => Ok(Self::BottomRight),
+            "top"          => Ok(Self::Top),
+            "bottom"       => Ok(Self::Bottom),
+            "left"         => Ok(Self::Left),
+            "right"        => Ok(Self::Right),
+            _              => Err(format!("unknown origin: `{s}`")),
+        }
+    }
 }
 
 impl Origin {
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "center"       => Some(Self::Center),
-            "top_left"     => Some(Self::TopLeft),
-            "top_right"    => Some(Self::TopRight),
-            "bottom_left"  => Some(Self::BottomLeft),
-            "bottom_right" => Some(Self::BottomRight),
-            "top"          => Some(Self::Top),
-            "bottom"       => Some(Self::Bottom),
-            "left"         => Some(Self::Left),
-            "right"        => Some(Self::Right),
-            _              => None,
-        }
-    }
-
     /// Canvas origins where y=0 is at the top and y increases downward (screen convention).
     pub fn is_y_down(self) -> bool {
         matches!(self, Origin::TopLeft | Origin::TopRight | Origin::Top)
@@ -35,7 +36,7 @@ impl Origin {
 
 /// Coordinate conversion parameters — snapshotted from the interpreter
 /// into every DrawCommand so the renderer has full context.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CoordMeta {
     /// Canvas width in pixels. 0.0 = not set (identity / NDC pass-through).
     pub px_width:  f64,
@@ -45,12 +46,6 @@ pub struct CoordMeta {
     /// Center = (0,0) is screen center, y-up.
     /// TopLeft = (0,0) is top-left corner, y-down (screen/pixel convention).
     pub origin: Origin,
-}
-
-impl Default for CoordMeta {
-    fn default() -> Self {
-        Self { px_width: 0.0, px_height: 0.0, origin: Origin::Center }
-    }
 }
 
 impl CoordMeta {
@@ -207,11 +202,13 @@ impl Default for TransformData {
 
 // ─── Render mode ──────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
-pub enum RenderMode { Sdf, Fill, Outline, Stroke(f64) }
-
-impl Default for RenderMode {
-    fn default() -> Self { Self::Sdf }
+#[derive(Debug, Clone, Default)]
+pub enum RenderMode {
+    #[default]
+    Sdf,
+    Fill,
+    Outline,
+    Stroke(f64),
 }
 
 // ─── Shape data ───────────────────────────────────────────────────────────────

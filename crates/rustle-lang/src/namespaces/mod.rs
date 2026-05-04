@@ -27,7 +27,7 @@ pub mod coords;
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ExportKind { Function, Constant }
 
 #[derive(Debug, Clone)]

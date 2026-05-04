@@ -106,7 +106,7 @@ impl NamespaceProvider for ShapesNamespace {
 
 fn origin_from_named(named: &HashMap<String, Value>) -> Origin {
     match named.get("origin") {
-        Some(Value::Str(s)) => Origin::from_str(s).unwrap_or(Origin::Center),
+        Some(Value::Str(s)) => s.parse::<Origin>().unwrap_or(Origin::Center),
         _ => Origin::Center,
     }
 }

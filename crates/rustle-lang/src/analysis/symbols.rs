@@ -33,7 +33,7 @@ impl Symbol {
 
 // ─── Scope ────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ScopeKind {
     Global,
     Function,
