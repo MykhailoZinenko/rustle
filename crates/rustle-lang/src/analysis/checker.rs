@@ -5,7 +5,7 @@
 //! by the collector.
 
 use crate::syntax::ast::*;
-use crate::error::{Error, ErrorCode};
+use crate::error::{Error, ErrorCode, suggest_similar};
 use crate::namespaces::NamespaceRegistry;
 use crate::types::binop_registry::{BinopRegistry, type_to_key, key_to_type};
 use super::lookup::LookupContext;
@@ -518,10 +518,22 @@ impl<'a> TypeResolver<'a> {
             Expr::Field { expr, field, span } => {
                 let obj_ty = self.infer_expr(expr)?;
                 let ty = self.lookup.resolve_field(&obj_ty, field);
-                ty.ok_or_else(|| vec![Error::new(
-                    ErrorCode::S009, span.line, span.column,
-                    format!("type `{}` has no field `{field}`", type_name(&obj_ty)),
-                )])
+                ty.ok_or_else(|| {
+                    let mut err = Error::new(
+                        ErrorCode::S009, span.line, span.column,
+                        format!("type `{}` has no field `{field}`", type_name(&obj_ty)),
+                    );
+                    let available = self.lookup.field_names(&obj_ty);
+                    if !available.is_empty() {
+                        let candidates: Vec<&str> = available.iter().map(|s| s.as_str()).collect();
+                        if let Some(suggestion) = suggest_similar(field, &candidates, 2) {
+                            err = err.with_hint(format!("did you mean '{suggestion}'?"));
+                        } else {
+                            err = err.with_hint(format!("available fields: {}", candidates.join(", ")));
+                        }
+                    }
+                    vec![err]
+                })
             }
 
             Expr::OptionalChain { expr, field, span } => {
@@ -536,20 +548,44 @@ impl<'a> TypeResolver<'a> {
                 let field_ty = self.lookup.resolve_field(inner, field);
                 match field_ty {
                     Some(t) => Ok(Type::Optional(Box::new(t))),
-                    None => Err(vec![Error::new(
-                        ErrorCode::S009, span.line, span.column,
-                        format!("type `{}` has no field `{field}`", type_name(inner)),
-                    )]),
+                    None => {
+                        let mut err = Error::new(
+                            ErrorCode::S009, span.line, span.column,
+                            format!("type `{}` has no field `{field}`", type_name(inner)),
+                        );
+                        let available = self.lookup.field_names(inner);
+                        if !available.is_empty() {
+                            let candidates: Vec<&str> = available.iter().map(|s| s.as_str()).collect();
+                            if let Some(suggestion) = suggest_similar(field, &candidates, 2) {
+                                err = err.with_hint(format!("did you mean '{suggestion}'?"));
+                            } else {
+                                err = err.with_hint(format!("available fields: {}", candidates.join(", ")));
+                            }
+                        }
+                        Err(vec![err])
+                    }
                 }
             }
 
             Expr::MethodCall { expr, method, args, named_args: _, span } => {
                 let obj_ty = self.infer_expr(expr)?;
                 let ty = self.resolve_method_call(&obj_ty, method, args, span);
-                ty.ok_or_else(|| vec![Error::new(
-                    ErrorCode::S009, span.line, span.column,
-                    format!("type `{}` has no method `{method}`", type_name(&obj_ty)),
-                )])
+                ty.ok_or_else(|| {
+                    let mut err = Error::new(
+                        ErrorCode::S009, span.line, span.column,
+                        format!("type `{}` has no method `{method}`", type_name(&obj_ty)),
+                    );
+                    let available = self.lookup.method_names(&obj_ty);
+                    if !available.is_empty() {
+                        let candidates: Vec<&str> = available.iter().map(|s| s.as_str()).collect();
+                        if let Some(suggestion) = suggest_similar(method, &candidates, 2) {
+                            err = err.with_hint(format!("did you mean '{suggestion}'?"));
+                        } else {
+                            err = err.with_hint(format!("available methods: {}", candidates.join(", ")));
+                        }
+                    }
+                    vec![err]
+                })
             }
 
             Expr::Transform { expr, transforms, span } => {
@@ -798,10 +834,18 @@ impl<'a> TypeResolver<'a> {
                         format!("cannot modify const `{name}`"),
                     )]),
                     Some(_) => Ok(()),
-                    None => Err(vec![Error::new(
-                        ErrorCode::S001, span.line, span.column,
-                        format!("undefined: `{name}`"),
-                    )]),
+                    None => {
+                        let mut err = Error::new(
+                            ErrorCode::S001, span.line, span.column,
+                            format!("undefined: `{name}`"),
+                        );
+                        let visible = self.table.all_visible_names();
+                        let candidates: Vec<&str> = visible.iter().map(|s| s.as_str()).collect();
+                        if let Some(suggestion) = suggest_similar(name, &candidates, 2) {
+                            err = err.with_hint(format!("did you mean '{suggestion}'?"));
+                        }
+                        Err(vec![err])
+                    }
                 }
             }
             Expr::Field { expr: base, .. } | Expr::Index { expr: base, .. } => {
@@ -862,10 +906,18 @@ impl<'a> TypeResolver<'a> {
                     format!("`{name}` used before its type could be resolved"),
                 )]),
             },
-            None => Err(vec![Error::new(
-                ErrorCode::S001, span.line, span.column,
-                format!("undefined: `{name}`"),
-            )]),
+            None => {
+                let mut err = Error::new(
+                    ErrorCode::S001, span.line, span.column,
+                    format!("undefined: `{name}`"),
+                );
+                let visible = self.table.all_visible_names();
+                let candidates: Vec<&str> = visible.iter().map(|s| s.as_str()).collect();
+                if let Some(suggestion) = suggest_similar(name, &candidates, 2) {
+                    err = err.with_hint(format!("did you mean '{suggestion}'?"));
+                }
+                Err(vec![err])
+            }
         }
     }
 

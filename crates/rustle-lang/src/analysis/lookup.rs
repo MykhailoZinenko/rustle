@@ -49,6 +49,36 @@ impl<'a> LookupContext<'a> {
         self.type_registry.resolve_field_type(obj_ty, field)
     }
 
+    /// Return all field names available on the given type.
+    pub fn field_names(&self, obj_ty: &Type) -> Vec<String> {
+        let mut names = Vec::new();
+        if let Type::Named(n) = obj_ty {
+            // State fields are dynamic.
+            if n == "State" {
+                if let Some(program) = self.program {
+                    if let Some(state) = &program.state {
+                        for f in &state.fields {
+                            names.push(f.name.clone());
+                        }
+                    }
+                }
+                return names;
+            }
+        }
+        for n in self.type_registry.field_names_for_type(obj_ty) {
+            names.push(n.to_string());
+        }
+        names
+    }
+
+    /// Return all method names available on the given type.
+    pub fn method_names(&self, obj_ty: &Type) -> Vec<String> {
+        self.type_registry.method_names_for_type(obj_ty)
+            .into_iter()
+            .map(|n| n.to_string())
+            .collect()
+    }
+
     /// Resolve the return type of `obj.method(args)`.
     /// Returns `Type::Fn(params, ret)` so the checker can validate arg types.
     pub fn get_method_type(&self, obj_ty: &Type, method: &str) -> Option<Type> {

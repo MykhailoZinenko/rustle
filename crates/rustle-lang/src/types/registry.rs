@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 
 use crate::syntax::ast::Type;
-use crate::error::RuntimeError;
+use crate::error::{ErrorCode, RuntimeError};
 use crate::runtime::value::Value;
 
 // ─── Function pointer aliases ─────────────────────────────────────────────────
@@ -85,6 +85,44 @@ impl TypeRegistry {
             .methods.iter()
             .find(|m| m.name == method)
             .map(|m| (m.params.clone(), m.ret.clone()))
+    }
+
+    /// Return all field names for a concrete type named `type_name`.
+    pub fn field_names_by_name(&self, type_name: &str) -> Vec<&'static str> {
+        self.types.get(type_name)
+            .map(|d| d.fields.iter().map(|f| f.name).collect())
+            .unwrap_or_default()
+    }
+
+    /// Return all method names for a concrete type named `type_name`.
+    pub fn method_names_by_name(&self, type_name: &str) -> Vec<&'static str> {
+        self.types.get(type_name)
+            .map(|d| d.methods.iter().map(|m| m.name).collect())
+            .unwrap_or_default()
+    }
+
+    /// Return all field names available on any `Type` (including generics).
+    pub fn field_names_for_type(&self, ty: &Type) -> Vec<&str> {
+        match ty {
+            Type::Res(_) => vec!["ok", "value", "error"],
+            Type::Named(n) => self.field_names_by_name(n.as_str()),
+            Type::Float    => self.field_names_by_name("float"),
+            Type::Bool     => self.field_names_by_name("bool"),
+            Type::List(_)  => self.field_names_by_name("list"),
+            _ => vec![],
+        }
+    }
+
+    /// Return all method names available on any `Type` (including generics).
+    pub fn method_names_for_type(&self, ty: &Type) -> Vec<&str> {
+        match ty {
+            Type::List(_)     => vec!["push", "pop", "len"],
+            Type::Array(_, _) => vec!["len"],
+            Type::Named(n) => self.method_names_by_name(n.as_str()),
+            Type::Float    => self.method_names_by_name("float"),
+            Type::Bool     => self.method_names_by_name("bool"),
+            _ => vec![],
+        }
     }
 
     // ── Resolver API — by full Type (handles generics) ────────────────────────
@@ -178,7 +216,7 @@ impl TypeRegistry {
             .find(|m| m.name == method)
             .map(|m| {
                 if args.len() != m.params.len() {
-                    return Err(RuntimeError::new(line, format!(
+                    return Err(RuntimeError::new(ErrorCode::R008, line, format!(
                         "`{}` expects {} argument(s), got {}",
                         method, m.params.len(), args.len()
                     )));
@@ -258,7 +296,7 @@ fn named(s: &str) -> Type { Type::Named(s.into()) }
 fn expect_float(v: &Value, name: &str, line: usize) -> Result<f64, RuntimeError> {
     match v {
         Value::Float(x) => Ok(*x),
-        _ => Err(RuntimeError::new(line, format!("`{name}` expected float"))),
+        _ => Err(RuntimeError::new(ErrorCode::R001, line, format!("`{name}` expected float"))),
     }
 }
 
@@ -341,7 +379,7 @@ fn vec2_desc() -> TypeDesc {
                     let Value::Vec2(x, y) = v else { unreachable!() };
                     let len = (x * x + y * y).sqrt();
                     if len == 0.0 {
-                        Err(RuntimeError::new(line, "normalize on zero vector"))
+                        Err(RuntimeError::new(ErrorCode::R011, line, "normalize on zero vector"))
                     } else {
                         Ok(Value::Vec2(x / len, y / len))
                     }
@@ -354,7 +392,7 @@ fn vec2_desc() -> TypeDesc {
                 call:   |v, args, line| {
                     let Value::Vec2(ax, ay) = v else { unreachable!() };
                     let Value::Vec2(bx, by) = &args[0] else {
-                        return Err(RuntimeError::new(line, "dot expects vec2"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "dot expects vec2"));
                     };
                     Ok(Value::Float(ax * bx + ay * by))
                 },
@@ -366,7 +404,7 @@ fn vec2_desc() -> TypeDesc {
                 call:   |v, args, line| {
                     let Value::Vec2(ax, ay) = v else { unreachable!() };
                     let Value::Vec2(bx, by) = &args[0] else {
-                        return Err(RuntimeError::new(line, "lerp expects vec2 as first arg"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "lerp expects vec2 as first arg"));
                     };
                     let t = expect_float(&args[1], "lerp t", line)?;
                     Ok(Value::Vec2(ax + (bx - ax) * t, ay + (by - ay) * t))
@@ -379,7 +417,7 @@ fn vec2_desc() -> TypeDesc {
                 call:   |v, args, line| {
                     let Value::Vec2(ax, ay) = v else { unreachable!() };
                     let Value::Vec2(bx, by) = &args[0] else {
-                        return Err(RuntimeError::new(line, "distance expects vec2"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "distance expects vec2"));
                     };
                     let dx = ax - bx;
                     let dy = ay - by;
@@ -412,7 +450,7 @@ fn vec2_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Vec2(ax, ay) = v else { unreachable!() };
                     let Value::Vec2(bx, by) = &args[0] else {
-                        return Err(RuntimeError::new(line, "min expects vec2"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "min expects vec2"));
                     };
                     Ok(Value::Vec2(ax.min(*bx), ay.min(*by)))
                 },
@@ -422,7 +460,7 @@ fn vec2_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Vec2(ax, ay) = v else { unreachable!() };
                     let Value::Vec2(bx, by) = &args[0] else {
-                        return Err(RuntimeError::new(line, "max expects vec2"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "max expects vec2"));
                     };
                     Ok(Value::Vec2(ax.max(*bx), ay.max(*by)))
                 },
@@ -480,7 +518,7 @@ fn vec3_desc() -> TypeDesc {
                 call: |v, _args, line| {
                     let Value::Vec3(x,y,z) = v else { unreachable!() };
                     let len = (x*x + y*y + z*z).sqrt();
-                    if len == 0.0 { Err(RuntimeError::new(line, "normalize on zero vector")) }
+                    if len == 0.0 { Err(RuntimeError::new(ErrorCode::R011, line, "normalize on zero vector")) }
                     else { Ok(Value::Vec3(x/len, y/len, z/len)) }
                 },
             },
@@ -489,7 +527,7 @@ fn vec3_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Vec3(ax,ay,az) = v else { unreachable!() };
                     let Value::Vec3(bx,by,bz) = &args[0] else {
-                        return Err(RuntimeError::new(line, "dot expects vec3"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "dot expects vec3"));
                     };
                     Ok(Value::Float(ax*bx + ay*by + az*bz))
                 },
@@ -499,7 +537,7 @@ fn vec3_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Vec3(ax,ay,az) = v else { unreachable!() };
                     let Value::Vec3(bx,by,bz) = &args[0] else {
-                        return Err(RuntimeError::new(line, "cross expects vec3"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "cross expects vec3"));
                     };
                     Ok(Value::Vec3(
                         ay*bz - az*by,
@@ -513,7 +551,7 @@ fn vec3_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Vec3(ax,ay,az) = v else { unreachable!() };
                     let Value::Vec3(bx,by,bz) = &args[0] else {
-                        return Err(RuntimeError::new(line, "lerp expects vec3 as first arg"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "lerp expects vec3 as first arg"));
                     };
                     let t = expect_float(&args[1], "lerp t", line)?;
                     Ok(Value::Vec3(ax+(bx-ax)*t, ay+(by-ay)*t, az+(bz-az)*t))
@@ -531,7 +569,7 @@ fn vec3_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Vec3(ax,ay,az) = v else { unreachable!() };
                     let Value::Vec3(bx,by,bz) = &args[0] else {
-                        return Err(RuntimeError::new(line, "min expects vec3"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "min expects vec3"));
                     };
                     Ok(Value::Vec3(ax.min(*bx), ay.min(*by), az.min(*bz)))
                 },
@@ -541,7 +579,7 @@ fn vec3_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Vec3(ax,ay,az) = v else { unreachable!() };
                     let Value::Vec3(bx,by,bz) = &args[0] else {
-                        return Err(RuntimeError::new(line, "max expects vec3"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "max expects vec3"));
                     };
                     Ok(Value::Vec3(ax.max(*bx), ay.max(*by), az.max(*bz)))
                 },
@@ -551,7 +589,7 @@ fn vec3_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Vec3(vx,vy,vz) = v else { unreachable!() };
                     let Value::Vec3(nx,ny,nz) = &args[0] else {
-                        return Err(RuntimeError::new(line, "reflect expects vec3 normal"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "reflect expects vec3 normal"));
                     };
                     let dot2 = 2.0 * (vx*nx + vy*ny + vz*nz);
                     Ok(Value::Vec3(vx - dot2*nx, vy - dot2*ny, vz - dot2*nz))
@@ -601,7 +639,7 @@ fn vec4_desc() -> TypeDesc {
                 call: |v, _args, line| {
                     let Value::Vec4(x,y,z,w) = v else { unreachable!() };
                     let len = (x*x + y*y + z*z + w*w).sqrt();
-                    if len == 0.0 { Err(RuntimeError::new(line, "normalize on zero vector")) }
+                    if len == 0.0 { Err(RuntimeError::new(ErrorCode::R011, line, "normalize on zero vector")) }
                     else { Ok(Value::Vec4(x/len, y/len, z/len, w/len)) }
                 },
             },
@@ -610,7 +648,7 @@ fn vec4_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Vec4(ax,ay,az,aw) = v else { unreachable!() };
                     let Value::Vec4(bx,by,bz,bw) = &args[0] else {
-                        return Err(RuntimeError::new(line, "dot expects vec4"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "dot expects vec4"));
                     };
                     Ok(Value::Float(ax*bx + ay*by + az*bz + aw*bw))
                 },
@@ -620,7 +658,7 @@ fn vec4_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Vec4(ax,ay,az,aw) = v else { unreachable!() };
                     let Value::Vec4(bx,by,bz,bw) = &args[0] else {
-                        return Err(RuntimeError::new(line, "lerp expects vec4 as first arg"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "lerp expects vec4 as first arg"));
                     };
                     let t = expect_float(&args[1], "lerp t", line)?;
                     Ok(Value::Vec4(ax+(bx-ax)*t, ay+(by-ay)*t, az+(bz-az)*t, aw+(bw-aw)*t))
@@ -638,7 +676,7 @@ fn vec4_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Vec4(ax,ay,az,aw) = v else { unreachable!() };
                     let Value::Vec4(bx,by,bz,bw) = &args[0] else {
-                        return Err(RuntimeError::new(line, "min expects vec4"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "min expects vec4"));
                     };
                     Ok(Value::Vec4(ax.min(*bx), ay.min(*by), az.min(*bz), aw.min(*bw)))
                 },
@@ -648,7 +686,7 @@ fn vec4_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Vec4(ax,ay,az,aw) = v else { unreachable!() };
                     let Value::Vec4(bx,by,bz,bw) = &args[0] else {
-                        return Err(RuntimeError::new(line, "max expects vec4"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "max expects vec4"));
                     };
                     Ok(Value::Vec4(ax.max(*bx), ay.max(*by), az.max(*bz), aw.max(*bw)))
                 },
@@ -690,7 +728,7 @@ fn color_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Color { r: ar, g: ag, b: ab, a: aa } = v else { unreachable!() };
                     let Value::Color { r: br, g: bg, b: bb, a: ba } = &args[0] else {
-                        return Err(RuntimeError::new(line, "lerp expects color as first arg"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "lerp expects color as first arg"));
                     };
                     let t = expect_float(&args[1], "lerp t", line)?;
                     Ok(Value::Color {
@@ -976,7 +1014,7 @@ fn list_desc() -> TypeDesc {
                 call: |v, _args, line| {
                     let Value::List(items) = v else { unreachable!() };
                     items.borrow_mut().pop()
-                        .ok_or_else(|| RuntimeError::new(line, "pop on empty list"))
+                        .ok_or_else(|| RuntimeError::new(ErrorCode::R011, line, "pop on empty list"))
                 },
             },
         ],
@@ -1053,7 +1091,7 @@ fn mat3_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Mat3(m) = v else { unreachable!() };
                     let Value::Vec3(x, y, z) = &args[0] else {
-                        return Err(RuntimeError::new(line, "mul_vec expects vec3"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "mul_vec expects vec3"));
                     };
                     let (rx, ry, rz) = m3_mul_vec(m, (*x, *y, *z));
                     Ok(Value::Vec3(rx, ry, rz))
@@ -1105,7 +1143,7 @@ fn mat4_desc() -> TypeDesc {
                 call: |v, args, line| {
                     let Value::Mat4(m) = v else { unreachable!() };
                     let Value::Vec4(x, y, z, w) = &args[0] else {
-                        return Err(RuntimeError::new(line, "mul_vec expects vec4"));
+                        return Err(RuntimeError::new(ErrorCode::R001, line, "mul_vec expects vec4"));
                     };
                     let (rx, ry, rz, rw) = m4_mul_vec(m, (*x, *y, *z, *w));
                     Ok(Value::Vec4(rx, ry, rz, rw))

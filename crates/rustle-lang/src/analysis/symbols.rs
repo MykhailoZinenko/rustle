@@ -159,6 +159,19 @@ impl Default for SymbolTable {
 }
 
 impl SymbolTable {
+    /// Collect all symbol names visible across all scopes (for suggestions).
+    pub fn all_visible_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        for scope in &self.scopes {
+            for name in scope.symbols.keys() {
+                if !name.starts_with("__state__") && !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
+        }
+        names
+    }
+
     /// All symbols in the global scope, sorted by declaration order.
     pub fn global_symbols(&self) -> Vec<&Symbol> {
         let mut syms: Vec<&Symbol> = self.scopes[0].symbols.values().collect();

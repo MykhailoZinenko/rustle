@@ -1,6 +1,6 @@
 use crate::syntax::ast::Type;
 use crate::types::draw::RenderMode;
-use crate::error::RuntimeError;
+use crate::error::{ErrorCode, RuntimeError};
 use crate::Value;
 use std::collections::HashMap;
 
@@ -121,27 +121,27 @@ impl Default for NamespaceRegistry {
 pub(crate) fn as_float(v: &Value, line: usize) -> Result<f64, RuntimeError> {
     match v {
         Value::Float(x) => Ok(*x),
-        _ => Err(RuntimeError::new(line, format!("expected float, got {}", value_type_name(v)))),
+        _ => Err(RuntimeError::new(ErrorCode::R001, line, format!("expected float, got {}", value_type_name(v)))),
     }
 }
 
 pub(crate) fn as_vec2(v: &Value, line: usize) -> Result<(f64, f64), RuntimeError> {
     match v {
         Value::Vec2(x, y) => Ok((*x, *y)),
-        _ => Err(RuntimeError::new(line, format!("expected vec2, got {}", value_type_name(v)))),
+        _ => Err(RuntimeError::new(ErrorCode::R001, line, format!("expected vec2, got {}", value_type_name(v)))),
     }
 }
 
 pub(crate) fn as_vertices(v: &Value, line: usize) -> Result<Vec<(f64, f64)>, RuntimeError> {
     match v {
         Value::List(items) => items.borrow().iter().map(|i| as_vec2(i, line)).collect(),
-        _ => Err(RuntimeError::new(line, "expected list[vec2]")),
+        _ => Err(RuntimeError::new(ErrorCode::R001, line, "expected list[vec2]")),
     }
 }
 
 pub(crate) fn check_argc(name: &str, args: &[Value], n: usize, line: usize) -> Result<(), RuntimeError> {
     if args.len() != n {
-        Err(RuntimeError::new(line, format!("`{name}` expects {n} args, got {}", args.len())))
+        Err(RuntimeError::new(ErrorCode::R008, line, format!("`{name}` expects {n} args, got {}", args.len())))
     } else {
         Ok(())
     }
@@ -150,7 +150,7 @@ pub(crate) fn check_argc(name: &str, args: &[Value], n: usize, line: usize) -> R
 pub(crate) fn render_mode_from_named(named: &HashMap<String, Value>, line: usize) -> Result<RenderMode, RuntimeError> {
     match named.get("render") {
         Some(Value::RenderMode(m)) => Ok(m.clone()),
-        Some(_) => Err(RuntimeError::new(line, "`render:` must be a render_mode value")),
+        Some(_) => Err(RuntimeError::new(ErrorCode::R011, line, "`render:` must be a render_mode value")),
         None    => Ok(RenderMode::default()),
     }
 }

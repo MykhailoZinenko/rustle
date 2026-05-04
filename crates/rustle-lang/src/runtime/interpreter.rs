@@ -6,7 +6,7 @@ use crate::syntax::ast::{self, AssignTarget, BinOp, Expr, Item, Param, Span, Stm
 use crate::types::draw::DrawCommand;
 use crate::types::binop_registry::BinopRegistry;
 use crate::types::registry::TypeRegistry;
-use crate::error::RuntimeError;
+use crate::error::{ErrorCode, RuntimeError};
 use crate::namespaces::{value_type_name, NamespaceRegistry, RuntimeState};
 use crate::{Input, State, Value};
 use std::cell::RefCell;
@@ -101,7 +101,7 @@ impl<'a> Interpreter<'a> {
     fn check_cancel(&self, line: usize) -> Result<(), RuntimeError> {
         if let Some(ref c) = self.cancel {
             if c.load(Ordering::Relaxed) {
-                return Err(self.err(line, "script cancelled"));
+                return Err(self.err(ErrorCode::R010, line, "script cancelled"));
             }
         }
         Ok(())
@@ -112,8 +112,8 @@ impl<'a> Interpreter<'a> {
         self.runtime_state.clone()
     }
 
-    fn err(&self, line: usize, msg: impl Into<String>) -> RuntimeError {
-        RuntimeError::new(line, msg)
+    fn err(&self, code: ErrorCode, line: usize, msg: impl Into<String>) -> RuntimeError {
+        RuntimeError::new(code, line, msg)
     }
 
     // ─── Imports ──────────────────────────────────────────────────────────────
@@ -177,7 +177,14 @@ impl<'a> Interpreter<'a> {
 
         self.return_value = None;
         for stmt in &f.body {
-            self.exec_stmt(stmt)?;
+            match self.exec_stmt(stmt) {
+                Ok(()) => {}
+                Err(mut e) => {
+                    e.push_frame("on_update", 0);
+                    self.env.pop_scope();
+                    return Err(e);
+                }
+            }
             if self.return_value.is_some() { break; }
         }
         self.env.pop_scope();
@@ -204,7 +211,14 @@ impl<'a> Interpreter<'a> {
 
         self.return_value = None;
         for stmt in &f.body {
-            self.exec_stmt(stmt)?;
+            match self.exec_stmt(stmt) {
+                Ok(()) => {}
+                Err(mut e) => {
+                    e.push_frame("on_init", 0);
+                    self.env.pop_scope();
+                    return Err(e);
+                }
+            }
             if self.return_value.is_some() { break; }
         }
         self.env.pop_scope();
@@ -231,7 +245,14 @@ impl<'a> Interpreter<'a> {
 
         self.return_value = None;
         for stmt in &f.body {
-            self.exec_stmt(stmt)?;
+            match self.exec_stmt(stmt) {
+                Ok(()) => {}
+                Err(mut e) => {
+                    e.push_frame("on_exit", 0);
+                    self.env.pop_scope();
+                    return Err(e);
+                }
+            }
             if self.return_value.is_some() { break; }
         }
         self.env.pop_scope();
@@ -271,7 +292,7 @@ impl<'a> Interpreter<'a> {
                             _ => None,
                         })
                     })
-                    .ok_or_else(|| self.err(span.line, format!("undefined: `{name}`")))
+                    .ok_or_else(|| self.err(ErrorCode::R002, span.line, format!("undefined: `{name}`")))
             }
 
             Expr::BinOp { left, op, right, span } => {
@@ -347,9 +368,13 @@ impl<'a> Interpreter<'a> {
                 let idx  = self.eval_expr(index)?;
                 let i = safe_index(&idx, span.line)?;
                 match coll {
-                    Value::List(items) => items.borrow().get(i).cloned()
-                        .ok_or_else(|| self.err(span.line, "index out of bounds")),
-                    _ => Err(self.err(span.line, format!(
+                    Value::List(items) => {
+                        let guard = items.borrow();
+                        guard.get(i).cloned()
+                            .ok_or_else(|| self.err(ErrorCode::R005, span.line,
+                                format!("index {} out of bounds (list has {} elements)", i, guard.len())))
+                    }
+                    _ => Err(self.err(ErrorCode::R001, span.line, format!(
                         "cannot index `{}`", value_type_name(&coll)
                     ))),
                 }
@@ -421,10 +446,10 @@ impl<'a> Interpreter<'a> {
                 Value::NativeFn(ref name) => {
                     let n = name.clone();
                     return self.registry.call_any(&n, &arg_vals, &named, &mut self.runtime_state, span.line)?
-                        .ok_or_else(|| self.err(span.line, format!("unknown native fn: `{n}`")));
+                        .ok_or_else(|| self.err(ErrorCode::R004, span.line, format!("unknown native fn: `{n}`")));
                 }
                 Value::Closure { params, body, captured } => {
-                    return self.call_closure(&params, &body, &captured, &arg_vals, span.line);
+                    return self.call_closure(callee, &params, &body, &captured, &arg_vals, span.line);
                 }
                 _ => {} // fall through — may be a user fn with same name
             }
@@ -442,33 +467,47 @@ impl<'a> Interpreter<'a> {
         });
         if let Some(f) = f {
             if f.params.len() != arg_vals.len() {
-                return Err(self.err(span.line, format!(
+                return Err(self.err(ErrorCode::R008, span.line, format!(
                     "`{}` expects {} args, got {}", f.name, f.params.len(), arg_vals.len()
                 )));
             }
-            return self.call_fn(&f.params, &f.body, &arg_vals, span.line);
+            return self.call_fn(&f.name, &f.params, &f.body, &arg_vals, span.line);
         }
 
-        Err(self.err(span.line, format!("undefined function: `{callee}`")))
+        Err(self.err(ErrorCode::R002, span.line, format!("undefined function: `{callee}`")))
     }
 
     fn call_fn(
         &mut self,
+        name: &str,
         params: &[Param],
         body: &[Stmt],
         arg_vals: &[Value],
-        line: usize,
+        call_line: usize,
     ) -> Result<Value, RuntimeError> {
-        self.check_cancel(line)?;
+        self.check_cancel(call_line)?;
         self.env.push_scope();
         for (p, v) in params.iter().zip(arg_vals) {
             self.env.declare(&p.name, v.clone());
         }
         let saved = self.return_value.take();
         let body = body.to_vec();
+        let mut err_result = None;
         for stmt in &body {
-            self.exec_stmt(stmt)?;
+            match self.exec_stmt(stmt) {
+                Ok(()) => {}
+                Err(mut e) => {
+                    e.push_frame(name, call_line);
+                    err_result = Some(e);
+                    break;
+                }
+            }
             if self.return_value.is_some() { break; }
+        }
+        if let Some(e) = err_result {
+            self.return_value = saved;
+            self.env.pop_scope();
+            return Err(e);
         }
         let result = self.return_value.take().unwrap_or(Value::Float(0.0));
         self.return_value = saved;
@@ -478,14 +517,15 @@ impl<'a> Interpreter<'a> {
 
     fn call_closure(
         &mut self,
+        name: &str,
         params: &[Param],
         body: &[Stmt],
         captured: &HashMap<String, Value>,
         arg_vals: &[Value],
-        line: usize,
+        call_line: usize,
     ) -> Result<Value, RuntimeError> {
         if params.len() != arg_vals.len() {
-            return Err(self.err(line, format!(
+            return Err(self.err(ErrorCode::R008, call_line, format!(
                 "closure expects {} args, got {}", params.len(), arg_vals.len()
             )));
         }
@@ -494,9 +534,22 @@ impl<'a> Interpreter<'a> {
         for (p, v) in params.iter().zip(arg_vals) { self.env.declare(&p.name, v.clone()); }
         let saved = self.return_value.take();
         let body = body.to_vec();
+        let mut err_result = None;
         for stmt in &body {
-            self.exec_stmt(stmt)?;
+            match self.exec_stmt(stmt) {
+                Ok(()) => {}
+                Err(mut e) => {
+                    e.push_frame(name, call_line);
+                    err_result = Some(e);
+                    break;
+                }
+            }
             if self.return_value.is_some() { break; }
+        }
+        if let Some(e) = err_result {
+            self.return_value = saved;
+            self.env.pop_scope();
+            return Err(e);
         }
         let result = self.return_value.take().unwrap_or(Value::Float(0.0));
         self.return_value = saved;
@@ -524,7 +577,7 @@ impl<'a> Interpreter<'a> {
                     if export.kind == ExportKind::Constant {
                         return ns.get_constant(method)
                             .or_else(|| self.registry.get_constant(method))
-                            .ok_or_else(|| self.err(span.line, format!(
+                            .ok_or_else(|| self.err(ErrorCode::R004, span.line, format!(
                                 "`{ns_name}.{method}` has no runtime value"
                             )));
                     } else {
@@ -535,13 +588,13 @@ impl<'a> Interpreter<'a> {
                             .map(|(k, v)| self.eval_expr(v).map(|val| (k.clone(), val)))
                             .collect::<Result<_, _>>()?;
                         return ns.call(method, &arg_vals, &named_vals, &mut self.runtime_state, span.line)?
-                            .ok_or_else(|| self.err(span.line, format!(
+                            .ok_or_else(|| self.err(ErrorCode::R004, span.line, format!(
                                 "`{ns_name}` does not implement `{method}`"
                             )));
                     }
                 }
             }
-            return Err(self.err(span.line, format!("`{ns_name}` has no member `{method}`")));
+            return Err(self.err(ErrorCode::R004, span.line, format!("`{ns_name}` has no member `{method}`")));
         }
 
         // All other types: evaluate args, delegate to TypeRegistry.
@@ -550,7 +603,7 @@ impl<'a> Interpreter<'a> {
             .collect::<Result<_, _>>()?;
 
         self.types.call_method(&obj, method, &arg_vals, span.line)
-            .unwrap_or_else(|| Err(self.err(span.line, format!(
+            .unwrap_or_else(|| Err(self.err(ErrorCode::R004, span.line, format!(
                 "`{}` has no method `{method}`", value_type_name(&obj)
             ))))
     }
@@ -570,13 +623,13 @@ impl<'a> Interpreter<'a> {
                     AssignTarget::Path(p) if p.len() == 1 => {
                         let name = &p[0];
                         if !self.env.set(name, val) {
-                            return Err(self.err(a.span.line, format!("undefined: `{name}`")));
+                            return Err(self.err(ErrorCode::R002, a.span.line, format!("undefined: `{name}`")));
                         }
                     }
                     AssignTarget::Path(p) => {
                         let root = &p[0];
                         let obj = self.env.get(root)
-                            .ok_or_else(|| self.err(a.span.line, format!("undefined: `{root}`")))?;
+                            .ok_or_else(|| self.err(ErrorCode::R002, a.span.line, format!("undefined: `{root}`")))?;
                         if let Value::State(rc) = &obj {
                             assign_state_path(rc, &p[1..], val, a.span.line, &self.types)?;
                         } else {
@@ -594,7 +647,7 @@ impl<'a> Interpreter<'a> {
                 for expr in &o.shapes {
                     match self.eval_expr(expr)? {
                         Value::Shape(data) => self.env.emit(DrawCommand::DrawShape(data)),
-                        other => return Err(self.err(o.span.line, format!(
+                        other => return Err(self.err(ErrorCode::R001, o.span.line, format!(
                             "out << expects shape, got `{}`", value_type_name(&other)
                         ))),
                     }
@@ -727,7 +780,7 @@ impl<'a> Interpreter<'a> {
             Stmt::Foreach(f) => {
                 let list = match self.eval_expr(&f.iterable)? {
                     Value::List(items) => items.borrow().clone(),
-                    other => return Err(self.err(f.span.line, format!(
+                    other => return Err(self.err(ErrorCode::R001, f.span.line, format!(
                         "foreach expects list, got `{}`", value_type_name(&other)
                     ))),
                 };
@@ -764,7 +817,7 @@ impl<'a> Interpreter<'a> {
 
     fn eval_inc_dec(&mut self, op: &UnOp, operand: &Expr, span: &Span) -> Result<Value, RuntimeError> {
         let target = expr_to_assign_target(operand)
-            .ok_or_else(|| self.err(span.line, "`++`/`--` require an assignable expression"))?;
+            .ok_or_else(|| self.err(ErrorCode::R011, span.line, "`++`/`--` require an assignable expression"))?;
         let old = self.read_assign_target(&target, span.line)?;
         let x = as_float(&old, span.line)?;
         let new_val = Value::Float(match op {
@@ -783,10 +836,10 @@ impl<'a> Interpreter<'a> {
     fn read_assign_target(&mut self, target: &AssignTarget, line: usize) -> Result<Value, RuntimeError> {
         match target {
             AssignTarget::Path(p) if p.len() == 1 => self.env.get(&p[0])
-                .ok_or_else(|| self.err(line, format!("undefined: `{}`", p[0]))),
+                .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{}`", p[0]))),
             AssignTarget::Path(p) => {
                 let root = self.env.get(&p[0])
-                    .ok_or_else(|| self.err(line, format!("undefined: `{}`", p[0])))?;
+                    .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{}`", p[0])))?;
                 let mut v = root;
                 for seg in &p[1..] {
                     v = eval_field(&self.types, &v, seg, line)?;
@@ -795,7 +848,7 @@ impl<'a> Interpreter<'a> {
             }
             AssignTarget::Indexed { path: p, indices } => {
                 let mut coll = self.env.get(&p[0])
-                    .ok_or_else(|| self.err(line, format!("undefined: `{}`", p[0])))?
+                    .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{}`", p[0])))?
                     .clone();
                 for seg in &p[1..] {
                     coll = eval_field(&self.types, &coll, seg, line)?;
@@ -804,9 +857,13 @@ impl<'a> Interpreter<'a> {
                     let idx = self.eval_expr(idx_expr)?;
                     let i = safe_index(&idx, line)?;
                     coll = match &coll {
-                        Value::List(items) => items.borrow().get(i).cloned()
-                            .ok_or_else(|| self.err(line, "index out of bounds")),
-                        _ => Err(self.err(line, format!(
+                        Value::List(items) => {
+                            let guard = items.borrow();
+                            guard.get(i).cloned()
+                                .ok_or_else(|| self.err(ErrorCode::R005, line,
+                                    format!("index {} out of bounds (list has {} elements)", i, guard.len())))
+                        }
+                        _ => Err(self.err(ErrorCode::R001, line, format!(
                             "cannot index `{}`", value_type_name(&coll)
                         ))),
                     }?;
@@ -820,13 +877,13 @@ impl<'a> Interpreter<'a> {
         match target {
             AssignTarget::Path(p) if p.len() == 1 => {
                 if !self.env.set(&p[0], val) {
-                    return Err(self.err(line, format!("undefined: `{}`", p[0])));
+                    return Err(self.err(ErrorCode::R002, line, format!("undefined: `{}`", p[0])));
                 }
             }
             AssignTarget::Path(p) => {
                 let root = &p[0];
                 let obj = self.env.get(root)
-                    .ok_or_else(|| self.err(line, format!("undefined: `{root}`")))?;
+                    .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{root}`")))?;
                 if let Value::State(rc) = &obj {
                     assign_state_path(rc, &p[1..], val, line, &self.types)?;
                 } else {
@@ -850,7 +907,7 @@ impl<'a> Interpreter<'a> {
     ) -> Result<(), RuntimeError> {
         let root = &path[0];
         let mut coll = self.env.get(root)
-            .ok_or_else(|| self.err(line, format!("undefined: `{root}`")))?
+            .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{root}`")))?
             .clone();
         for p in path.iter().skip(1) {
             coll = eval_field(&self.types, &coll, p, line)?;
@@ -859,9 +916,13 @@ impl<'a> Interpreter<'a> {
             let idx = self.eval_expr(idx_expr)?;
             let i = safe_index(&idx, line)?;
             coll = match &coll {
-                Value::List(items) => items.borrow().get(i).cloned()
-                    .ok_or_else(|| self.err(line, "index out of bounds")),
-                _ => Err(self.err(line, format!(
+                Value::List(items) => {
+                    let guard = items.borrow();
+                    guard.get(i).cloned()
+                        .ok_or_else(|| self.err(ErrorCode::R005, line,
+                            format!("index {} out of bounds (list has {} elements)", i, guard.len())))
+                }
+                _ => Err(self.err(ErrorCode::R001, line, format!(
                     "cannot index `{}`", value_type_name(&coll)
                 ))),
             }?;
@@ -873,11 +934,12 @@ impl<'a> Interpreter<'a> {
             Value::List(items) => {
                 let mut guard = items.borrow_mut();
                 if i >= guard.len() {
-                    return Err(self.err(line, "index out of bounds"));
+                    return Err(self.err(ErrorCode::R005, line,
+                        format!("index {} out of bounds (list has {} elements)", i, guard.len())));
                 }
                 guard[i] = val;
             }
-            _ => return Err(self.err(line, format!(
+            _ => return Err(self.err(ErrorCode::R001, line, format!(
                 "cannot assign to index of `{}`", value_type_name(&coll)
             ))),
         }
@@ -916,11 +978,17 @@ fn expr_to_assign_target(expr: &Expr) -> Option<AssignTarget> {
 fn eval_field(types: &TypeRegistry, obj: &Value, field: &str, line: usize) -> Result<Value, RuntimeError> {
     // State fields are dynamic (per-script) — not in the static registry.
     if let Value::State(rc) = obj {
-        return rc.borrow().get(field).cloned()
-            .ok_or_else(|| RuntimeError::new(line, format!("state has no field `{field}`")));
+        let guard = rc.borrow();
+        return guard.get(field).cloned()
+            .ok_or_else(|| {
+                let mut keys: Vec<&str> = guard.keys().map(|k| k.as_str()).collect();
+                keys.sort();
+                RuntimeError::new(ErrorCode::R003, line,
+                    format!("state has no field `{field}` (available: {})", keys.join(", ")))
+            });
     }
     types.get_field(obj, field)
-        .ok_or_else(|| RuntimeError::new(line, format!(
+        .ok_or_else(|| RuntimeError::new(ErrorCode::R003, line, format!(
             "`{}` has no field `{field}`", value_type_name(obj)
         )))
 }
@@ -939,8 +1007,15 @@ fn assign_state_path(
     if path.len() == 1 {
         rc.borrow_mut().insert(field.clone(), val);
     } else {
-        let intermediate = rc.borrow().get(field.as_str()).cloned()
-            .ok_or_else(|| RuntimeError::new(line, format!("state has no field `{field}`")))?;
+        let guard = rc.borrow();
+        let intermediate = guard.get(field.as_str()).cloned()
+            .ok_or_else(|| {
+                let mut keys: Vec<&str> = guard.keys().map(|k| k.as_str()).collect();
+                keys.sort();
+                RuntimeError::new(ErrorCode::R003, line,
+                    format!("state has no field `{field}` (available: {})", keys.join(", ")))
+            })?;
+        drop(guard);
         let updated = set_field_path(types, intermediate, &path[1..], val, line)?;
         rc.borrow_mut().insert(field.clone(), updated);
     }
@@ -955,7 +1030,7 @@ fn set_field_path(types: &TypeRegistry, obj: Value, path: &[String], val: Value,
     let new_val = if path.len() > 1 {
         // Nested: get the sub-value, recurse, then write it back.
         let sub = types.get_field(&obj, field)
-            .ok_or_else(|| RuntimeError::new(line, format!(
+            .ok_or_else(|| RuntimeError::new(ErrorCode::R003, line, format!(
                 "`{}` has no field `{field}`", value_type_name(&obj)
             )))?;
         set_field_path(types, sub, &path[1..], val, line)?
@@ -963,7 +1038,7 @@ fn set_field_path(types: &TypeRegistry, obj: Value, path: &[String], val: Value,
         val
     };
     types.set_field(obj, field, new_val)
-        .ok_or_else(|| RuntimeError::new(line, format!(
+        .ok_or_else(|| RuntimeError::new(ErrorCode::R003, line, format!(
             "cannot assign field `{field}` (read-only or unknown)"
         )))
 }
@@ -972,12 +1047,12 @@ fn set_field_path(types: &TypeRegistry, obj: Value, path: &[String], val: Value,
 
 fn apply_transform(shape: Value, tf: Value, line: usize) -> Result<Value, RuntimeError> {
     let Value::Transform(td) = tf else {
-        return Err(RuntimeError::new(line, format!(
+        return Err(RuntimeError::new(ErrorCode::R001, line, format!(
             "@  requires transform, got `{}`", value_type_name(&tf)
         )));
     };
     let Value::Shape(mut data) = shape else {
-        return Err(RuntimeError::new(line, format!(
+        return Err(RuntimeError::new(ErrorCode::R001, line, format!(
             "@ can only be applied to shape, got `{}`", value_type_name(&shape)
         )));
     };
@@ -994,7 +1069,7 @@ fn eval_binop(op: &BinOp, l: Value, r: Value, line: usize, binops: &BinopRegistr
 
     // All other operators go through the registry
     binops.eval(op, l, r, line).unwrap_or_else(|| {
-        Err(RuntimeError::new(line, format!(
+        Err(RuntimeError::new(ErrorCode::R011, line, format!(
             "operator `{}` not supported for these types",
             match op {
                 BinOp::Add  => "+",  BinOp::Sub  => "-",
@@ -1015,7 +1090,7 @@ fn eval_unop(op: &UnOp, v: Value, line: usize) -> Result<Value, RuntimeError> {
         UnOp::Neg => match v {
             Value::Float(x)   => Ok(Value::Float(-x)),
             Value::Vec2(x, y) => Ok(Value::Vec2(-x, -y)),
-            other => Err(RuntimeError::new(line, format!(
+            other => Err(RuntimeError::new(ErrorCode::R011, line, format!(
                 "unary `-` not supported on `{}`", value_type_name(&other)
             ))),
         },
@@ -1028,7 +1103,7 @@ fn eval_unop(op: &UnOp, v: Value, line: usize) -> Result<Value, RuntimeError> {
 fn as_float(v: &Value, line: usize) -> Result<f64, RuntimeError> {
     match v {
         Value::Float(x) => Ok(*x),
-        _ => Err(RuntimeError::new(line, format!(
+        _ => Err(RuntimeError::new(ErrorCode::R001, line, format!(
             "expected float, got `{}`", value_type_name(v)
         ))),
     }
@@ -1195,18 +1270,18 @@ fn collect_free_stmt(stmt: &Stmt, bound: &mut HashSet<String>, free: &mut HashSe
 fn safe_index(v: &Value, line: usize) -> Result<usize, RuntimeError> {
     let f = match v {
         Value::Float(x) => *x,
-        other => return Err(RuntimeError::new(line, format!(
+        other => return Err(RuntimeError::new(ErrorCode::R001, line, format!(
             "index must be a number, got `{}`", value_type_name(other)
         ))),
     };
     if f.is_nan() {
-        return Err(RuntimeError::new(line, "index is NaN"));
+        return Err(RuntimeError::new(ErrorCode::R006, line, "index is NaN"));
     }
     if f.is_infinite() {
-        return Err(RuntimeError::new(line, "index is infinite"));
+        return Err(RuntimeError::new(ErrorCode::R006, line, "index is infinite"));
     }
     if f < 0.0 {
-        return Err(RuntimeError::new(line, format!("index is negative ({})", f as i64)));
+        return Err(RuntimeError::new(ErrorCode::R006, line, format!("index is negative ({})", f as i64)));
     }
     Ok(f as usize)
 }
@@ -1214,10 +1289,10 @@ fn safe_index(v: &Value, line: usize) -> Result<usize, RuntimeError> {
 fn parse_hex_color(hex: &str) -> Result<Value, RuntimeError> {
     let parse = |s: &str| u8::from_str_radix(s, 16)
         .map(|n| n as f64 / 255.0)
-        .map_err(|_| RuntimeError::new(0, format!("invalid hex: #{hex}")));
+        .map_err(|_| RuntimeError::new(ErrorCode::R001, 0, format!("invalid hex: #{hex}")));
     match hex.len() {
         6 => Ok(Value::Color { r: parse(&hex[0..2])?, g: parse(&hex[2..4])?, b: parse(&hex[4..6])?, a: 1.0 }),
         8 => Ok(Value::Color { r: parse(&hex[0..2])?, g: parse(&hex[2..4])?, b: parse(&hex[4..6])?, a: parse(&hex[6..8])? }),
-        _ => Err(RuntimeError::new(0, format!("invalid hex color length: #{hex}"))),
+        _ => Err(RuntimeError::new(ErrorCode::R001, 0, format!("invalid hex color length: #{hex}"))),
     }
 }
