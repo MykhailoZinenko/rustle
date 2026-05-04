@@ -295,13 +295,33 @@ mod tests {
     }
 
     #[test]
-    fn keywords() {
-        assert_eq!(lex("fn"),      vec![TokenKind::Fn,      TokenKind::Eof]);
-        assert_eq!(lex("let"),     vec![TokenKind::Let,     TokenKind::Eof]);
-        assert_eq!(lex("const"),   vec![TokenKind::Const,   TokenKind::Eof]);
-        assert_eq!(lex("foreach"), vec![TokenKind::Foreach,  TokenKind::Eof]);
-        assert_eq!(lex("return"),  vec![TokenKind::Return,   TokenKind::Eof]);
-        assert_eq!(lex("state"),   vec![TokenKind::State,    TokenKind::Eof]);
+    fn keyword_fn() {
+        assert_eq!(lex("fn"), vec![TokenKind::Fn, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn keyword_let() {
+        assert_eq!(lex("let"), vec![TokenKind::Let, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn keyword_const() {
+        assert_eq!(lex("const"), vec![TokenKind::Const, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn keyword_foreach() {
+        assert_eq!(lex("foreach"), vec![TokenKind::Foreach, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn keyword_return() {
+        assert_eq!(lex("return"), vec![TokenKind::Return, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn keyword_state() {
+        assert_eq!(lex("state"), vec![TokenKind::State, TokenKind::Eof]);
     }
 
     #[test]

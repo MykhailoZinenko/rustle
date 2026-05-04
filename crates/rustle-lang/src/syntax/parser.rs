@@ -1564,28 +1564,68 @@ mod tests {
     // ── simple: binary operators ──────────────────────────────────────────────
 
     #[test]
-    fn all_arithmetic_ops() {
+    fn parse_add_operator() {
         assert!(matches!(parse_expr_src("a + b"), Expr::BinOp { op: BinOp::Add, .. }));
+    }
+
+    #[test]
+    fn parse_sub_operator() {
         assert!(matches!(parse_expr_src("a - b"), Expr::BinOp { op: BinOp::Sub, .. }));
+    }
+
+    #[test]
+    fn parse_mul_operator() {
         assert!(matches!(parse_expr_src("a * b"), Expr::BinOp { op: BinOp::Mul, .. }));
+    }
+
+    #[test]
+    fn parse_div_operator() {
         assert!(matches!(parse_expr_src("a / b"), Expr::BinOp { op: BinOp::Div, .. }));
+    }
+
+    #[test]
+    fn parse_mod_operator() {
         assert!(matches!(parse_expr_src("a % b"), Expr::BinOp { op: BinOp::Mod, .. }));
     }
 
     #[test]
-    fn all_comparison_ops() {
-        assert!(matches!(parse_expr_src("a == b"),  Expr::BinOp { op: BinOp::Eq, .. }));
-        assert!(matches!(parse_expr_src("a != b"),  Expr::BinOp { op: BinOp::NotEq, .. }));
-        assert!(matches!(parse_expr_src("a < b"),   Expr::BinOp { op: BinOp::Lt, .. }));
-        assert!(matches!(parse_expr_src("a <= b"),  Expr::BinOp { op: BinOp::LtEq, .. }));
-        assert!(matches!(parse_expr_src("a > b"),   Expr::BinOp { op: BinOp::Gt, .. }));
-        assert!(matches!(parse_expr_src("a >= b"),  Expr::BinOp { op: BinOp::GtEq, .. }));
+    fn parse_eq_operator() {
+        assert!(matches!(parse_expr_src("a == b"), Expr::BinOp { op: BinOp::Eq, .. }));
     }
 
     #[test]
-    fn logical_and_or() {
+    fn parse_not_eq_operator() {
+        assert!(matches!(parse_expr_src("a != b"), Expr::BinOp { op: BinOp::NotEq, .. }));
+    }
+
+    #[test]
+    fn parse_lt_operator() {
+        assert!(matches!(parse_expr_src("a < b"), Expr::BinOp { op: BinOp::Lt, .. }));
+    }
+
+    #[test]
+    fn parse_lt_eq_operator() {
+        assert!(matches!(parse_expr_src("a <= b"), Expr::BinOp { op: BinOp::LtEq, .. }));
+    }
+
+    #[test]
+    fn parse_gt_operator() {
+        assert!(matches!(parse_expr_src("a > b"), Expr::BinOp { op: BinOp::Gt, .. }));
+    }
+
+    #[test]
+    fn parse_gt_eq_operator() {
+        assert!(matches!(parse_expr_src("a >= b"), Expr::BinOp { op: BinOp::GtEq, .. }));
+    }
+
+    #[test]
+    fn parse_and_operator() {
         assert!(matches!(parse_expr_src("a and b"), Expr::BinOp { op: BinOp::And, .. }));
-        assert!(matches!(parse_expr_src("a or b"),  Expr::BinOp { op: BinOp::Or, .. }));
+    }
+
+    #[test]
+    fn parse_or_operator() {
+        assert!(matches!(parse_expr_src("a or b"), Expr::BinOp { op: BinOp::Or, .. }));
     }
 
     #[test]

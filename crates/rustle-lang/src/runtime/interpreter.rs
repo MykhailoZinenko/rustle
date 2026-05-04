@@ -46,9 +46,9 @@ impl Env {
         false
     }
 
-    fn get(&self, name: &str) -> Option<Value> {
+    fn get(&self, name: &str) -> Option<&Value> {
         for scope in self.scopes.iter().rev() {
-            if let Some(v) = scope.get(name) { return Some(v.clone()); }
+            if let Some(v) = scope.get(name) { return Some(v); }
         }
         None
     }
@@ -273,7 +273,7 @@ impl<'a> Interpreter<'a> {
             Expr::HexColor(s, _)  => parse_hex_color(s),
 
             Expr::Ident(name, span) => {
-                self.env.get(name)
+                self.env.get(name).cloned()
                     .or_else(|| self.registry.get_constant(name))
                     .or_else(|| {
                         self.fn_table.get(name.as_str()).map(|f| Value::Closure(Box::new(ClosureData {
@@ -430,7 +430,7 @@ impl<'a> Interpreter<'a> {
             .collect::<Result<_, _>>()?;
 
         // 1. Env — NativeFn, Closure, or fn-var
-        if let Some(val) = self.env.get(callee) {
+        if let Some(val) = self.env.get(callee).cloned() {
             match val {
                 Value::NativeFn(ref name) => {
                     let n = name.clone();
@@ -578,7 +578,7 @@ impl<'a> Interpreter<'a> {
                     }
                     AssignTarget::Path(p) => {
                         let root = &p[0];
-                        let obj = self.env.get(root)
+                        let obj = self.env.get(root).cloned()
                             .ok_or_else(|| self.err(ErrorCode::R002, a.span.line, format!("undefined: `{root}`")))?;
                         if let Value::State(rc) = &obj {
                             assign_state_path(rc, &p[1..], val, a.span.line, self.types)?;
@@ -794,10 +794,10 @@ impl<'a> Interpreter<'a> {
 
     fn read_assign_target(&mut self, target: &AssignTarget, line: usize) -> Result<Value, RuntimeError> {
         match target {
-            AssignTarget::Path(p) if p.len() == 1 => self.env.get(&p[0])
+            AssignTarget::Path(p) if p.len() == 1 => self.env.get(&p[0]).cloned()
                 .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{}`", p[0]))),
             AssignTarget::Path(p) => {
-                let root = self.env.get(&p[0])
+                let root = self.env.get(&p[0]).cloned()
                     .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{}`", p[0])))?;
                 let mut v = root;
                 for seg in &p[1..] {
@@ -806,7 +806,7 @@ impl<'a> Interpreter<'a> {
                 Ok(v)
             }
             AssignTarget::Indexed { path: p, indices } => {
-                let mut coll = self.env.get(&p[0])
+                let mut coll = self.env.get(&p[0]).cloned()
                     .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{}`", p[0])))?
                     ;
                 for seg in &p[1..] {
@@ -841,7 +841,7 @@ impl<'a> Interpreter<'a> {
             }
             AssignTarget::Path(p) => {
                 let root = &p[0];
-                let obj = self.env.get(root)
+                let obj = self.env.get(root).cloned()
                     .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{root}`")))?;
                 if let Value::State(rc) = &obj {
                     assign_state_path(rc, &p[1..], val, line, self.types)?;
@@ -865,7 +865,7 @@ impl<'a> Interpreter<'a> {
         line: usize,
     ) -> Result<(), RuntimeError> {
         let root = &path[0];
-        let mut coll = self.env.get(root)
+        let mut coll = self.env.get(root).cloned()
             .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{root}`")))?
             ;
         for p in path.iter().skip(1) {

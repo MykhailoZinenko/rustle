@@ -76,6 +76,15 @@ Added runnable `# Examples` doc test to `compile()`.
 ### 23. ErrorCode semantic names
 Added `///` doc comments to all 42 `ErrorCode` variants explaining what each code means.
 
+### 21. Tests use generic names
+Assessed — current naming is terse but consistent. No mass rename needed.
+
+### 22. Tests assert multiple behaviors
+Split 4 multi-assertion tests into 15 individual tests: `keywords` (6), `all_arithmetic_ops` (5), `all_comparison_ops` (6), `logical_and_or` (2). Unit test count: 123 → 138.
+
+### 2. Env::get clones every value on read
+Changed `Env::get` to return `Option<&Value>` instead of `Option<Value>`. All 8 call sites that need ownership now use explicit `.cloned()`, making every clone visible. Future optimizations can target specific sites.
+
 ### 17. No rustfmt.toml configuration
 Created `rustfmt.toml` with `reorder_imports`, `imports_granularity = "Crate"`, `group_imports = "StdExternalCrate"`.
 
