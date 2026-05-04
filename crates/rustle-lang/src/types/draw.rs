@@ -152,6 +152,7 @@ impl CoordMeta {
 
 /// Semantic shape — not pre-tessellated. The renderer converts coords
 /// to NDC and computes actual geometry at draw time.
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum ShapeDesc {
     Circle { center: (f64, f64), radius: f64 },
@@ -211,6 +212,7 @@ impl Default for TransformData {
 
 // ─── Render mode ──────────────────────────────────────────────────────────────
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Default)]
 pub enum RenderMode {
     #[default]
@@ -239,6 +241,7 @@ impl ShapeData {
 
 // ─── Draw command ─────────────────────────────────────────────────────────────
 
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum DrawCommand {
     DrawShape(ShapeData),

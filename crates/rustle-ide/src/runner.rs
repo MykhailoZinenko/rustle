@@ -128,6 +128,7 @@ fn split_draw_commands(commands: Vec<DrawCommand>) -> PreviewFrame {
                 level: ConsoleLevel::Error,
                 message,
             }),
+            _ => {}
         }
     }
 

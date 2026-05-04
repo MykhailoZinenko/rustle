@@ -48,9 +48,9 @@ pub fn resolve(
     all_errors.extend(validate_errors);
 
     // ─────────────────────────────────────────────────────────────────────────
-    let (errors, warnings): (Vec<_>, Vec<_>) = all_errors
-        .into_iter()
-        .partition(|e| e.code.is_error());
+    // All current codes are errors. When warning codes are added, partition here.
+    let warnings = Vec::new();
+    let errors = all_errors;
 
     if errors.is_empty() {
         Ok(ResolveResult { symbol_table: table, warnings })

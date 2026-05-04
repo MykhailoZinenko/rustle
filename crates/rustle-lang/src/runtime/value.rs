@@ -7,6 +7,7 @@ use std::cell::RefCell;
 use crate::syntax::ast::{Param, Stmt};
 use crate::types::draw::{RenderMode, ShapeData, TransformData};
 
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum Value {
     Float(f64),

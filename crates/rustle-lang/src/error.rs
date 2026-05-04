@@ -1,4 +1,5 @@
 /// Error codes prefixed by phase: L = lexer, P = parser, S = semantic, R = runtime.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErrorCode {
     // Lexer
@@ -50,12 +51,7 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
-    /// All current codes are hard errors (not warnings).
-    /// Extend this when warning codes are added.
-    #[must_use] 
-    pub fn is_error(&self) -> bool { true }
-
-    #[must_use] 
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::L001 => "L001",

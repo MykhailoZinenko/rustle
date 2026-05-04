@@ -110,7 +110,7 @@ impl<'a> Lexer<'a> {
                 else { self.skip_line(); return Ok(None); }
             }
             b'"' => TokenKind::StringLit(self.read_string(line, col)?),
-            b'0'..=b'9' => TokenKind::Float(self.read_number(ch)),
+            b'0'..=b'9' => TokenKind::Float(self.read_number(ch, line, col)?),
             b'a'..=b'z' | b'A'..=b'Z' | b'_' => keyword_or_ident(self.read_ident(ch)),
 
             other => {
@@ -229,7 +229,7 @@ impl<'a> Lexer<'a> {
         Ok(s)
     }
 
-    fn read_number(&mut self, first: u8) -> f64 {
+    fn read_number(&mut self, first: u8, line: usize, col: usize) -> Result<f64, Error> {
         let mut s = String::new();
         s.push(first as char);
         while !self.is_at_end() && self.peek().is_ascii_digit() {
@@ -243,7 +243,7 @@ impl<'a> Lexer<'a> {
                 s.push(self.advance() as char);
             }
         }
-        s.parse().unwrap_or(0.0)
+        s.parse().map_err(|_| Error::new(ErrorCode::L005, line, col, format!("invalid number literal: `{s}`")))
     }
 
     fn read_ident(&mut self, first: u8) -> String {

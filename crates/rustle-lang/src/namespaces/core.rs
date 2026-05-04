@@ -22,15 +22,6 @@ fn c(name: &'static str, ty: Type) -> Export {
     Export { name, kind: ExportKind::Constant, ty }
 }
 
-fn named(s: &str) -> Type {
-    match s {
-        "string" => Type::String, "vec2" => Type::Vec2, "vec3" => Type::Vec3,
-        "vec4" => Type::Vec4, "color" => Type::Color, "mat3" => Type::Mat3,
-        "mat4" => Type::Mat4, "transform" => Type::Transform, "shape" => Type::Shape,
-        other => Type::Named(other.into()),
-    }
-}
-
 // ─── Type exports (used by resolver/collector) ─────────────────────────────
 
 #[must_use] 
@@ -58,37 +49,37 @@ pub fn core_exports() -> Vec<Export> {
         f("lerp",  vec![Type::Float, Type::Float, Type::Float], Type::Float),
 
         // Constructors
-        f("vec2",      vec![Type::Float, Type::Float], named("vec2")),
-        f("vec3",      vec![Type::Float, Type::Float, Type::Float], named("vec3")),
-        f("vec4",      vec![Type::Float, Type::Float, Type::Float, Type::Float], named("vec4")),
-        f("color",     vec![Type::Float, Type::Float, Type::Float], named("color")),
-        f("transform", vec![], named("transform")),
-        f("mat3",      vec![], named("mat3")),
-        f("mat4",      vec![], named("mat4")),
+        f("vec2",      vec![Type::Float, Type::Float], Type::from_name("vec2")),
+        f("vec3",      vec![Type::Float, Type::Float, Type::Float], Type::from_name("vec3")),
+        f("vec4",      vec![Type::Float, Type::Float, Type::Float, Type::Float], Type::from_name("vec4")),
+        f("color",     vec![Type::Float, Type::Float, Type::Float], Type::from_name("color")),
+        f("transform", vec![], Type::from_name("transform")),
+        f("mat3",      vec![], Type::from_name("mat3")),
+        f("mat4",      vec![], Type::from_name("mat4")),
         // Mat3 2D constructors (angle in degrees)
-        f("mat3_translate", vec![Type::Float, Type::Float], named("mat3")),
-        f("mat3_rotate",    vec![Type::Float],               named("mat3")),
-        f("mat3_scale",     vec![Type::Float, Type::Float], named("mat3")),
+        f("mat3_translate", vec![Type::Float, Type::Float], Type::from_name("mat3")),
+        f("mat3_rotate",    vec![Type::Float],               Type::from_name("mat3")),
+        f("mat3_scale",     vec![Type::Float, Type::Float], Type::from_name("mat3")),
         // Mat4 3D constructors (angles in degrees)
-        f("mat4_translate", vec![Type::Float, Type::Float, Type::Float], named("mat4")),
-        f("mat4_scale",     vec![Type::Float, Type::Float, Type::Float], named("mat4")),
-        f("mat4_rotate_x",  vec![Type::Float], named("mat4")),
-        f("mat4_rotate_y",  vec![Type::Float], named("mat4")),
-        f("mat4_rotate_z",  vec![Type::Float], named("mat4")),
+        f("mat4_translate", vec![Type::Float, Type::Float, Type::Float], Type::from_name("mat4")),
+        f("mat4_scale",     vec![Type::Float, Type::Float, Type::Float], Type::from_name("mat4")),
+        f("mat4_rotate_x",  vec![Type::Float], Type::from_name("mat4")),
+        f("mat4_rotate_y",  vec![Type::Float], Type::from_name("mat4")),
+        f("mat4_rotate_z",  vec![Type::Float], Type::from_name("mat4")),
 
         // Result helpers
         f("ok",    vec![Type::Float], Type::Res(Box::new(Type::Float))),
-        f("error", vec![named("string")], Type::Res(Box::new(Type::Float))),
+        f("error", vec![Type::from_name("string")], Type::Res(Box::new(Type::Float))),
 
         // Constants
         c("PI",          Type::Float),
         c("TAU",         Type::Float),
-        c("red",         named("color")),
-        c("green",       named("color")),
-        c("blue",        named("color")),
-        c("white",       named("color")),
-        c("black",       named("color")),
-        c("transparent", named("color")),
+        c("red",         Type::from_name("color")),
+        c("green",       Type::from_name("color")),
+        c("blue",        Type::from_name("color")),
+        c("white",       Type::from_name("color")),
+        c("black",       Type::from_name("color")),
+        c("transparent", Type::from_name("color")),
     ]
 }
 

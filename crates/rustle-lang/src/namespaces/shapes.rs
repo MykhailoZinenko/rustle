@@ -8,16 +8,8 @@ use super::{
     as_float, as_vec2, as_vertices, check_argc, render_mode_from_named,
 };
 
-fn named(s: &str) -> Type {
-    match s {
-        "vec2" => Type::Vec2, "circle" => Type::Circle, "rect" => Type::Rect,
-        "line" => Type::Line, "polygon" => Type::Polygon, "shape" => Type::Shape,
-        other => Type::Named(other.into()),
-    }
-}
-
 fn origin_const(name: &'static str) -> Export {
-    Export { name, kind: ExportKind::Constant, ty: named("origin") }
+    Export { name, kind: ExportKind::Constant, ty: Type::from_name("origin") }
 }
 
 pub struct ShapesNamespace;
@@ -28,15 +20,15 @@ impl NamespaceInfo for ShapesNamespace {
     fn exports(&self) -> Vec<Export> {
         vec![
             Export { name: "circle",  kind: ExportKind::Function,
-                ty: Type::Fn(vec![named("vec2"), Type::Float], Some(Box::new(named("circle")))) },
+                ty: Type::Fn(vec![Type::from_name("vec2"), Type::Float], Some(Box::new(Type::from_name("circle")))) },
             Export { name: "rect",    kind: ExportKind::Function,
-                ty: Type::Fn(vec![named("vec2"), named("vec2")], Some(Box::new(named("rect")))) },
+                ty: Type::Fn(vec![Type::from_name("vec2"), Type::from_name("vec2")], Some(Box::new(Type::from_name("rect")))) },
             Export { name: "line",    kind: ExportKind::Function,
-                ty: Type::Fn(vec![named("vec2"), named("vec2")], Some(Box::new(named("line")))) },
+                ty: Type::Fn(vec![Type::from_name("vec2"), Type::from_name("vec2")], Some(Box::new(Type::from_name("line")))) },
             Export { name: "polygon", kind: ExportKind::Function,
-                ty: Type::Fn(vec![Type::List(Box::new(named("vec2")))], Some(Box::new(named("polygon")))) },
+                ty: Type::Fn(vec![Type::List(Box::new(Type::from_name("vec2")))], Some(Box::new(Type::from_name("polygon")))) },
             Export { name: "shape",   kind: ExportKind::Function,
-                ty: Type::Fn(vec![Type::List(Box::new(named("vec2")))], Some(Box::new(named("polygon")))) },
+                ty: Type::Fn(vec![Type::List(Box::new(Type::from_name("vec2")))], Some(Box::new(Type::from_name("polygon")))) },
             // Origin constants
             origin_const("center"),
             origin_const("top_left"), origin_const("top_right"),

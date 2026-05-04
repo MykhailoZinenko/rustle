@@ -197,87 +197,47 @@ impl<'a> Interpreter<'a> {
     /// Returns a runtime error if `on_update` fails during execution.
     pub fn run_update(&mut self, state: State, input: &Input) -> Result<State, RuntimeError> {
         let Some(f) = self.fn_table.get("on_update").copied() else { return Ok(state); };
-
         self.run_top_level()?;
-
-        let state_rc = Rc::new(RefCell::new(state.0));
-        let state_val = Value::State(state_rc.clone());
         let input_val = Value::Input { dt: input.dt };
-
-        self.env.push_scope();
-        if let Some(p) = f.params.first()  { self.env.declare(&p.name, state_val); }
-        if let Some(p) = f.params.get(1)   { self.env.declare(&p.name, input_val); }
-
-        self.return_value = None;
-        for stmt in f.body.iter() {
-            match self.exec_stmt(stmt) {
-                Ok(()) => {}
-                Err(mut e) => {
-                    e.push_frame("on_update", 0);
-                    self.env.pop_scope();
-                    return Err(e);
-                }
-            }
-            if self.should_stop_block() { break; }
-        }
-        self.env.pop_scope();
-
-        let new_map = match self.return_value.take() {
-            Some(Value::State(rc)) => rc.borrow().clone(),
-            _ => state_rc.borrow().clone(),
-        };
-        Ok(State(new_map))
+        self.run_lifecycle("on_update", f, state, &[("input", input_val)])
     }
 
     /// # Errors
     /// Returns a runtime error if `on_init` fails during execution.
     pub fn run_init(&mut self, state: State) -> Result<State, RuntimeError> {
         let Some(f) = self.fn_table.get("on_init").copied() else { return Ok(state); };
-
-        let state_rc = Rc::new(RefCell::new(state.0));
-        let state_val = Value::State(state_rc.clone());
-
-        self.env.push_scope();
-        if let Some(p) = f.params.first() { self.env.declare(&p.name, state_val); }
-
-        self.return_value = None;
-        for stmt in f.body.iter() {
-            match self.exec_stmt(stmt) {
-                Ok(()) => {}
-                Err(mut e) => {
-                    e.push_frame("on_init", 0);
-                    self.env.pop_scope();
-                    return Err(e);
-                }
-            }
-            if self.should_stop_block() { break; }
-        }
-        self.env.pop_scope();
-
-        let new_map = match self.return_value.take() {
-            Some(Value::State(rc)) => rc.borrow().clone(),
-            _ => state_rc.borrow().clone(),
-        };
-        Ok(State(new_map))
+        self.run_lifecycle("on_init", f, state, &[])
     }
 
     /// # Errors
     /// Returns a runtime error if `on_exit` fails during execution.
     pub fn run_on_exit(&mut self, state: State) -> Result<State, RuntimeError> {
         let Some(f) = self.fn_table.get("on_exit").copied() else { return Ok(state); };
+        self.run_lifecycle("on_exit", f, state, &[])
+    }
 
+    fn run_lifecycle(
+        &mut self,
+        name: &str,
+        f: &ast::FnDef,
+        state: State,
+        extra_params: &[(&str, Value)],
+    ) -> Result<State, RuntimeError> {
         let state_rc = Rc::new(RefCell::new(state.0));
         let state_val = Value::State(state_rc.clone());
 
         self.env.push_scope();
         if let Some(p) = f.params.first() { self.env.declare(&p.name, state_val); }
+        for (i, (_param_name_override, val)) in extra_params.iter().enumerate() {
+            if let Some(p) = f.params.get(i + 1) { self.env.declare(&p.name, val.clone()); }
+        }
 
         self.return_value = None;
         for stmt in f.body.iter() {
             match self.exec_stmt(stmt) {
                 Ok(()) => {}
                 Err(mut e) => {
-                    e.push_frame("on_exit", 0);
+                    e.push_frame(name, 0);
                     self.env.pop_scope();
                     return Err(e);
                 }
@@ -477,7 +437,7 @@ impl<'a> Interpreter<'a> {
                         .ok_or_else(|| self.err(ErrorCode::R004, span.line, format!("unknown native fn: `{n}`")));
                 }
                 Value::Closure { params, body, captured } => {
-                    return self.call_closure(callee, &params, &body, &captured, &arg_vals, span.line);
+                    return self.call_body(callee, &params, &body, &captured, &arg_vals, span.line);
                 }
                 _ => {} // fall through — may be a user fn with same name
             }
@@ -490,61 +450,13 @@ impl<'a> Interpreter<'a> {
 
         // 3. User-defined functions (FnDef items)
         if let Some(f) = self.fn_table.get(callee).copied() {
-            if f.params.len() != arg_vals.len() {
-                return Err(self.err(ErrorCode::R008, span.line, format!(
-                    "`{}` expects {} args, got {}", f.name, f.params.len(), arg_vals.len()
-                )));
-            }
-            return self.call_fn(&f.name, &f.params, &f.body, &arg_vals, span.line);
+            return self.call_body(&f.name, &f.params, &f.body, &HashMap::new(), &arg_vals, span.line);
         }
 
         Err(self.err(ErrorCode::R002, span.line, format!("undefined function: `{callee}`")))
     }
 
-    fn call_fn(
-        &mut self,
-        name: &str,
-        params: &[Param],
-        body: &[Stmt],
-        arg_vals: &[Value],
-        call_line: usize,
-    ) -> Result<Value, RuntimeError> {
-        self.check_cancel(call_line)?;
-        if self.call_depth >= MAX_CALL_DEPTH {
-            return Err(self.err(ErrorCode::R011, call_line,
-                format!("maximum call depth ({MAX_CALL_DEPTH}) exceeded — possible infinite recursion")));
-        }
-        self.call_depth += 1;
-        self.env.push_scope();
-        for (p, v) in params.iter().zip(arg_vals) {
-            self.env.declare(&p.name, v.clone());
-        }
-        let saved = self.return_value.take();
-        let mut err_result = None;
-        for stmt in body {
-            match self.exec_stmt(stmt) {
-                Ok(()) => {}
-                Err(mut e) => {
-                    e.push_frame(name, call_line);
-                    err_result = Some(e);
-                    break;
-                }
-            }
-            if self.should_stop_block() { break; }
-        }
-        self.call_depth -= 1;
-        if let Some(e) = err_result {
-            self.return_value = saved;
-            self.env.pop_scope();
-            return Err(e);
-        }
-        let result = self.return_value.take().unwrap_or(Value::Float(0.0));
-        self.return_value = saved;
-        self.env.pop_scope();
-        Ok(result)
-    }
-
-    fn call_closure(
+    fn call_body(
         &mut self,
         name: &str,
         params: &[Param],
@@ -555,9 +467,10 @@ impl<'a> Interpreter<'a> {
     ) -> Result<Value, RuntimeError> {
         if params.len() != arg_vals.len() {
             return Err(self.err(ErrorCode::R008, call_line, format!(
-                "closure expects {} args, got {}", params.len(), arg_vals.len()
+                "`{name}` expects {} args, got {}", params.len(), arg_vals.len()
             )));
         }
+        self.check_cancel(call_line)?;
         if self.call_depth >= MAX_CALL_DEPTH {
             return Err(self.err(ErrorCode::R011, call_line,
                 format!("maximum call depth ({MAX_CALL_DEPTH}) exceeded — possible infinite recursion")));

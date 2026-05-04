@@ -5,10 +5,6 @@ use crate::Value;
 use std::collections::HashMap;
 use super::{Export, ExportKind, NamespaceInfo, NamespaceProvider, RuntimeState, as_float, check_argc};
 
-fn named(s: &str) -> Type {
-    match s { "render_mode" | "gl" => Type::Named(s.into()), _ => unreachable!("unexpected type: {s}") }
-}
-
 pub struct RenderNamespace;
 
 impl NamespaceInfo for RenderNamespace {
@@ -16,15 +12,15 @@ impl NamespaceInfo for RenderNamespace {
 
     fn exports(&self) -> Vec<Export> {
         vec![
-            Export { name: "sdf",     kind: ExportKind::Constant, ty: named("render_mode") },
-            Export { name: "fill",    kind: ExportKind::Constant, ty: named("render_mode") },
-            Export { name: "outline", kind: ExportKind::Constant, ty: named("render_mode") },
+            Export { name: "sdf",     kind: ExportKind::Constant, ty: Type::from_name("render_mode") },
+            Export { name: "fill",    kind: ExportKind::Constant, ty: Type::from_name("render_mode") },
+            Export { name: "outline", kind: ExportKind::Constant, ty: Type::from_name("render_mode") },
             Export {
                 name: "stroke",
                 kind: ExportKind::Function,
-                ty: Type::Fn(vec![Type::Float], Some(Box::new(named("render_mode")))),
+                ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::from_name("render_mode")))),
             },
-            Export { name: "gl", kind: ExportKind::Constant, ty: named("gl") },
+            Export { name: "gl", kind: ExportKind::Constant, ty: Type::from_name("gl") },
         ]
     }
 }

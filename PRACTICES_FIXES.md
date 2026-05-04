@@ -43,6 +43,27 @@ Added `impl std::error::Error for Error {}` and `impl std::error::Error for Runt
 ### 4. unwrap() in production code
 Replaced 5 `unwrap()` calls with `expect("reason")` in `symbols.rs`, `interpreter.rs`, `checker.rs`.
 
+### 15. Duplicate named() helpers
+Consolidated 5 separate `fn named()` helpers into `Type::from_name()` on the Type enum. Removed duplicated match logic from all namespace files.
+
+### 10. ErrorCode::as_str() dead abstraction
+Removed dead `is_error()` method (always returned true). Simplified `resolve()` partition to direct assignment.
+
+### 16. read_number silently swallows parse errors
+Changed `read_number` to return `Result<f64, Error>`. Unparseable numbers now produce L005 error instead of silently becoming 0.0.
+
+### 27. No #[non_exhaustive] on public enums
+Added `#[non_exhaustive]` to `ErrorCode`, `ShapeDesc`, `RenderMode`, `DrawCommand`, `Value`. Updated IDE crate matches with wildcard arms.
+
+### 33. Scope::symbols field visibility
+Already private — no change needed.
+
+### 6. Massive code duplication in lifecycle methods
+Extracted shared `run_lifecycle()` method. `run_update`, `run_init`, `run_on_exit` reduced from ~30 lines each to 2-3 lines each.
+
+### 29. call_fn and call_closure nearly identical
+Merged into single `call_body()` method. Callers pass `&HashMap::new()` for plain functions, actual captures for closures.
+
 ### 17. No rustfmt.toml configuration
 Created `rustfmt.toml` with `reorder_imports`, `imports_granularity = "Crate"`, `group_imports = "StdExternalCrate"`.
 

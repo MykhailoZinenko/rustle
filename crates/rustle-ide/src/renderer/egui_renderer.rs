@@ -53,6 +53,7 @@ impl EguiPreviewRenderer {
                     RenderMode::Outline | RenderMode::Stroke(_) => {
                         painter.add(egui::Shape::closed_line(points, stroke));
                     }
+                    _ => {}
                 }
             }
         }
@@ -117,6 +118,7 @@ fn tessellate_screen_px(data: &ShapeData) -> Vec<(f64, f64)> {
         }
         ShapeDesc::Line { from, to } => vec![(sx(from.0), sy(from.1)), (sx(to.0), sy(to.1))],
         ShapeDesc::Polygon(points) => points.iter().map(|(x, y)| (sx(*x), sy(*y))).collect(),
+        _ => vec![],
     };
 
     let x_sign: f64 = match m.origin {

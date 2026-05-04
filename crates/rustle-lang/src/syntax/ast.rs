@@ -419,3 +419,23 @@ pub enum Type {
     /// User-defined types (future structs/enums). Built-in types have their own variants above.
     Named(String),
 }
+
+impl Type {
+    /// Convert a string name to the corresponding built-in Type variant.
+    /// Falls back to `Type::Named(name)` for unknown names.
+    #[must_use]
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "string" => Self::String,
+            "vec2" => Self::Vec2, "vec3" => Self::Vec3, "vec4" => Self::Vec4,
+            "color" => Self::Color,
+            "mat3" => Self::Mat3, "mat4" => Self::Mat4,
+            "transform" => Self::Transform,
+            "shape" => Self::Shape,
+            "circle" => Self::Circle, "rect" => Self::Rect,
+            "line" => Self::Line, "polygon" => Self::Polygon,
+            "State" => Self::State, "Input" => Self::Input,
+            other => Self::Named(other.into()),
+        }
+    }
+}

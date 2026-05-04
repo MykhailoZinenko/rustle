@@ -8,11 +8,8 @@ use super::{Export, ExportKind, NamespaceInfo, NamespaceProvider, RuntimeState, 
 fn vfn(name: &'static str, params: Vec<Type>) -> Export {
     Export { name, kind: ExportKind::Function, ty: Type::Fn(params, None) }
 }
-fn named(s: &str) -> Type {
-    match s { "origin" => Type::Named(s.into()), _ => unreachable!("unexpected type: {s}") }
-}
 fn origin_const(name: &'static str) -> Export {
-    Export { name, kind: ExportKind::Constant, ty: named("origin") }
+    Export { name, kind: ExportKind::Constant, ty: Type::from_name("origin") }
 }
 
 pub struct CoordsNamespace;
@@ -23,7 +20,7 @@ impl NamespaceInfo for CoordsNamespace {
     fn exports(&self) -> Vec<Export> {
         vec![
             vfn("resolution", vec![Type::Float, Type::Float]),
-            vfn("origin",     vec![named("origin")]),
+            vfn("origin",     vec![Type::from_name("origin")]),
             origin_const("center"),
             origin_const("top_left"), origin_const("top_right"),
             origin_const("bottom_left"), origin_const("bottom_right"),

@@ -319,16 +319,7 @@ fn type_to_registry_key(ty: &Type) -> &'static str {
 }
 
 fn float() -> Type { Type::Float }
-fn named(s: &str) -> Type {
-    match s {
-        "string" => Type::String, "vec2" => Type::Vec2, "vec3" => Type::Vec3,
-        "vec4" => Type::Vec4, "color" => Type::Color, "mat3" => Type::Mat3,
-        "mat4" => Type::Mat4, "transform" => Type::Transform, "shape" => Type::Shape,
-        "circle" => Type::Circle, "rect" => Type::Rect, "line" => Type::Line,
-        "polygon" => Type::Polygon, "Input" => Type::Input,
-        other => Type::Named(other.into()),
-    }
-}
+fn named(s: &str) -> Type { Type::from_name(s) }
 
 fn expect_float(v: &Value, name: &str, line: usize) -> Result<f64, RuntimeError> {
     match v {
