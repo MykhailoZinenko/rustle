@@ -396,12 +396,27 @@ pub enum UnOp {
 pub enum Type {
     Float,
     Bool,
+    String,
     Unit,
+    Vec2,
+    Vec3,
+    Vec4,
+    Color,
+    Mat3,
+    Mat4,
+    Transform,
+    Shape,
+    Circle,
+    Rect,
+    Line,
+    Polygon,
+    State,
+    Input,
     Array(Box<Type>, usize),
     List(Box<Type>),
     Res(Box<Type>),
     Optional(Box<Type>),
     Fn(Vec<Type>, Option<Box<Type>>),
-    /// Any named type — built-in (`vec2`, `color`, `shape`) or user-defined (`State`, `Input`, future structs).
+    /// User-defined types (future structs/enums). Built-in types have their own variants above.
     Named(String),
 }

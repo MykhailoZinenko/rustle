@@ -26,44 +26,41 @@ impl<'a> LookupContext<'a> {
 
     /// Resolve the type of `obj.field`.
     pub fn resolve_field(&self, obj_ty: &Type, field: &str) -> Option<Type> {
-        // 1. Namespace member lookup.
+        // 1. Namespace member lookup (only for user-defined Named types used as namespace refs).
         if let Type::Named(n) = obj_ty {
             if let Some(ns) = self.registry.get(n) {
                 if let Some(export) = ns.get_export(field) {
                     return Some(export.ty);
                 }
             }
-            // State fields are dynamic — look them up from the parsed program.
-            if n == "State" {
-                if let Some(program) = self.program {
-                    if let Some(state) = &program.state {
-                        if let Some(f) = state.fields.iter().find(|f| f.name == field) {
-                            return f.ty.clone().or_else(|| infer_literal_type(&f.initializer));
-                        }
+        }
+        // 2. State fields are dynamic — look them up from the parsed program.
+        if *obj_ty == Type::State {
+            if let Some(program) = self.program {
+                if let Some(state) = &program.state {
+                    if let Some(f) = state.fields.iter().find(|f| f.name == field) {
+                        return f.ty.clone().or_else(|| infer_literal_type(&f.initializer));
                     }
                 }
-                return None;
             }
+            return None;
         }
-        // 2. TypeRegistry — handles all built-in types including generics.
+        // 3. TypeRegistry — handles all built-in types including generics.
         self.type_registry.resolve_field_type(obj_ty, field)
     }
 
     /// Return all field names available on the given type.
     pub fn field_names(&self, obj_ty: &Type) -> Vec<String> {
         let mut names = Vec::new();
-        if let Type::Named(n) = obj_ty {
-            // State fields are dynamic.
-            if n == "State" {
-                if let Some(program) = self.program {
-                    if let Some(state) = &program.state {
-                        for f in &state.fields {
-                            names.push(f.name.clone());
-                        }
+        if *obj_ty == Type::State {
+            if let Some(program) = self.program {
+                if let Some(state) = &program.state {
+                    for f in &state.fields {
+                        names.push(f.name.clone());
                     }
                 }
-                return names;
             }
+            return names;
         }
         for n in self.type_registry.field_names_for_type(obj_ty) {
             names.push(n.to_string());

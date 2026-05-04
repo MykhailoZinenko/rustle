@@ -57,20 +57,16 @@ use crate::syntax::ast::Type;
 /// Map a `Type` to its BinopRegistry key. Returns `None` for generic/compound types.
 pub fn type_to_key(ty: &Type) -> Option<&'static str> {
     match ty {
-        Type::Float                          => Some("float"),
-        Type::Bool                           => Some("bool"),
-        Type::Named(n) => match n.as_str() {
-            "vec2"      => Some("vec2"),
-            "vec3"      => Some("vec3"),
-            "vec4"      => Some("vec4"),
-            "color"     => Some("color"),
-            "mat3"      => Some("mat3"),
-            "mat4"      => Some("mat4"),
-            "transform" => Some("transform"),
-            "shape"     => Some("shape"),
-            _           => None,
-        },
-        Type::Optional(_) => None,
+        Type::Float     => Some("float"),
+        Type::Bool      => Some("bool"),
+        Type::Vec2      => Some("vec2"),
+        Type::Vec3      => Some("vec3"),
+        Type::Vec4      => Some("vec4"),
+        Type::Color     => Some("color"),
+        Type::Mat3      => Some("mat3"),
+        Type::Mat4      => Some("mat4"),
+        Type::Transform => Some("transform"),
+        Type::Shape     => Some("shape"),
         _ => None,
     }
 }
@@ -78,9 +74,17 @@ pub fn type_to_key(ty: &Type) -> Option<&'static str> {
 /// Map a BinopRegistry return-type key back to a `Type`.
 pub fn key_to_type(key: &str) -> Type {
     match key {
-        "float" => Type::Float,
-        "bool"  => Type::Bool,
-        n       => Type::Named(n.to_string()),
+        "float"     => Type::Float,
+        "bool"      => Type::Bool,
+        "vec2"      => Type::Vec2,
+        "vec3"      => Type::Vec3,
+        "vec4"      => Type::Vec4,
+        "color"     => Type::Color,
+        "mat3"      => Type::Mat3,
+        "mat4"      => Type::Mat4,
+        "transform" => Type::Transform,
+        "shape"     => Type::Shape,
+        n           => Type::Named(n.to_string()),
     }
 }
 

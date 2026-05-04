@@ -448,8 +448,8 @@ impl<'a> TypeResolver<'a> {
             Expr::Float(_, _)     => Ok(Type::Float),
             Expr::Bool(_, _)      => Ok(Type::Bool),
             Expr::None(_)         => Ok(Type::Optional(Box::new(Type::Unit))),
-            Expr::StringLit(_, _) => Ok(Type::Named("string".into())),
-            Expr::HexColor(_, _)  => Ok(Type::Named("color".into())),
+            Expr::StringLit(_, _) => Ok(Type::String),
+            Expr::HexColor(_, _)  => Ok(Type::Color),
 
             Expr::Ident(name, span) => self.lookup_type(name, span),
 
@@ -599,7 +599,7 @@ impl<'a> TypeResolver<'a> {
                 }
                 for t in transforms {
                     if let Ok(t_ty) = self.infer_expr(t) {
-                        if t_ty != Type::Named("transform".into()) {
+                        if t_ty != Type::Transform {
                             self.errors.push(Error::new(
                                 ErrorCode::S002, t.span().line, t.span().column,
                                 format!("`@` expects `transform`, found `{}`", type_name(&t_ty)),
@@ -691,7 +691,7 @@ impl<'a> TypeResolver<'a> {
                     )]);
                 }
                 for arg in args { self.infer_expr(arg).ok(); }
-                return Ok(Type::Named("color".into()));
+                return Ok(Type::Color);
             }
             _ => {}
         }
@@ -724,7 +724,7 @@ impl<'a> TypeResolver<'a> {
                 if has_arg_error {
                     return Err(vec![]); // Errors already extended; signal failure
                 }
-                Ok(ret_ty.map(|t| *t).unwrap_or(Type::Named("void".into())))
+                Ok(ret_ty.map(|t| *t).unwrap_or(Type::Unit))
             }
             other => Err(vec![Error::new(
                 ErrorCode::S010, span.line, span.column,
@@ -936,16 +936,12 @@ impl<'a> TypeResolver<'a> {
 
 /// True for types that support equality (usable in match).
 pub fn is_matchable(ty: &Type) -> bool {
-    match ty {
-        Type::Float | Type::Bool => true,
-        Type::Named(n) => matches!(n.as_str(), "string" | "vec2" | "vec3" | "vec4" | "color"),
-        _ => false,
-    }
+    matches!(ty, Type::Float | Type::Bool | Type::String | Type::Vec2 | Type::Vec3 | Type::Vec4 | Type::Color)
 }
 
 /// True for any type that can be pushed to `out <<` or used with `@`.
 pub fn is_drawable(ty: &Type) -> bool {
-    matches!(ty, Type::Named(n) if matches!(n.as_str(), "shape" | "circle" | "rect" | "line" | "polygon"))
+    matches!(ty, Type::Shape | Type::Circle | Type::Rect | Type::Line | Type::Polygon)
 }
 
 /// True if `actual` is compatible where `expected` is required.
@@ -953,7 +949,7 @@ pub fn is_drawable(ty: &Type) -> bool {
 pub fn types_compatible(expected: &Type, actual: &Type) -> bool {
     if expected == actual { return true; }
     // Concrete shape kind → erased shape
-    if expected == &Type::Named("shape".into()) && is_drawable(actual) { return true; }
+    if *expected == Type::Shape && is_drawable(actual) { return true; }
     // Optional compatibility rules
     if let Type::Optional(inner) = expected {
         // none literal (Optional(Unit)) fits any Optional(T)
@@ -973,11 +969,7 @@ pub fn types_compatible(expected: &Type, actual: &Type) -> bool {
 
 /// Returns whether a type can be used in a boolean context (conditions, logical ops).
 fn is_truthy_type(ty: &Type) -> bool {
-    match ty {
-        Type::Bool | Type::Float | Type::List(_) | Type::Optional(_) => true,
-        Type::Named(n) if n == "string" => true,
-        _ => false,
-    }
+    matches!(ty, Type::Bool | Type::Float | Type::String | Type::List(_) | Type::Optional(_))
 }
 
 // ─── Type display ─────────────────────────────────────────────────────────────
@@ -986,7 +978,22 @@ pub fn type_name(ty: &Type) -> String {
     match ty {
         Type::Float           => "float".into(),
         Type::Bool            => "bool".into(),
+        Type::String          => "string".into(),
         Type::Unit            => "()".into(),
+        Type::Vec2            => "vec2".into(),
+        Type::Vec3            => "vec3".into(),
+        Type::Vec4            => "vec4".into(),
+        Type::Color           => "color".into(),
+        Type::Mat3            => "mat3".into(),
+        Type::Mat4            => "mat4".into(),
+        Type::Transform       => "transform".into(),
+        Type::Shape           => "shape".into(),
+        Type::Circle          => "circle".into(),
+        Type::Rect            => "rect".into(),
+        Type::Line            => "line".into(),
+        Type::Polygon         => "polygon".into(),
+        Type::State           => "State".into(),
+        Type::Input           => "Input".into(),
         Type::Array(t, n)     => format!("array[{}, {n}]", type_name(t)),
         Type::List(t)         => format!("list[{}]", type_name(t)),
         Type::Res(t)          => format!("res<{}>", type_name(t)),

@@ -8,7 +8,9 @@ use super::{Export, ExportKind, NamespaceInfo, NamespaceProvider, RuntimeState, 
 fn vfn(name: &'static str, params: Vec<Type>) -> Export {
     Export { name, kind: ExportKind::Function, ty: Type::Fn(params, None) }
 }
-fn named(s: &str) -> Type { Type::Named(s.into()) }
+fn named(s: &str) -> Type {
+    match s { "origin" => Type::Named(s.into()), _ => unreachable!("unexpected type: {s}") }
+}
 fn origin_const(name: &'static str) -> Export {
     Export { name, kind: ExportKind::Constant, ty: named("origin") }
 }

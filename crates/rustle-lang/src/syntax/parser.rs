@@ -804,7 +804,24 @@ impl Parser {
                 Type::Fn(params, ret)
             }
 
-            TokenKind::Ident(name) => Type::Named(name),
+            TokenKind::Ident(name) => match name.as_str() {
+                "string"    => Type::String,
+                "vec2"      => Type::Vec2,
+                "vec3"      => Type::Vec3,
+                "vec4"      => Type::Vec4,
+                "color"     => Type::Color,
+                "mat3"      => Type::Mat3,
+                "mat4"      => Type::Mat4,
+                "transform" => Type::Transform,
+                "shape"     => Type::Shape,
+                "circle"    => Type::Circle,
+                "rect"      => Type::Rect,
+                "line"      => Type::Line,
+                "polygon"   => Type::Polygon,
+                "State"     => Type::State,
+                "Input"     => Type::Input,
+                _           => Type::Named(name),
+            },
 
             _ => return Err(self.error_at(&tok, "expected type")),
         };
@@ -1351,9 +1368,9 @@ mod tests {
         let p = parse("fn on_update(s: State, i: Input) -> State { return s }");
         match &p.items[0] {
             Item::FnDef(f) => {
-                assert_eq!(f.params[0].ty, Type::Named("State".to_string()));
-                assert_eq!(f.params[1].ty, Type::Named("Input".to_string()));
-                assert_eq!(f.return_ty, Some(Type::Named("State".to_string())));
+                assert_eq!(f.params[0].ty, Type::State);
+                assert_eq!(f.params[1].ty, Type::Input);
+                assert_eq!(f.return_ty, Some(Type::State));
             }
             _ => panic!("expected FnDef"),
         }
@@ -1364,9 +1381,9 @@ mod tests {
         let p = parse("fn f(p: vec2, c: color) -> shape { return p }");
         match &p.items[0] {
             Item::FnDef(f) => {
-                assert_eq!(f.params[0].ty, Type::Named("vec2".to_string()));
-                assert_eq!(f.params[1].ty, Type::Named("color".to_string()));
-                assert_eq!(f.return_ty, Some(Type::Named("shape".to_string())));
+                assert_eq!(f.params[0].ty, Type::Vec2);
+                assert_eq!(f.params[1].ty, Type::Color);
+                assert_eq!(f.return_ty, Some(Type::Shape));
             }
             _ => panic!("expected FnDef"),
         }
@@ -1612,7 +1629,7 @@ mod tests {
     fn cast_to_named_type() {
         let expr = parse_expr_src("x as color");
         match expr {
-            Expr::Cast { ty, .. } => assert_eq!(ty, Type::Named("color".into())),
+            Expr::Cast { ty, .. } => assert_eq!(ty, Type::Color),
             _ => panic!("expected Cast to Named"),
         }
     }
@@ -1722,7 +1739,7 @@ mod tests {
         let p = parse("let s: shape = circle(p, 0.2)");
         match &p.items[0] {
             Item::Stmt(Stmt::VarDecl(v)) => {
-                assert_eq!(v.ty, Some(Type::Named("shape".into())));
+                assert_eq!(v.ty, Some(Type::Shape));
             }
             _ => panic!("expected VarDecl"),
         }
@@ -1768,7 +1785,7 @@ mod tests {
         let p = parse("let r: res<shape> = try make_shape()");
         match &p.items[0] {
             Item::Stmt(Stmt::VarDecl(v)) => {
-                assert_eq!(v.ty, Some(Type::Res(Box::new(Type::Named("shape".into())))));
+                assert_eq!(v.ty, Some(Type::Res(Box::new(Type::Shape))));
             }
             _ => panic!("expected VarDecl"),
         }
@@ -1915,9 +1932,9 @@ fn on_update(s: State, input: Input) -> State {
         match &p.items[0] {
             Item::FnDef(f) => {
                 assert_eq!(f.name, "on_update");
-                assert_eq!(f.params[0].ty, Type::Named("State".into()));
-                assert_eq!(f.params[1].ty, Type::Named("Input".into()));
-                assert_eq!(f.return_ty, Some(Type::Named("State".into())));
+                assert_eq!(f.params[0].ty, Type::State);
+                assert_eq!(f.params[1].ty, Type::Input);
+                assert_eq!(f.return_ty, Some(Type::State));
                 assert_eq!(f.body.len(), 4);
             }
             _ => panic!("expected FnDef"),

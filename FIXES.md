@@ -4,6 +4,9 @@ Tracking file for issues resolved from LANGUAGE_REVIEW.md.
 
 ---
 
+### 4. Type::Named String Comparison is Fragile
+Added dedicated `Type` enum variants for all built-in types: `String`, `Vec2`, `Vec3`, `Vec4`, `Color`, `Mat3`, `Mat4`, `Transform`, `Shape`, `Circle`, `Rect`, `Line`, `Polygon`, `State`, `Input`. `Type::Named(String)` is now reserved exclusively for user-defined types (future structs/enums). Parser maps known identifiers in type position to proper variants. Updated all string comparisons (`n == "State"`, `n.as_str() == "shape"`, etc.) throughout checker, validator, lookup, registries, and namespaces. User-defined types can no longer collide with built-in type names.
+
 ### 3. No break/continue Statements
 Added `break` and `continue` as keywords, AST nodes (`Stmt::Break`, `Stmt::Continue`), parser rules, and interpreter control flow. Validator checks they only appear inside loops (while/for/foreach). In loops: `break` clears its flag and exits; `continue` clears its flag and skips to next iteration. Both propagate through if/match blocks correctly via `should_stop_block()`. Added 10 new tests (5 resolver + 5 runtime).
 

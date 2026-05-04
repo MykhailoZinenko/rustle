@@ -105,11 +105,11 @@ impl TypeRegistry {
     pub fn field_names_for_type(&self, ty: &Type) -> Vec<&str> {
         match ty {
             Type::Res(_) => vec!["ok", "value", "error"],
-            Type::Named(n) => self.field_names_by_name(n.as_str()),
-            Type::Float    => self.field_names_by_name("float"),
-            Type::Bool     => self.field_names_by_name("bool"),
             Type::List(_)  => self.field_names_by_name("list"),
-            _ => vec![],
+            _ => {
+                let key = type_to_registry_key(ty);
+                if key.is_empty() { vec![] } else { self.field_names_by_name(key) }
+            }
         }
     }
 
@@ -118,10 +118,10 @@ impl TypeRegistry {
         match ty {
             Type::List(_)     => vec!["push", "pop", "len"],
             Type::Array(_, _) => vec!["len"],
-            Type::Named(n) => self.method_names_by_name(n.as_str()),
-            Type::Float    => self.method_names_by_name("float"),
-            Type::Bool     => self.method_names_by_name("bool"),
-            _ => vec![],
+            _ => {
+                let key = type_to_registry_key(ty);
+                if key.is_empty() { vec![] } else { self.method_names_by_name(key) }
+            }
         }
     }
 
@@ -131,22 +131,18 @@ impl TypeRegistry {
     /// `res<T>` (where `.value` returns `T`) and `list<T>` (where `.len` returns float).
     pub fn resolve_field_type(&self, ty: &Type, field: &str) -> Option<Type> {
         match ty {
-            // res<T>: .value returns T — the static descriptor only has a Float placeholder.
             Type::Res(inner) => match field {
                 "ok"    => Some(Type::Bool),
                 "value" => Some(*inner.clone()),
-                "error" => Some(Type::Named("string".into())),
+                "error" => Some(Type::String),
                 _ => None,
             },
-            // Named types and primitives — delegate to the static descriptor table.
-            Type::Named(n) => self.field_type(n.as_str(), field),
-            Type::Float    => self.field_type("float", field),
-            Type::Bool     => self.field_type("bool", field),
-            // list<T> only has .len; everything else returns None.
             Type::List(_)  => self.field_type("list", field),
-            // Optional types have no fields — must unwrap with ?? first.
             Type::Optional(_) => None,
-            _ => None,
+            _ => {
+                let key = type_to_registry_key(ty);
+                if key.is_empty() { None } else { self.field_type(key, field) }
+            }
         }
     }
 
@@ -156,25 +152,21 @@ impl TypeRegistry {
         -> Option<(Vec<Type>, Option<Type>)>
     {
         match ty {
-            // list<T>: pop() returns T, push(T) accepts T — dynamic, not in static table.
             Type::List(elem) => match method {
                 "push" => Some((vec![*elem.clone()], None)),
                 "pop"  => Some((vec![], Some(*elem.clone()))),
                 "len"  => Some((vec![], Some(Type::Float))),
                 _ => None,
             },
-            // array<T, N>: fixed size — only len and index read, no push/pop.
             Type::Array(_elem, _) => match method {
                 "len" => Some((vec![], Some(Type::Float))),
                 _ => None,
             },
-            // Optional types have no methods — must unwrap with ?? first.
             Type::Optional(_) => None,
-            // Named types and primitives — delegate to static descriptor table.
-            Type::Named(n) => self.method_signature(n.as_str(), method),
-            Type::Float    => self.method_signature("float", method),
-            Type::Bool     => self.method_signature("bool", method),
-            _ => None,
+            _ => {
+                let key = type_to_registry_key(ty);
+                if key.is_empty() { None } else { self.method_signature(key, method) }
+            }
         }
     }
 
@@ -290,8 +282,40 @@ pub fn value_type_key(v: &Value) -> &'static str {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+fn type_to_registry_key(ty: &Type) -> &'static str {
+    match ty {
+        Type::Float     => "float",
+        Type::Bool      => "bool",
+        Type::String    => "string",
+        Type::Vec2      => "vec2",
+        Type::Vec3      => "vec3",
+        Type::Vec4      => "vec4",
+        Type::Color     => "color",
+        Type::Mat3      => "mat3",
+        Type::Mat4      => "mat4",
+        Type::Transform => "transform",
+        Type::Shape     => "shape",
+        Type::Circle    => "circle",
+        Type::Rect      => "rect",
+        Type::Line      => "line",
+        Type::Polygon   => "polygon",
+        Type::Input     => "Input",
+        Type::List(_)   => "list",
+        _ => "",
+    }
+}
+
 fn float() -> Type { Type::Float }
-fn named(s: &str) -> Type { Type::Named(s.into()) }
+fn named(s: &str) -> Type {
+    match s {
+        "string" => Type::String, "vec2" => Type::Vec2, "vec3" => Type::Vec3,
+        "vec4" => Type::Vec4, "color" => Type::Color, "mat3" => Type::Mat3,
+        "mat4" => Type::Mat4, "transform" => Type::Transform, "shape" => Type::Shape,
+        "circle" => Type::Circle, "rect" => Type::Rect, "line" => Type::Line,
+        "polygon" => Type::Polygon, "Input" => Type::Input,
+        other => Type::Named(other.into()),
+    }
+}
 
 fn expect_float(v: &Value, name: &str, line: usize) -> Result<f64, RuntimeError> {
     match v {

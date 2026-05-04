@@ -22,7 +22,14 @@ fn c(name: &'static str, ty: Type) -> Export {
     Export { name, kind: ExportKind::Constant, ty }
 }
 
-fn named(s: &str) -> Type { Type::Named(s.into()) }
+fn named(s: &str) -> Type {
+    match s {
+        "string" => Type::String, "vec2" => Type::Vec2, "vec3" => Type::Vec3,
+        "vec4" => Type::Vec4, "color" => Type::Color, "mat3" => Type::Mat3,
+        "mat4" => Type::Mat4, "transform" => Type::Transform, "shape" => Type::Shape,
+        other => Type::Named(other.into()),
+    }
+}
 
 // ─── Type exports (used by resolver/collector) ─────────────────────────────
 

@@ -5,7 +5,9 @@ use crate::Value;
 use std::collections::HashMap;
 use super::{Export, ExportKind, NamespaceInfo, NamespaceProvider, RuntimeState, as_float, check_argc};
 
-fn named(s: &str) -> Type { Type::Named(s.into()) }
+fn named(s: &str) -> Type {
+    match s { "render_mode" | "gl" => Type::Named(s.into()), _ => unreachable!("unexpected type: {s}") }
+}
 
 pub struct RenderNamespace;
 

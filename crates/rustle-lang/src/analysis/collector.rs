@@ -187,8 +187,8 @@ pub fn infer_literal_type(expr: &Expr) -> Option<Type> {
     match expr {
         Expr::Float(_, _)     => Some(Type::Float),
         Expr::Bool(_, _)      => Some(Type::Bool),
-        Expr::StringLit(_, _) => Some(Type::Named("string".into())),
-        Expr::HexColor(_, _)  => Some(Type::Named("color".into())),
+        Expr::StringLit(_, _) => Some(Type::String),
+        Expr::HexColor(_, _)  => Some(Type::Color),
         Expr::None(_)         => None, // can't infer inner type from bare none
         Expr::List(items, _)  => {
             // Infer element type from the first item

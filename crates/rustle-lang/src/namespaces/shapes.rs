@@ -8,7 +8,13 @@ use super::{
     as_float, as_vec2, as_vertices, check_argc, render_mode_from_named,
 };
 
-fn named(s: &str) -> Type { Type::Named(s.into()) }
+fn named(s: &str) -> Type {
+    match s {
+        "vec2" => Type::Vec2, "circle" => Type::Circle, "rect" => Type::Rect,
+        "line" => Type::Line, "polygon" => Type::Polygon, "shape" => Type::Shape,
+        other => Type::Named(other.into()),
+    }
+}
 
 fn origin_const(name: &'static str) -> Export {
     Export { name, kind: ExportKind::Constant, ty: named("origin") }

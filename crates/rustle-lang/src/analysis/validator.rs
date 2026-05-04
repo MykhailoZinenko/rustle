@@ -37,9 +37,9 @@ impl<'a> Validator<'a> {
         });
         let Some(f) = f else { return };
         let ok = f.params.len() == 2
-            && matches!(&f.params[0].ty, Type::Named(n) if n == "State")
-            && matches!(&f.params[1].ty, Type::Named(n) if n == "Input")
-            && matches!(&f.return_ty, Some(Type::Named(n)) if n == "State");
+            && f.params[0].ty == Type::State
+            && f.params[1].ty == Type::Input
+            && f.return_ty.as_ref() == Some(&Type::State);
         if !ok {
             self.errors.push(Error::new(
                 ErrorCode::S012, f.span.line, f.span.column,
@@ -55,8 +55,8 @@ impl<'a> Validator<'a> {
         });
         let Some(f) = f else { return };
         let ok = f.params.len() == 1
-            && matches!(&f.params[0].ty, Type::Named(n) if n == "State")
-            && matches!(&f.return_ty, Some(Type::Named(n)) if n == "State");
+            && f.params[0].ty == Type::State
+            && f.return_ty.as_ref() == Some(&Type::State);
         if !ok {
             self.errors.push(Error::new(
                 ErrorCode::S012, f.span.line, f.span.column,
@@ -72,8 +72,8 @@ impl<'a> Validator<'a> {
         });
         let Some(f) = f else { return };
         let ok = f.params.len() == 1
-            && matches!(&f.params[0].ty, Type::Named(n) if n == "State")
-            && matches!(&f.return_ty, Some(Type::Named(n)) if n == "State");
+            && f.params[0].ty == Type::State
+            && f.return_ty.as_ref() == Some(&Type::State);
         if !ok {
             self.errors.push(Error::new(
                 ErrorCode::S012, f.span.line, f.span.column,
