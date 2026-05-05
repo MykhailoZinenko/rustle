@@ -2795,3 +2795,313 @@ fn struct_returned_from_function() {
     "#);
     assert_eq!(f(&rt, "v"), 15.0);
 }
+
+// ─── Struct: Construction edge cases ─────────────────────────────────────────
+
+#[test]
+fn struct_empty_construction() {
+    // All fields have defaults — empty {} is valid
+    let rt = run(r#"
+        struct Config {
+            let width: float = 800.0
+            let height: float = 600.0
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let c: Config = Config {}
+            s.v = c.width + c.height
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 1400.0);
+}
+
+#[test]
+fn struct_field_order_independent() {
+    // Fields can be provided in any order
+    let rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let p: Point = Point { y: 20.0, x: 10.0 }
+            s.v = p.x * 100.0 + p.y
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 1020.0);
+}
+
+#[test]
+fn struct_field_expression_default() {
+    // Default is an expression, not just a literal
+    let rt = run(r#"
+        struct Config {
+            let half: float = 100.0 / 2.0
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let c: Config = Config {}
+            s.v = c.half
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 50.0);
+}
+
+// ─── Struct: Method edge cases ───────────────────────────────────────────────
+
+#[test]
+fn struct_method_no_return() {
+    // Method with no return value (void)
+    let rt = run(r#"
+        struct Counter {
+            let count: float = 0.0
+            +fn reset() {
+                this.count = 0.0
+            }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let c: Counter = Counter { count: 99.0 }
+            c.reset()
+            s.v = c.count
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 0.0);
+}
+
+#[test]
+fn struct_method_multiple_params() {
+    let rt = run(r#"
+        struct Rect {
+            let w: float
+            let h: float
+            +fn scale(sx: float, sy: float) -> Rect {
+                return Rect { w: this.w * sx, h: this.h * sy }
+            }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let r: Rect = Rect { w: 10.0, h: 5.0 }
+            let r2: Rect = r.scale(2.0, 3.0)
+            s.v = r2.w + r2.h
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 35.0);
+}
+
+#[test]
+fn struct_method_returns_bool() {
+    let rt = run(r#"
+        struct Box {
+            let w: float
+            let h: float
+            +fn is_square() -> bool {
+                return this.w == this.h
+            }
+        }
+        state { let v: bool = false }
+        fn on_init(s: State) -> State {
+            let b: Box = Box { w: 5.0, h: 5.0 }
+            s.v = b.is_square()
+            return s
+        }
+    "#);
+    assert!(b(&rt, "v"));
+}
+
+#[test]
+fn struct_chained_method_calls() {
+    let rt = run(r#"
+        struct Builder {
+            let val: float = 0.0
+            +fn add(n: float) -> Builder {
+                return Builder { val: this.val + n }
+            }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let b: Builder = Builder {}
+            let result: Builder = b.add(1.0).add(2.0).add(3.0)
+            s.v = result.val
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 6.0);
+}
+
+// ─── Struct: Reference semantics ─────────────────────────────────────────────
+
+#[test]
+fn struct_reference_through_function() {
+    // Passing struct to a function — function mutates via reference
+    let rt = run(r#"
+        struct Point {
+            let x: float = 0.0
+            let y: float = 0.0
+        }
+        fn move_point(p: Point, dx: float, dy: float) {
+            p.x = p.x + dx
+            p.y = p.y + dy
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let p: Point = Point { x: 1.0, y: 2.0 }
+            move_point(p, 10.0, 20.0)
+            s.v = p.x + p.y
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 33.0);
+}
+
+#[test]
+fn struct_multiple_references() {
+    let rt = run(r#"
+        struct Data {
+            let val: float = 0.0
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let a: Data = Data { val: 1.0 }
+            let b: Data = a
+            let c: Data = b
+            c.val = 42.0
+            s.v = a.val
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 42.0);  // all point to same data
+}
+
+// ─── Struct: Various field types ─────────────────────────────────────────────
+
+#[test]
+fn struct_string_field() {
+    let rt = run(r#"
+        struct Named {
+            let name: string
+            let value: float
+        }
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            let n: Named = Named { name: "hello", value: 42.0 }
+            s.v = n.name
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "hello");
+}
+
+#[test]
+fn struct_bool_field() {
+    let rt = run(r#"
+        struct Flags {
+            let active: bool = true
+            let visible: bool = false
+        }
+        state { let v: bool = false }
+        fn on_init(s: State) -> State {
+            let f: Flags = Flags {}
+            s.v = f.active
+            return s
+        }
+    "#);
+    assert!(b(&rt, "v"));
+}
+
+#[test]
+fn struct_list_field() {
+    let rt = run(r#"
+        struct Container {
+            let items: list[float]
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let c: Container = Container { items: [1.0, 2.0, 3.0] }
+            c.items.push(4.0)
+            s.v = c.items.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 4.0);
+}
+
+// ─── Struct: Control flow inside methods ─────────────────────────────────────
+
+#[test]
+fn struct_method_with_if() {
+    let rt = run(r#"
+        struct Abs {
+            let val: float
+            +fn absolute() -> float {
+                if this.val < 0.0 {
+                    return 0.0 - this.val
+                }
+                return this.val
+            }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let a: Abs = Abs { val: -5.0 }
+            s.v = a.absolute()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 5.0);
+}
+
+#[test]
+fn struct_method_with_loop() {
+    let rt = run(r#"
+        struct Summer {
+            let items: list[float]
+            +fn total() -> float {
+                let sum: float = 0.0
+                foreach v: float in this.items {
+                    sum = sum + v
+                }
+                return sum
+            }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let s2: Summer = Summer { items: [1.0, 2.0, 3.0, 4.0] }
+            s.v = s2.total()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 10.0);
+}
+
+// ─── Struct: Persists in state across ticks ──────────────────────────────────
+
+#[test]
+fn struct_persists_in_state() {
+    let mut rt = run(r#"
+        struct Counter {
+            let n: float = 0.0
+            +fn inc() { this.n = this.n + 1.0 }
+        }
+        state { let c: Counter = Counter {} }
+        fn on_update(s: State, input: Input) -> State {
+            s.c.inc()
+            return s
+        }
+    "#);
+    tick(&mut rt);
+    tick(&mut rt);
+    tick(&mut rt);
+    match rt.state().0.get("c") {
+        Some(Value::Object(rc)) => {
+            let val = rc.borrow().get_field("n").unwrap().clone();
+            match val { Value::Float(x) => assert_eq!(x, 3.0), other => panic!("got {other:?}") }
+        }
+        other => panic!("expected Object, got {other:?}"),
+    }
+}

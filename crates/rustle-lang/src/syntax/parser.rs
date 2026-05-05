@@ -626,7 +626,13 @@ impl Parser {
         let mut left = self.parse_multiplication()?;
         loop {
             let op = match self.peek_kind() {
-                TokenKind::Plus  => BinOp::Add,
+                TokenKind::Plus  => {
+                    // Don't treat `+fn` as binary addition — it's a method visibility prefix
+                    if self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1].kind == TokenKind::Fn {
+                        break;
+                    }
+                    BinOp::Add
+                }
                 TokenKind::Minus => BinOp::Sub,
                 _ => break,
             };

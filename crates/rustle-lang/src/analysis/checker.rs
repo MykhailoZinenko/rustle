@@ -1038,8 +1038,8 @@ impl<'a> TypeResolver<'a> {
         span: &Span,
     ) -> Option<Type> {
         let member_ty = self.lookup.get_method_type(obj_ty, method)?;
-        if let Type::Fn(param_types, ret_ty) = &member_ty
-            && args.len() == param_types.len() {
+        if let Type::Fn(param_types, ret_ty) = &member_ty {
+            if args.len() == param_types.len() {
                 for (arg, expected) in args.iter().zip(param_types.iter()) {
                     match self.infer_expr(arg) {
                         Ok(actual) => self.expect_type(expected, &actual, span),
@@ -1050,6 +1050,21 @@ impl<'a> TypeResolver<'a> {
                 // "method found, void return" from "method not found".
                 return Some(ret_ty.clone().map_or(Type::Unit, |t| *t));
             }
+            // Wrong arg count
+            for arg in args {
+                self.infer_expr(arg).ok();
+            }
+            self.errors.push(Error::new(
+                ErrorCode::S007, span.line, span.column,
+                format!(
+                    "`{method}` expects {} argument{}, got {}",
+                    param_types.len(),
+                    if param_types.len() == 1 { "" } else { "s" },
+                    args.len(),
+                ),
+            ));
+            return Some(ret_ty.clone().map_or(Type::Unit, |t| *t));
+        }
         for arg in args {
             self.infer_expr(arg).ok();
         }

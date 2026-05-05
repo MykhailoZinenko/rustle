@@ -1599,3 +1599,65 @@ fn struct_type_infer_from_default() {
     "#;
     assert!(compile(src).is_ok());
 }
+
+#[test]
+fn struct_field_default_before_method() {
+    let src = r#"
+        struct Point {
+            let x: float = 0.0
+            let y: float = 0.0
+            +fn sum() -> float { return this.x + this.y }
+        }
+        let p: Point = Point { x: 3.0, y: 4.0 }
+    "#;
+    assert!(compile(src).is_ok());
+}
+
+#[test]
+fn struct_field_type_mismatch() {
+    let errs = err(r#"
+        struct Point {
+            let x: float
+            let y: float
+        }
+        let p: Point = Point { x: "hello", y: 2.0 }
+    "#);
+    assert!(has(&errs, ErrorCode::S002));
+}
+
+#[test]
+fn struct_undefined() {
+    let errs = err(r#"
+        let p: Foo = Foo { x: 1.0 }
+    "#);
+    assert!(has(&errs, ErrorCode::S001));
+}
+
+#[test]
+fn struct_method_wrong_arg_count() {
+    let errs = err(r#"
+        struct Point {
+            let x: float
+            +fn add(dx: float) -> float { return this.x + dx }
+        }
+        let p: Point = Point { x: 1.0 }
+        let v: float = p.add(1.0, 2.0)
+    "#);
+    assert!(has(&errs, ErrorCode::S007));
+}
+
+#[test]
+fn struct_assign_wrong_type() {
+    let errs = err(r#"
+        struct Point {
+            let x: float
+            let y: float
+        }
+        struct Rect {
+            let w: float
+            let h: float
+        }
+        let p: Point = Rect { w: 1.0, h: 2.0 }
+    "#);
+    assert!(has(&errs, ErrorCode::S002));
+}
