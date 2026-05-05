@@ -75,7 +75,7 @@ impl NamespaceProvider for ShapesNamespace {
                 check_argc(name, args, 1, line)?;
                 let verts = as_vertices(&args[0], line)?;
                 if verts.len() < 3 {
-                    return Err(RuntimeError::new(ErrorCode::R008, line, format!(
+                    return Err(RuntimeError::new(ErrorCode::R008, line, 0, format!(
                         "polygon requires at least 3 vertices, got {}", verts.len()
                     )));
                 }

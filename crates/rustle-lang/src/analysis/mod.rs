@@ -44,7 +44,7 @@ pub fn resolve(
     all_errors.extend(type_errors);
 
     // ── Pass 3: semantic validation ───────────────────────────────────────────
-    let validate_errors = Validator::new(&table).validate(program);
+    let validate_errors = Validator::new().validate(program);
     all_errors.extend(validate_errors);
 
     // ─────────────────────────────────────────────────────────────────────────

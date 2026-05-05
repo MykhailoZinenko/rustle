@@ -67,7 +67,7 @@ pub fn m3_det(m: &M3) -> f64 {
 pub fn m3_inverse(m: &M3, line: usize) -> Result<M3, RuntimeError> {
     let det = m3_det(m);
     if det.abs() < 1e-15 {
-        return Err(RuntimeError::new(ErrorCode::R011, line, "mat3 is singular (not invertible)"));
+        return Err(RuntimeError::new(ErrorCode::R011, line, 0, "mat3 is singular (not invertible)"));
     }
     let d = 1.0 / det;
     Ok([
@@ -164,7 +164,7 @@ pub fn m4_det(m: &M4) -> f64 {
 pub fn m4_inverse(m: &M4, line: usize) -> Result<M4, RuntimeError> {
     let det = m4_det(m);
     if det.abs() < 1e-15 {
-        return Err(RuntimeError::new(ErrorCode::R011, line, "mat4 is singular (not invertible)"));
+        return Err(RuntimeError::new(ErrorCode::R011, line, 0, "mat4 is singular (not invertible)"));
     }
     let d = 1.0 / det;
     let mut inv = [0.0f64; 16];

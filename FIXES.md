@@ -4,6 +4,33 @@ Tracking file for issues resolved from LANGUAGE_REVIEW.md.
 
 ---
 
+### 7. `error` Function Returns Hardcoded `res<float>`
+`error()` now infers inner type from the current function's return type. Falls back to `res<()>` when no context. Added `res<()>` compatibility rule so error() works in any res<T> context.
+
+### 8. `values_equal` Uses IEEE Float Equality
+Changed float comparison to bitwise (`to_bits()`) — NaN == NaN is true, +0.0 != -0.0. Applied to Float, Vec2, Vec3, Vec4, Color comparisons.
+
+### 10. Empty List Type Inference Is Wrong
+Empty lists now infer as `list[()]` instead of `list[float]`. Added compatibility rule: `list[()]` assignable to any `list[T]`.
+
+### 15. Duplicate `as_float` Helper Functions
+Removed duplicate `as_float` from interpreter.rs, imported from `namespaces::mod`.
+
+### 17. Validator's Const Check is Redundant
+Removed `check_const_reassignment` and related methods from validator. Checker (Pass 2) already handles this.
+
+### 23. `safe_index` Truncates Floats Silently
+Added `f.fract() != 0.0` check — non-integer indices now produce R006 error.
+
+### 31. `RuntimeError` Doesn't Include Column
+Added `column: usize` field to `RuntimeError`. Display format now shows `line:column`. All ~50 call sites updated.
+
+### 21. `#` Ambiguity: Comment vs Hex Color
+Removed `#` as comment marker. `#` now only introduces hex colors; bare `#` produces L001 error.
+
+### 22. No Multiline String Support
+Strings can now span multiple lines. Removed newline termination from `read_string`.
+
 ### 26. `for` Step Must Be an Assignment Statement
 Parser now accepts expression statements (like `i++`, `i--`, function calls) in the `for` loop step clause, not just assignments. Falls back to `parse_expr()` when `is_path_assign()` returns false.
 

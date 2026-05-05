@@ -50,12 +50,12 @@ impl NamespaceProvider for CoordsNamespace {
                 check_argc(name, args, 1, line)?;
                 let s = match &args[0] {
                     Value::Str(s) => s.clone(),
-                    other => return Err(RuntimeError::new(ErrorCode::R001, line, format!(
+                    other => return Err(RuntimeError::new(ErrorCode::R001, line, 0, format!(
                         "`origin` expects an origin constant, got `{other:?}`"
                     ))),
                 };
                 state.coord_meta.origin = s.parse::<Origin>()
-                    .map_err(|e| RuntimeError::new(ErrorCode::R011, line, e))?;
+                    .map_err(|e| RuntimeError::new(ErrorCode::R011, line, 0, e))?;
                 Ok(Some(Value::Float(0.0)))
             }
             _ => Ok(None),

@@ -7,7 +7,7 @@ use crate::types::draw::DrawCommand;
 use crate::types::binop_registry::BinopRegistry;
 use crate::types::registry::TypeRegistry;
 use crate::error::{ErrorCode, RuntimeError};
-use crate::namespaces::{value_type_name, NamespaceRegistry, RuntimeState};
+use crate::namespaces::{as_float, value_type_name, NamespaceRegistry, RuntimeState};
 use crate::{Input, State, Value};
 use crate::runtime::value::ClosureData;
 use std::cell::RefCell;
@@ -147,7 +147,7 @@ impl<'a> Interpreter<'a> {
 
     #[expect(clippy::unused_self, reason = "kept as method for convenient call site syntax")]
     fn err(&self, code: ErrorCode, line: usize, msg: impl Into<String>) -> RuntimeError {
-        RuntimeError::new(code, line, msg)
+        RuntimeError::new(code, line, 0, msg)
     }
 
     // ─── Imports ──────────────────────────────────────────────────────────────
@@ -942,12 +942,12 @@ fn eval_field(types: &TypeRegistry, obj: &Value, field: &str, line: usize) -> Re
             .ok_or_else(|| {
                 let mut keys: Vec<&str> = guard.keys().map(std::string::String::as_str).collect();
                 keys.sort_unstable();
-                RuntimeError::new(ErrorCode::R003, line,
+                RuntimeError::new(ErrorCode::R003, line, 0,
                     format!("state has no field `{field}` (available: {})", keys.join(", ")))
             });
     }
     types.get_field(obj, field)
-        .ok_or_else(|| RuntimeError::new(ErrorCode::R003, line, format!(
+        .ok_or_else(|| RuntimeError::new(ErrorCode::R003, line, 0, format!(
             "`{}` has no field `{field}`", value_type_name(obj)
         )))
 }
@@ -971,7 +971,7 @@ fn assign_state_path(
             .ok_or_else(|| {
                 let mut keys: Vec<&str> = guard.keys().map(std::string::String::as_str).collect();
                 keys.sort_unstable();
-                RuntimeError::new(ErrorCode::R003, line,
+                RuntimeError::new(ErrorCode::R003, line, 0,
                     format!("state has no field `{field}` (available: {})", keys.join(", ")))
             })?;
         drop(guard);
@@ -989,7 +989,7 @@ fn set_field_path(types: &TypeRegistry, obj: Value, path: &[String], val: Value,
     let new_val = if path.len() > 1 {
         // Nested: get the sub-value, recurse, then write it back.
         let sub = types.get_field(&obj, field)
-            .ok_or_else(|| RuntimeError::new(ErrorCode::R003, line, format!(
+            .ok_or_else(|| RuntimeError::new(ErrorCode::R003, line, 0, format!(
                 "`{}` has no field `{field}`", value_type_name(&obj)
             )))?;
         set_field_path(types, sub, &path[1..], val, line)?
@@ -997,7 +997,7 @@ fn set_field_path(types: &TypeRegistry, obj: Value, path: &[String], val: Value,
         val
     };
     types.set_field(obj, field, new_val)
-        .ok_or_else(|| RuntimeError::new(ErrorCode::R003, line, format!(
+        .ok_or_else(|| RuntimeError::new(ErrorCode::R003, line, 0, format!(
             "cannot assign field `{field}` (read-only or unknown)"
         )))
 }
@@ -1006,12 +1006,12 @@ fn set_field_path(types: &TypeRegistry, obj: Value, path: &[String], val: Value,
 
 fn apply_transform(shape: Value, tf: Value, line: usize) -> Result<Value, RuntimeError> {
     let Value::Transform(td) = tf else {
-        return Err(RuntimeError::new(ErrorCode::R001, line, format!(
+        return Err(RuntimeError::new(ErrorCode::R001, line, 0, format!(
             "@  requires transform, got `{}`", value_type_name(&tf)
         )));
     };
     let Value::Shape(mut data) = shape else {
-        return Err(RuntimeError::new(ErrorCode::R001, line, format!(
+        return Err(RuntimeError::new(ErrorCode::R001, line, 0, format!(
             "@ can only be applied to shape, got `{}`", value_type_name(&shape)
         )));
     };
@@ -1028,7 +1028,7 @@ fn eval_binop(op: &BinOp, l: Value, r: Value, line: usize, binops: &BinopRegistr
 
     // All other operators go through the registry
     binops.eval(op, l, r, line).unwrap_or_else(|| {
-        Err(RuntimeError::new(ErrorCode::R011, line, format!(
+        Err(RuntimeError::new(ErrorCode::R011, line, 0, format!(
             "operator `{}` not supported for these types",
             match op {
                 BinOp::Add  => "+",  BinOp::Sub  => "-",
@@ -1049,7 +1049,7 @@ fn eval_unop(op: &UnOp, v: Value, line: usize) -> Result<Value, RuntimeError> {
         UnOp::Neg => match v {
             Value::Float(x)   => Ok(Value::Float(-x)),
             Value::Vec2(x, y) => Ok(Value::Vec2(-x, -y)),
-            other => Err(RuntimeError::new(ErrorCode::R011, line, format!(
+            other => Err(RuntimeError::new(ErrorCode::R011, line, 0, format!(
                 "unary `-` not supported on `{}`", value_type_name(&other)
             ))),
         },
@@ -1058,15 +1058,6 @@ fn eval_unop(op: &UnOp, v: Value, line: usize) -> Result<Value, RuntimeError> {
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
-
-fn as_float(v: &Value, line: usize) -> Result<f64, RuntimeError> {
-    match v {
-        Value::Float(x) => Ok(*x),
-        _ => Err(RuntimeError::new(ErrorCode::R001, line, format!(
-            "expected float, got `{}`", value_type_name(v)
-        ))),
-    }
-}
 
 // Language-level equality uses exact float comparison (== on f64), matching the spec.
 #[allow(clippy::float_cmp)]
@@ -1232,19 +1223,22 @@ fn collect_free_stmt(stmt: &Stmt, bound: &mut HashSet<String>, free: &mut HashSe
 fn safe_index(v: &Value, line: usize) -> Result<usize, RuntimeError> {
     let f = match v {
         Value::Float(x) => *x,
-        other => return Err(RuntimeError::new(ErrorCode::R001, line, format!(
+        other => return Err(RuntimeError::new(ErrorCode::R001, line, 0, format!(
             "index must be a number, got `{}`", value_type_name(other)
         ))),
     };
     if f.is_nan() {
-        return Err(RuntimeError::new(ErrorCode::R006, line, "index is NaN"));
+        return Err(RuntimeError::new(ErrorCode::R006, line, 0, "index is NaN"));
     }
     if f.is_infinite() {
-        return Err(RuntimeError::new(ErrorCode::R006, line, "index is infinite"));
+        return Err(RuntimeError::new(ErrorCode::R006, line, 0, "index is infinite"));
     }
     if f < 0.0 {
         #[allow(clippy::cast_possible_truncation)]
-        return Err(RuntimeError::new(ErrorCode::R006, line, format!("index is negative ({})", f as i64)));
+        return Err(RuntimeError::new(ErrorCode::R006, line, 0, format!("index is negative ({})", f as i64)));
+    }
+    if f.fract() != 0.0 {
+        return Err(RuntimeError::new(ErrorCode::R006, line, 0, format!("index must be an integer, got {f}")));
     }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     Ok(f as usize)
@@ -1253,10 +1247,10 @@ fn safe_index(v: &Value, line: usize) -> Result<usize, RuntimeError> {
 fn parse_hex_color(hex: &str) -> Result<Value, RuntimeError> {
     let parse = |s: &str| u8::from_str_radix(s, 16)
         .map(|n| f64::from(n) / 255.0)
-        .map_err(|_| RuntimeError::new(ErrorCode::R001, 0, format!("invalid hex: #{hex}")));
+        .map_err(|_| RuntimeError::new(ErrorCode::R001, 0, 0, format!("invalid hex: #{hex}")));
     match hex.len() {
         6 => Ok(Value::Color { r: parse(&hex[0..2])?, g: parse(&hex[2..4])?, b: parse(&hex[4..6])?, a: 1.0 }),
         8 => Ok(Value::Color { r: parse(&hex[0..2])?, g: parse(&hex[2..4])?, b: parse(&hex[4..6])?, a: parse(&hex[6..8])? }),
-        _ => Err(RuntimeError::new(ErrorCode::R001, 0, format!("invalid hex color length: #{hex}"))),
+        _ => Err(RuntimeError::new(ErrorCode::R001, 0, 0, format!("invalid hex color length: #{hex}"))),
     }
 }

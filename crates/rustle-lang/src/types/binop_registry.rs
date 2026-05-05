@@ -128,12 +128,12 @@ fn register_float(r: &mut BinopRegistry) {
     });
     r.register(Div, "float", "float", "float", |l, r, line| {
         let (Value::Float(a), Value::Float(b)) = (l, r) else { unreachable!() };
-        if b == 0.0 { Err(RuntimeError::new(ErrorCode::R007, line, "division by zero")) }
+        if b == 0.0 { Err(RuntimeError::new(ErrorCode::R007, line, 0, "division by zero")) }
         else { Ok(Value::Float(a / b)) }
     });
     r.register(Mod, "float", "float", "float", |l, r, line| {
         let (Value::Float(a), Value::Float(b)) = (l, r) else { unreachable!() };
-        if b == 0.0 { Err(RuntimeError::new(ErrorCode::R007, line, "mod by zero")) }
+        if b == 0.0 { Err(RuntimeError::new(ErrorCode::R007, line, 0, "mod by zero")) }
         else { Ok(Value::Float(a % b)) }
     });
     r.register(Lt,   "float", "float", "bool", |l, r, _| { let (Value::Float(a), Value::Float(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a <  b)) });
@@ -167,7 +167,7 @@ fn register_vec2(r: &mut BinopRegistry) {
     });
     r.register(Div, "vec2", "float", "vec2", |l, r, line| {
         let (Value::Vec2(x, y), Value::Float(s)) = (l, r) else { unreachable!() };
-        if s == 0.0 { Err(RuntimeError::new(ErrorCode::R007, line, "division by zero")) }
+        if s == 0.0 { Err(RuntimeError::new(ErrorCode::R007, line, 0, "division by zero")) }
         else { Ok(Value::Vec2(x / s, y / s)) }
     });
     r.register(Eq,    "vec2", "vec2", "bool", |l, r, _| { let (Value::Vec2(ax,ay), Value::Vec2(bx,by)) = (l,r) else { unreachable!() }; Ok(Value::Bool(ax==bx && ay==by)) });
@@ -197,7 +197,7 @@ fn register_vec3(r: &mut BinopRegistry) {
     });
     r.register(Div, "vec3", "float", "vec3", |l, r, line| {
         let (Value::Vec3(x,y,z), Value::Float(s)) = (l, r) else { unreachable!() };
-        if s == 0.0 { Err(RuntimeError::new(ErrorCode::R007, line, "division by zero")) }
+        if s == 0.0 { Err(RuntimeError::new(ErrorCode::R007, line, 0, "division by zero")) }
         else { Ok(Value::Vec3(x/s, y/s, z/s)) }
     });
     r.register(Eq,    "vec3", "vec3", "bool", |l, r, _| { let (Value::Vec3(ax,ay,az), Value::Vec3(bx,by,bz)) = (l,r) else { unreachable!() }; Ok(Value::Bool(ax==bx && ay==by && az==bz)) });
@@ -227,7 +227,7 @@ fn register_vec4(r: &mut BinopRegistry) {
     });
     r.register(Div, "vec4", "float", "vec4", |l, r, line| {
         let (Value::Vec4(x,y,z,w), Value::Float(s)) = (l, r) else { unreachable!() };
-        if s == 0.0 { Err(RuntimeError::new(ErrorCode::R007, line, "division by zero")) }
+        if s == 0.0 { Err(RuntimeError::new(ErrorCode::R007, line, 0, "division by zero")) }
         else { Ok(Value::Vec4(x/s, y/s, z/s, w/s)) }
     });
     r.register(Eq,    "vec4", "vec4", "bool", |l, r, _| { let (Value::Vec4(ax,ay,az,aw), Value::Vec4(bx,by,bz,bw)) = (l,r) else { unreachable!() }; Ok(Value::Bool(ax==bx && ay==by && az==bz && aw==bw)) });

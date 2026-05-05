@@ -184,13 +184,14 @@ pub struct StackFrame {
 pub struct RuntimeError {
     pub code: ErrorCode,
     pub line: usize,
+    pub column: usize,
     pub message: String,
     pub stack: Vec<StackFrame>,
 }
 
 impl RuntimeError {
-    pub fn new(code: ErrorCode, line: usize, message: impl Into<String>) -> Self {
-        Self { code, line, message: message.into(), stack: Vec::new() }
+    pub fn new(code: ErrorCode, line: usize, column: usize, message: impl Into<String>) -> Self {
+        Self { code, line, column, message: message.into(), stack: Vec::new() }
     }
 
     pub fn push_frame(&mut self, function: impl Into<String>, line: usize) {
@@ -200,7 +201,7 @@ impl RuntimeError {
 
 impl std::fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}] {} — {}", self.code.as_str(), self.line, self.message)?;
+        write!(f, "[{}] {}:{} — {}", self.code.as_str(), self.line, self.column, self.message)?;
         for frame in &self.stack {
             write!(f, "\n  at {} (line {})", frame.function, frame.line)?;
         }

@@ -114,7 +114,7 @@ This means all top-level `let` bindings, `const` declarations, and import resolu
 
 ---
 
-### 7. `error` Function Returns Hardcoded `res<float>` (Priority: 7, Complexity: 2)
+### ✅ 7. `error` Function Returns Hardcoded `res<float>` (Priority: 7, Complexity: 2)
 
 **File:** `analysis/checker.rs:676`
 
@@ -132,7 +132,7 @@ The `error()` function always resolves to `res<float>` regardless of context. If
 
 ---
 
-### 8. `values_equal` Uses IEEE Float Equality (Priority: 6, Complexity: 2)
+### ✅ 8. `values_equal` Uses IEEE Float Equality (Priority: 6, Complexity: 2)
 
 **File:** `runtime/interpreter.rs:1113`
 
@@ -160,7 +160,7 @@ The `error()` function always resolves to `res<float>` regardless of context. If
 
 ---
 
-### 10. Empty List Type Inference Is Wrong (Priority: 6, Complexity: 3)
+### ✅ 10. Empty List Type Inference Is Wrong (Priority: 6, Complexity: 3)
 
 **File:** `analysis/checker.rs:614-617`
 
@@ -235,7 +235,7 @@ The `string` type descriptor exists but likely has no methods registered (the fi
 
 ---
 
-### 15. Duplicate `as_float` Helper Functions (Priority: 4, Complexity: 1)
+### ✅ 15. Duplicate `as_float` Helper Functions (Priority: 4, Complexity: 1)
 
 **Files:** `namespaces/mod.rs:121`, `runtime/interpreter.rs:1103`, `types/registry.rs:296`
 
@@ -265,7 +265,7 @@ fn peek_kind(&self) -> TokenKind {
 
 ---
 
-### 17. Validator's Const Check is Redundant (Priority: 4, Complexity: 1)
+### ✅ 17. Validator's Const Check is Redundant (Priority: 4, Complexity: 1)
 
 **File:** `analysis/validator.rs:84-138`
 
@@ -324,7 +324,7 @@ Every variable read clones the value. For simple `Float` or `Bool` this is cheap
 
 ---
 
-### 21. `#` Ambiguity: Comment vs Hex Color (Priority: 3, Complexity: 2)
+### ✅ 21. `#` Ambiguity: Comment vs Hex Color (Priority: 3, Complexity: 2)
 
 **File:** `syntax/lexer.rs:105-108`
 
@@ -343,7 +343,7 @@ b'#' => {
 
 ---
 
-### 22. No Multiline String Support (Priority: 3, Complexity: 2)
+### ✅ 22. No Multiline String Support (Priority: 3, Complexity: 2)
 
 **File:** `syntax/lexer.rs:198`
 
@@ -359,7 +359,7 @@ Strings cannot span multiple lines. The lexer errors on a newline inside a strin
 
 ---
 
-### 23. `safe_index` Truncates Floats Silently (Priority: 3, Complexity: 1)
+### ✅ 23. `safe_index` Truncates Floats Silently (Priority: 3, Complexity: 1)
 
 **File:** `runtime/interpreter.rs:1286`
 
@@ -455,7 +455,7 @@ Symbol tables use `HashMap`, so iteration order is non-deterministic. The `all_v
 
 ---
 
-### 31. `std::fmt::Display` for `RuntimeError` Doesn't Include Column (Priority: 1, Complexity: 1)
+### ✅ 31. `std::fmt::Display` for `RuntimeError` Doesn't Include Column (Priority: 1, Complexity: 1)
 
 **File:** `error.rs:159`
 

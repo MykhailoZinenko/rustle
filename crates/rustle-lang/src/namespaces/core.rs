@@ -172,7 +172,7 @@ impl NamespaceProvider for CoreNamespace {
             }
             "color" => {
                 if args.len() != 3 && args.len() != 4 {
-                    return Err(RuntimeError::new(ErrorCode::R008, line, format!(
+                    return Err(RuntimeError::new(ErrorCode::R008, line, 0, format!(
                         "`color` expects 3 or 4 args, got {}", args.len()
                     )));
                 }
