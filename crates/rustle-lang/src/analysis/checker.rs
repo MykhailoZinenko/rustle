@@ -488,7 +488,22 @@ impl<'a> TypeResolver<'a> {
                 Ok(then_ty)
             }
 
-            Expr::Cast { ty, .. } => Ok(ty.clone()),
+            Expr::Cast { expr, ty, span } => {
+                let from_ty = self.infer_expr(expr)?;
+                if !is_castable(&from_ty, ty) {
+                    return Err(vec![Error::new(
+                        ErrorCode::S002,
+                        span.line,
+                        span.column,
+                        format!(
+                            "cannot cast `{}` to `{}`",
+                            type_name(&from_ty),
+                            type_name(ty)
+                        ),
+                    )]);
+                }
+                Ok(ty.clone())
+            }
 
             Expr::Try { expr, .. } => {
                 let inner = self.infer_expr(expr)?;
@@ -960,6 +975,20 @@ pub fn types_compatible(expected: &Type, actual: &Type) -> bool {
 /// Returns whether a type can be used in a boolean context (conditions, logical ops).
 fn is_truthy_type(ty: &Type) -> bool {
     matches!(ty, Type::Bool | Type::Float | Type::String | Type::List(_) | Type::Optional(_))
+}
+
+// ─── Cast validation ──────────────────────────────────────────────────────────
+
+fn is_castable(from: &Type, to: &Type) -> bool {
+    if from == to {
+        return true;
+    }
+    matches!(
+        (from, to),
+        (Type::Float | Type::String, Type::Bool)
+            | (Type::Bool | Type::String, Type::Float)
+            | (Type::Float | Type::Bool, Type::String)
+    )
 }
 
 // ─── Type display ─────────────────────────────────────────────────────────────

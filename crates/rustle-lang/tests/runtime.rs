@@ -54,6 +54,13 @@ fn b(rt: &Runtime, key: &str) -> bool {
     }
 }
 
+fn s(rt: &Runtime, key: &str) -> String {
+    match rt.state().0.get(key) {
+        Some(Value::Str(x)) => x.clone(),
+        other => panic!("expected Str for '{key}', got: {other:?}"),
+    }
+}
+
 fn v2(rt: &Runtime, key: &str) -> (f64, f64) {
     match rt.state().0.get(key) {
         Some(Value::Vec2(x, y)) => (*x, *y),
@@ -2094,4 +2101,143 @@ fn continue_in_foreach() {
         }
     ");
     assert_eq!(f(&rt, "v"), 9.0); // 1 + 3 + 5
+}
+
+// ── Cast ──────────────────────────────────────────────────────────────────────
+
+#[test]
+fn cast_float_to_bool_true() {
+    let rt = run("state { let v: bool = 1.0 as bool }");
+    assert!(b(&rt, "v"));
+}
+
+#[test]
+fn cast_float_to_bool_false() {
+    let rt = run("state { let v: bool = 0.0 as bool }");
+    assert!(!b(&rt, "v"));
+}
+
+#[test]
+fn cast_bool_to_float() {
+    let rt = run("state { let v: float = true as float }");
+    assert_eq!(f(&rt, "v"), 1.0);
+}
+
+#[test]
+fn cast_float_to_string() {
+    let rt = run(r"state { let v: string = 42.0 as string }");
+    assert_eq!(s(&rt, "v"), "42");
+}
+
+#[test]
+fn cast_string_to_float() {
+    let rt = run(r#"state { let v: float = "3.14" as float }"#);
+    assert!((f(&rt, "v") - std::f64::consts::PI).abs() < 0.1);
+}
+
+#[test]
+fn cast_invalid_string_to_float_error() {
+    let e = run_err(r#"state { let v: float = "hello" as float }"#);
+    assert_eq!(e.code, ErrorCode::R001);
+}
+
+#[test]
+fn cast_string_to_bool_nonempty() {
+    let rt = run(r#"state { let v: bool = "hello" as bool }"#);
+    assert!(b(&rt, "v"));
+}
+
+#[test]
+fn cast_string_to_bool_empty() {
+    let rt = run(r#"state { let v: bool = "" as bool }"#);
+    assert!(!b(&rt, "v"));
+}
+
+#[test]
+fn cast_bool_to_string() {
+    let rt = run(r"state { let v: string = true as string }");
+    assert_eq!(s(&rt, "v"), "true");
+}
+
+#[test]
+fn cast_same_type_noop() {
+    let rt = run("state { let v: float = 5.0 as float }");
+    assert_eq!(f(&rt, "v"), 5.0);
+}
+
+// ─── string operations ──────────────────────────────────────────────────────
+
+#[test]
+fn string_concatenation() {
+    let rt = run(r#"state { let v: string = "hello" + " " + "world" }"#);
+    match rt.state().0.get("v") {
+        Some(Value::Str(sv)) => assert_eq!(sv, "hello world"),
+        other => panic!("expected string, got {other:?}"),
+    }
+}
+
+#[test]
+fn string_len() {
+    let rt = run(r#"state { let v: float = "hello".len() }"#);
+    assert_eq!(f(&rt, "v"), 5.0);
+}
+
+#[test]
+fn string_contains() {
+    let rt = run(r#"state { let v: bool = "hello world".contains("world") }"#);
+    assert!(b(&rt, "v"));
+}
+
+#[test]
+fn string_trim() {
+    let rt = run(r#"state { let v: string = "  hello  ".trim() }"#);
+    match rt.state().0.get("v") {
+        Some(Value::Str(sv)) => assert_eq!(sv, "hello"),
+        other => panic!("expected string, got {other:?}"),
+    }
+}
+
+#[test]
+fn string_to_upper() {
+    let rt = run(r#"state { let v: string = "hello".to_upper() }"#);
+    match rt.state().0.get("v") {
+        Some(Value::Str(sv)) => assert_eq!(sv, "HELLO"),
+        other => panic!("expected string, got {other:?}"),
+    }
+}
+
+#[test]
+fn string_to_lower() {
+    let rt = run(r#"state { let v: string = "HELLO".to_lower() }"#);
+    match rt.state().0.get("v") {
+        Some(Value::Str(sv)) => assert_eq!(sv, "hello"),
+        other => panic!("expected string, got {other:?}"),
+    }
+}
+
+#[test]
+fn string_comparison() {
+    let rt = run(r#"state { let v: bool = "abc" < "abd" }"#);
+    assert!(b(&rt, "v"));
+}
+
+#[test]
+fn string_starts_with() {
+    let rt = run(r#"state { let v: bool = "hello world".starts_with("hello") }"#);
+    assert!(b(&rt, "v"));
+}
+
+#[test]
+fn string_ends_with() {
+    let rt = run(r#"state { let v: bool = "hello world".ends_with("world") }"#);
+    assert!(b(&rt, "v"));
+}
+
+#[test]
+fn string_replace() {
+    let rt = run(r#"state { let v: string = "hello world".replace("world", "rustle") }"#);
+    match rt.state().0.get("v") {
+        Some(Value::Str(sv)) => assert_eq!(sv, "hello rustle"),
+        other => panic!("expected string, got {other:?}"),
+    }
 }

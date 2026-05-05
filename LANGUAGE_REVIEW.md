@@ -178,7 +178,7 @@ An empty list `[]` silently becomes `list[float]`. If the user writes `let xs: l
 
 ---
 
-### 11. `Cast` Does Nothing at Runtime (Priority: 6, Complexity: 4)
+### ✅ 11. `Cast` Does Nothing at Runtime (Priority: 6, Complexity: 4)
 
 **File:** `runtime/interpreter.rs:351`
 
@@ -213,7 +213,7 @@ Spans only store the start position, not the end. Error messages can only point 
 
 ---
 
-### 13. `string` Type Has No Methods or Operations (Priority: 5, Complexity: 3)
+### ✅ 13. `string` Type Has No Methods or Operations (Priority: 5, Complexity: 3)
 
 **File:** `types/registry.rs:301-310` (string_desc)
 

@@ -1364,3 +1364,21 @@ fn parser_error_uses_human_readable_tokens() {
     assert!(!msg.contains("RParen"), "should not use debug format: {msg}");
     assert!(!msg.contains("Eof"), "should not use debug format: {msg}");
 }
+
+// ── Cast validation ──────────────────────────────────────────────────────────
+
+#[test]
+fn cast_vec2_to_float_is_error() {
+    let errs = err("let v = vec2(1, 2) as float");
+    assert!(has(&errs, ErrorCode::S002));
+}
+
+#[test]
+fn cast_float_to_bool_allowed() {
+    ok("let v = 1.0 as bool");
+}
+
+#[test]
+fn cast_string_to_float_allowed() {
+    ok(r#"let v = "3.14" as float"#);
+}

@@ -337,7 +337,10 @@ impl<'a> Interpreter<'a> {
                 }
             }
 
-            Expr::Cast { expr, .. } => self.eval_expr(expr),
+            Expr::Cast { expr, ty, span } => {
+                let val = self.eval_expr(expr)?;
+                cast_value(val, ty, span.line)
+            }
 
             Expr::Try { expr, .. } => {
                 // `try expr` wraps the result into res<T>.
@@ -1054,6 +1057,50 @@ fn eval_unop(op: &UnOp, v: Value, line: usize) -> Result<Value, RuntimeError> {
             ))),
         },
         UnOp::Not => Ok(Value::Bool(!v.is_truthy())),
+    }
+}
+
+// ─── Cast ─────────────────────────────────────────────────────────────────────
+
+fn cast_value(val: Value, target: &ast::Type, line: usize) -> Result<Value, RuntimeError> {
+    use ast::Type;
+    match (&val, target) {
+        // Same type — no-op
+        (Value::Float(_), Type::Float)
+        | (Value::Bool(_), Type::Bool)
+        | (Value::Str(_), Type::String) => Ok(val),
+
+        // float → bool
+        (Value::Float(x), Type::Bool) => Ok(Value::Bool(*x != 0.0 && !x.is_nan())),
+        // bool → float
+        (Value::Bool(b), Type::Float) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })),
+
+        // float/bool → string
+        (Value::Float(_) | Value::Bool(_), Type::String) => Ok(Value::Str(val.to_string())),
+
+        // string → float
+        (Value::Str(s), Type::Float) => s.parse::<f64>().map(Value::Float).map_err(|_| {
+            RuntimeError::new(
+                ErrorCode::R001,
+                line,
+                0,
+                format!("cannot convert string `{s}` to float"),
+            )
+        }),
+        // string → bool (empty = false, non-empty = true)
+        (Value::Str(s), Type::Bool) => Ok(Value::Bool(!s.is_empty())),
+
+        // Unsupported conversion
+        _ => Err(RuntimeError::new(
+            ErrorCode::R001,
+            line,
+            0,
+            format!(
+                "cannot cast `{}` to `{}`",
+                value_type_name(&val),
+                crate::analysis::checker::type_name(target)
+            ),
+        )),
     }
 }
 

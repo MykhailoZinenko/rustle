@@ -341,15 +341,100 @@ fn bool_desc() -> TypeDesc {
 fn string_desc() -> TypeDesc {
     TypeDesc {
         name: "string",
-        fields: vec![
-            FieldDesc {
+        fields: vec![],
+        methods: vec![
+            MethodDesc {
                 name: "len",
-                ty:   float(),
-                get:  |v| { let Value::Str(s) = v else { unreachable!() }; #[allow(clippy::cast_precision_loss)] let n = s.len() as f64; Value::Float(n) },
-                set:  None,
+                params: vec![],
+                ret: Some(float()),
+                call: |v, _args, _line| {
+                    let Value::Str(s) = v else { unreachable!() };
+                    #[allow(clippy::cast_precision_loss)]
+                    Ok(Value::Float(s.len() as f64))
+                },
+            },
+            MethodDesc {
+                name: "contains",
+                params: vec![Type::String],
+                ret: Some(Type::Bool),
+                call: |v, args, _line| {
+                    let Value::Str(s) = v else { unreachable!() };
+                    let Value::Str(needle) = &args[0] else { unreachable!() };
+                    Ok(Value::Bool(s.contains(needle.as_str())))
+                },
+            },
+            MethodDesc {
+                name: "starts_with",
+                params: vec![Type::String],
+                ret: Some(Type::Bool),
+                call: |v, args, _line| {
+                    let Value::Str(s) = v else { unreachable!() };
+                    let Value::Str(prefix) = &args[0] else { unreachable!() };
+                    Ok(Value::Bool(s.starts_with(prefix.as_str())))
+                },
+            },
+            MethodDesc {
+                name: "ends_with",
+                params: vec![Type::String],
+                ret: Some(Type::Bool),
+                call: |v, args, _line| {
+                    let Value::Str(s) = v else { unreachable!() };
+                    let Value::Str(suffix) = &args[0] else { unreachable!() };
+                    Ok(Value::Bool(s.ends_with(suffix.as_str())))
+                },
+            },
+            MethodDesc {
+                name: "trim",
+                params: vec![],
+                ret: Some(Type::String),
+                call: |v, _args, _line| {
+                    let Value::Str(s) = v else { unreachable!() };
+                    Ok(Value::Str(s.trim().to_string()))
+                },
+            },
+            MethodDesc {
+                name: "to_upper",
+                params: vec![],
+                ret: Some(Type::String),
+                call: |v, _args, _line| {
+                    let Value::Str(s) = v else { unreachable!() };
+                    Ok(Value::Str(s.to_uppercase()))
+                },
+            },
+            MethodDesc {
+                name: "to_lower",
+                params: vec![],
+                ret: Some(Type::String),
+                call: |v, _args, _line| {
+                    let Value::Str(s) = v else { unreachable!() };
+                    Ok(Value::Str(s.to_lowercase()))
+                },
+            },
+            MethodDesc {
+                name: "replace",
+                params: vec![Type::String, Type::String],
+                ret: Some(Type::String),
+                call: |v, args, _line| {
+                    let Value::Str(s) = v else { unreachable!() };
+                    let Value::Str(from) = &args[0] else { unreachable!() };
+                    let Value::Str(to) = &args[1] else { unreachable!() };
+                    Ok(Value::Str(s.replace(from.as_str(), to.as_str())))
+                },
+            },
+            MethodDesc {
+                name: "split",
+                params: vec![Type::String],
+                ret: Some(Type::List(Box::new(Type::String))),
+                call: |v, args, _line| {
+                    let Value::Str(s) = v else { unreachable!() };
+                    let Value::Str(delim) = &args[0] else { unreachable!() };
+                    let items: Vec<Value> = s.split(delim.as_str())
+                        .map(|part| Value::Str(part.to_string()))
+                        .collect();
+                    Ok(Value::List(std::rc::Rc::new(std::cell::RefCell::new(items))))
+                },
             },
         ],
-        methods: vec![],
     }
 }
 

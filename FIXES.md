@@ -31,6 +31,12 @@ Removed `#` as comment marker. `#` now only introduces hex colors; bare `#` prod
 ### 22. No Multiline String Support
 Strings can now span multiple lines. Removed newline termination from `read_string`.
 
+### 11. Cast Does Nothing at Runtime
+Implemented actual type conversions for `as` expressions: float<->bool, float->string, bool->string, string->float (with parse error), string->bool. Added compile-time validation via `is_castable()` in checker. Invalid casts produce S002 at compile time, runtime conversion failures produce R001.
+
+### 13. string Type Has No Methods or Operations
+Added string concatenation (`+`), comparison operators (`<`, `<=`, `>`, `>=`), and 9 methods: `len()`, `contains()`, `starts_with()`, `ends_with()`, `trim()`, `to_upper()`, `to_lower()`, `replace()`, `split()`. Registered string in binop_registry for operator dispatch.
+
 ### 26. `for` Step Must Be an Assignment Statement
 Parser now accepts expression statements (like `i++`, `i--`, function calls) in the `for` loop step clause, not just assignments. Falls back to `parse_expr()` when `is_path_assign()` returns false.
 

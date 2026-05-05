@@ -61,6 +61,7 @@ use crate::syntax::ast::Type;
 #[must_use] 
 pub fn type_to_key(ty: &Type) -> Option<&'static str> {
     match ty {
+        Type::String    => Some("string"),
         Type::Float     => Some("float"),
         Type::Bool      => Some("bool"),
         Type::Vec2      => Some("vec2"),
@@ -79,6 +80,7 @@ pub fn type_to_key(ty: &Type) -> Option<&'static str> {
 #[must_use] 
 pub fn key_to_type(key: &str) -> Type {
     match key {
+        "string"    => Type::String,
         "float"     => Type::Float,
         "bool"      => Type::Bool,
         "vec2"      => Type::Vec2,
@@ -104,6 +106,7 @@ impl Default for BinopRegistry {
         register_bool(&mut r);
         register_mat3(&mut r);
         register_mat4(&mut r);
+        register_string(&mut r);
         r
     }
 }
@@ -343,5 +346,43 @@ fn register_mat4(r: &mut BinopRegistry) {
     r.register(Mul, "float", "mat4", "mat4", |l, r, _| {
         let (Value::Float(s), Value::Mat4(m)) = (l, r) else { unreachable!() };
         Ok(Value::Mat4(Box::new(m4_scale(&m, s))))
+    });
+}
+
+// ─── string ──────────────────────────────────────────────────────────────────
+
+fn register_string(r: &mut BinopRegistry) {
+    use BinOp::{Add, Eq, NotEq, Lt, LtEq, Gt, GtEq};
+    // string + string → string (concatenation)
+    r.register(Add, "string", "string", "string", |l, r, _| {
+        let (Value::Str(a), Value::Str(b)) = (l, r) else { unreachable!() };
+        Ok(Value::Str(format!("{a}{b}")))
+    });
+    // Equality — runtime uses values_equal() directly, but the checker
+    // needs these entries so type_to_key → result_type succeeds.
+    r.register(Eq, "string", "string", "bool", |l, r, _| {
+        let (Value::Str(a), Value::Str(b)) = (l, r) else { unreachable!() };
+        Ok(Value::Bool(a == b))
+    });
+    r.register(NotEq, "string", "string", "bool", |l, r, _| {
+        let (Value::Str(a), Value::Str(b)) = (l, r) else { unreachable!() };
+        Ok(Value::Bool(a != b))
+    });
+    // Lexicographic comparisons
+    r.register(Lt, "string", "string", "bool", |l, r, _| {
+        let (Value::Str(a), Value::Str(b)) = (l, r) else { unreachable!() };
+        Ok(Value::Bool(a < b))
+    });
+    r.register(LtEq, "string", "string", "bool", |l, r, _| {
+        let (Value::Str(a), Value::Str(b)) = (l, r) else { unreachable!() };
+        Ok(Value::Bool(a <= b))
+    });
+    r.register(Gt, "string", "string", "bool", |l, r, _| {
+        let (Value::Str(a), Value::Str(b)) = (l, r) else { unreachable!() };
+        Ok(Value::Bool(a > b))
+    });
+    r.register(GtEq, "string", "string", "bool", |l, r, _| {
+        let (Value::Str(a), Value::Str(b)) = (l, r) else { unreachable!() };
+        Ok(Value::Bool(a >= b))
     });
 }
