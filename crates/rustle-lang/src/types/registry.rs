@@ -120,10 +120,10 @@ impl TypeRegistry {
     }
 
     /// Return all method names available on any `Type` (including generics).
-    #[must_use] 
+    #[must_use]
     pub fn method_names_for_type(&self, ty: &Type) -> Vec<&str> {
         match ty {
-            Type::List(_)     => vec!["push", "pop", "len", "clone"],
+            Type::List(_)     => vec!["push", "pop", "len", "clone", "map", "filter", "reduce", "find", "any", "all"],
             Type::Array(_, _) => vec!["len"],
             _ => {
                 let key = type_to_registry_key(ty);
@@ -166,6 +166,29 @@ impl TypeRegistry {
                 "pop"   => Some((vec![], Some(*elem.clone()))),
                 "len"   => Some((vec![], Some(Type::Float))),
                 "clone" => Some((vec![], Some(ty.clone()))),
+                "map"   => {
+                    // map(fn(T) -> U) -> list[U] — we can't infer U without the closure,
+                    // so accept any Fn and return list[Unit] as placeholder that will be
+                    // compatible via types_compatible. Actually, let's just use the elem type.
+                    let fn_ty = Type::Fn(vec![*elem.clone()], Some(elem.clone()));
+                    Some((vec![fn_ty], Some(Type::List(elem.clone()))))
+                },
+                "filter" => {
+                    let fn_ty = Type::Fn(vec![*elem.clone()], Some(Box::new(Type::Bool)));
+                    Some((vec![fn_ty], Some(ty.clone())))
+                },
+                "reduce" => {
+                    let fn_ty = Type::Fn(vec![*elem.clone(), *elem.clone()], Some(elem.clone()));
+                    Some((vec![fn_ty, *elem.clone()], Some(*elem.clone())))
+                },
+                "find" => {
+                    let fn_ty = Type::Fn(vec![*elem.clone()], Some(Box::new(Type::Bool)));
+                    Some((vec![fn_ty], Some(Type::Optional(elem.clone()))))
+                },
+                "any" | "all" => {
+                    let fn_ty = Type::Fn(vec![*elem.clone()], Some(Box::new(Type::Bool)));
+                    Some((vec![fn_ty], Some(Type::Bool)))
+                },
                 _ => None,
             },
             Type::Array(_elem, _) => match method {

@@ -684,6 +684,19 @@ impl<'a> Interpreter<'a> {
             )));
         }
 
+        // List higher-order methods — need interpreter access to call closures.
+        if let Value::List(ref items_rc) = obj {
+            match method {
+                "map" | "filter" | "reduce" | "find" | "any" | "all" => {
+                    let arg_vals: Vec<Value> = args.iter()
+                        .map(|a| self.eval_expr(a))
+                        .collect::<Result<_, _>>()?;
+                    return self.eval_list_higher_order(items_rc, method, &arg_vals, span.line);
+                }
+                _ => {}
+            }
+        }
+
         // All other types: evaluate args, delegate to TypeRegistry.
         let arg_vals: Vec<Value> = args.iter()
             .map(|a| self.eval_expr(a))
@@ -693,6 +706,116 @@ impl<'a> Interpreter<'a> {
             .unwrap_or_else(|| Err(self.err(ErrorCode::R004, span.line, format!(
                 "`{}` has no method `{method}`", value_type_name(&obj)
             ))))
+    }
+
+    // ─── List higher-order methods ─────────────────────────────────────────────
+
+    fn call_closure_value(
+        &mut self,
+        closure: &Value,
+        args: &[Value],
+        line: usize,
+    ) -> Result<Value, RuntimeError> {
+        match closure {
+            Value::Closure(data) => {
+                self.call_body("<closure>", &data.params, &data.body, &data.captured, args, line)
+            }
+            _ => Err(self.err(ErrorCode::R001, line, "expected a function/closure argument".to_string())),
+        }
+    }
+
+    fn eval_list_higher_order(
+        &mut self,
+        items_rc: &Rc<RefCell<Vec<Value>>>,
+        method: &str,
+        args: &[Value],
+        line: usize,
+    ) -> Result<Value, RuntimeError> {
+        match method {
+            "map" => {
+                if args.len() != 1 {
+                    return Err(self.err(ErrorCode::R008, line, format!("`map` expects 1 argument, got {}", args.len())));
+                }
+                let closure = args[0].clone();
+                let items = items_rc.borrow().clone();
+                let mut result = Vec::with_capacity(items.len());
+                for item in items {
+                    let val = self.call_closure_value(&closure, &[item], line)?;
+                    result.push(val);
+                }
+                Ok(Value::List(Rc::new(RefCell::new(result))))
+            }
+            "filter" => {
+                if args.len() != 1 {
+                    return Err(self.err(ErrorCode::R008, line, format!("`filter` expects 1 argument, got {}", args.len())));
+                }
+                let closure = args[0].clone();
+                let items = items_rc.borrow().clone();
+                let mut result = Vec::new();
+                for item in items {
+                    let val = self.call_closure_value(&closure, std::slice::from_ref(&item), line)?;
+                    if val.is_truthy() {
+                        result.push(item);
+                    }
+                }
+                Ok(Value::List(Rc::new(RefCell::new(result))))
+            }
+            "reduce" => {
+                if args.len() != 2 {
+                    return Err(self.err(ErrorCode::R008, line, format!("`reduce` expects 2 arguments, got {}", args.len())));
+                }
+                let closure = args[0].clone();
+                let mut acc = args[1].clone();
+                let items = items_rc.borrow().clone();
+                for item in items {
+                    acc = self.call_closure_value(&closure, &[acc, item], line)?;
+                }
+                Ok(acc)
+            }
+            "find" => {
+                if args.len() != 1 {
+                    return Err(self.err(ErrorCode::R008, line, format!("`find` expects 1 argument, got {}", args.len())));
+                }
+                let closure = args[0].clone();
+                let items = items_rc.borrow().clone();
+                for item in items {
+                    let val = self.call_closure_value(&closure, std::slice::from_ref(&item), line)?;
+                    if val.is_truthy() {
+                        return Ok(item);
+                    }
+                }
+                Ok(Value::None)
+            }
+            "any" => {
+                if args.len() != 1 {
+                    return Err(self.err(ErrorCode::R008, line, format!("`any` expects 1 argument, got {}", args.len())));
+                }
+                let closure = args[0].clone();
+                let items = items_rc.borrow().clone();
+                for item in items {
+                    let val = self.call_closure_value(&closure, &[item], line)?;
+                    if val.is_truthy() {
+                        return Ok(Value::Bool(true));
+                    }
+                }
+                Ok(Value::Bool(false))
+            }
+            "all" => {
+                if args.len() != 1 {
+                    return Err(self.err(ErrorCode::R008, line, format!("`all` expects 1 argument, got {}", args.len())));
+                }
+                let closure = args[0].clone();
+                let items = items_rc.borrow().clone();
+                for item in items {
+                    let val = self.call_closure_value(&closure, &[item], line)?;
+                    if !val.is_truthy() {
+                        return Ok(Value::Bool(false));
+                    }
+                }
+                Ok(Value::Bool(true))
+            }
+            _ => unreachable!(),
+        }
     }
 
     // ─── Statement executor ───────────────────────────────────────────────────

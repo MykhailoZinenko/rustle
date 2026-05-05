@@ -3105,3 +3105,169 @@ fn struct_persists_in_state() {
         other => panic!("expected Object, got {other:?}"),
     }
 }
+
+// ─── List higher-order methods ──────────────────────────────────────────────
+
+#[test]
+fn list_map() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0]
+            let doubled: list[float] = nums.map((x: float) -> float { return x * 2.0 })
+            s.v = doubled.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
+}
+
+#[test]
+fn list_map_values() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0]
+            let doubled: list[float] = nums.map((x: float) -> float { return x * 2.0 })
+            s.v = doubled.pop()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 6.0);
+}
+
+#[test]
+fn list_filter() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0, 4.0, 5.0]
+            let big: list[float] = nums.filter((x: float) -> bool { return x > 3.0 })
+            s.v = big.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 2.0);
+}
+
+#[test]
+fn list_reduce() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0, 4.0]
+            s.v = nums.reduce((acc: float, x: float) -> float { return acc + x }, 0.0)
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 10.0);
+}
+
+#[test]
+fn list_find_some() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0, 4.0]
+            let found: float? = nums.find((x: float) -> bool { return x > 2.5 })
+            s.v = found ?? 0.0
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
+}
+
+#[test]
+fn list_find_none() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0]
+            let found: float? = nums.find((x: float) -> bool { return x > 100.0 })
+            s.v = found ?? -1.0
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), -1.0);
+}
+
+#[test]
+fn list_any_true() {
+    let rt = run(r#"
+        state { let v: bool = false }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0]
+            s.v = nums.any((x: float) -> bool { return x > 2.0 })
+            return s
+        }
+    "#);
+    assert!(b(&rt, "v"));
+}
+
+#[test]
+fn list_any_false() {
+    let rt = run(r#"
+        state { let v: bool = true }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0]
+            s.v = nums.any((x: float) -> bool { return x > 10.0 })
+            return s
+        }
+    "#);
+    assert!(!b(&rt, "v"));
+}
+
+#[test]
+fn list_all_true() {
+    let rt = run(r#"
+        state { let v: bool = false }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [2.0, 4.0, 6.0]
+            s.v = nums.all((x: float) -> bool { return x > 1.0 })
+            return s
+        }
+    "#);
+    assert!(b(&rt, "v"));
+}
+
+#[test]
+fn list_all_false() {
+    let rt = run(r#"
+        state { let v: bool = true }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [2.0, 4.0, 6.0]
+            s.v = nums.all((x: float) -> bool { return x > 3.0 })
+            return s
+        }
+    "#);
+    assert!(!b(&rt, "v"));
+}
+
+#[test]
+fn list_map_with_named_fn() {
+    let rt = run(r#"
+        fn double(x: float) -> float { return x * 2.0 }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [5.0]
+            let result: list[float] = nums.map(double)
+            s.v = result.pop()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 10.0);
+}
+
+#[test]
+fn list_filter_empty_result() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0]
+            let empty: list[float] = nums.filter((x: float) -> bool { return x > 100.0 })
+            s.v = empty.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 0.0);
+}
