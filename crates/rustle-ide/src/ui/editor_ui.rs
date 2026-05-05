@@ -2,11 +2,17 @@ use eframe::egui::{Color32, RichText, TextStyle, Ui};
 
 use crate::events::app_events::AppEvent;
 use crate::state::app_state::AppState;
+use crate::theme::ThemePalette;
 use crate::ui::editor_code_view_ui::{draw_editor_code_view, line_count};
 use crate::ui::editor_status_bar_ui::{EditorStatusSnapshot, draw_editor_status_bar};
 use crate::ui::editor_tabs_ui::draw_editor_tabs;
 
-pub fn draw_editor(ui: &mut Ui, app_state: &mut AppState, events: &mut Vec<AppEvent>) {
+pub fn draw_editor(
+    ui: &mut Ui,
+    app_state: &mut AppState,
+    theme: &ThemePalette,
+    events: &mut Vec<AppEvent>,
+) {
     let editor = &mut app_state.editor;
     if editor.tabs.is_empty() {
         ui.centered_and_justified(|ui| {
@@ -15,7 +21,7 @@ pub fn draw_editor(ui: &mut Ui, app_state: &mut AppState, events: &mut Vec<AppEv
         return;
     }
 
-    draw_editor_tabs(ui, editor, events);
+    draw_editor_tabs(ui, editor, theme, events);
     ui.add_space(2.0);
 
     if let Some(active_index) = editor.active_index() {
@@ -27,10 +33,12 @@ pub fn draw_editor(ui: &mut Ui, app_state: &mut AppState, events: &mut Vec<AppEv
             ui,
             editor,
             &mut app_state.suggestions,
+            &mut app_state.pending_editor_command,
+            theme,
             active_index,
             row_height,
             line_count,
         );
-        draw_editor_status_bar(ui, &status_snapshot, line_count);
+        draw_editor_status_bar(ui, theme, &status_snapshot, line_count);
     }
 }

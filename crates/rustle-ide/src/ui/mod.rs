@@ -4,7 +4,6 @@ pub mod editor_highlight_ui;
 pub mod editor_suggestions_ui;
 pub mod console_ui;
 pub mod editor_status_bar_ui;
-pub mod editor_style;
 pub mod editor_tabs_ui;
 pub mod preview_ui;
 pub mod top_bar;

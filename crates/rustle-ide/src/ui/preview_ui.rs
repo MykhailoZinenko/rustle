@@ -1,9 +1,9 @@
-use eframe::egui::{self, Color32, Frame, Margin, RichText, Stroke, Ui};
+use eframe::egui::{self, Frame, Margin, RichText, Stroke, Ui};
 use rustle_lang::DrawCommand;
 
 use crate::events::app_events::AppEvent;
 use crate::renderer::egui_renderer::EguiPreviewRenderer;
-use crate::theme::SURFACE_STROKE;
+use crate::theme::ThemePalette;
 
 pub struct PreviewPanelState<'a> {
     pub has_active_tab: bool,
@@ -17,11 +17,13 @@ pub fn draw_preview(
     ui: &mut Ui,
     state: PreviewPanelState<'_>,
     renderer: &EguiPreviewRenderer,
+    theme: &ThemePalette,
  ) -> Option<AppEvent> {
     let mut event = None;
 
     Frame::new()
-        .stroke(Stroke::new(1.0, SURFACE_STROKE))
+        .fill(theme.editor_bg)
+        .stroke(Stroke::new(1.0, theme.surface_stroke))
         .inner_margin(Margin::same(8))
         .show(ui, |ui| {
             let header_body_reserved_height = 36.0;
@@ -46,7 +48,7 @@ pub fn draw_preview(
                             fitted_size.x.round() as i32,
                             fitted_size.y.round() as i32
                         ))
-                        .color(Color32::GRAY),
+                        .color(theme.muted_text),
                     );
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -67,12 +69,12 @@ pub fn draw_preview(
             ui.separator();
 
             if !state.has_active_tab {
-                ui.label(RichText::new("No file opened").color(Color32::GRAY));
+                ui.label(RichText::new("No file opened").color(theme.muted_text));
                 return;
             }
 
             if let Some(error) = state.error {
-                ui.label(RichText::new(error).color(Color32::from_rgb(220, 80, 80)));
+                ui.label(RichText::new(error).color(theme.error_text));
                 return;
             }
 
@@ -82,11 +84,11 @@ pub fn draw_preview(
                 } else {
                     "No draw commands"
                 };
-                ui.label(RichText::new(message).color(Color32::GRAY));
+                ui.label(RichText::new(message).color(theme.muted_text));
                 return;
             }
 
-            renderer.draw(ui, state.commands, fitted_size);
+            renderer.draw(ui, state.commands, fitted_size, theme);
         });
 
     event

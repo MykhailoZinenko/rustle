@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use eframe::egui::{Align, Color32, Frame, Layout, Margin, RichText, Stroke, Ui};
 
 use crate::state::editor_state::Cursor;
-use crate::theme::STATUS_BG;
+use crate::theme::ThemePalette;
 
 pub struct EditorStatusSnapshot {
     pub file_path: Option<PathBuf>,
@@ -12,7 +12,12 @@ pub struct EditorStatusSnapshot {
     pub is_dirty: bool,
 }
 
-pub fn draw_editor_status_bar(ui: &mut Ui, tab: &EditorStatusSnapshot, line_count: usize) {
+pub fn draw_editor_status_bar(
+    ui: &mut Ui,
+    theme: &ThemePalette,
+    tab: &EditorStatusSnapshot,
+    line_count: usize,
+) {
     let left = if let Some(path) = &tab.file_path {
         path.display().to_string()
     } else {
@@ -27,8 +32,8 @@ pub fn draw_editor_status_bar(ui: &mut Ui, tab: &EditorStatusSnapshot, line_coun
     );
 
     Frame::new()
-        .fill(STATUS_BG)
-        .stroke(Stroke::new(1.0, STATUS_BG))
+        .fill(theme.status_bg)
+        .stroke(Stroke::new(1.0, theme.status_bg))
         .inner_margin(Margin::symmetric(8, 4))
         .show(ui, |ui| {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {

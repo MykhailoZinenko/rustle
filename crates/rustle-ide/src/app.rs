@@ -7,6 +7,7 @@ use crate::core::shortcut_core::{ShortcutAction, consume_shortcut};
 use crate::events::app_events::AppEvent;
 use crate::events::editor_events::EditorEvent;
 use crate::renderer::egui_renderer::EguiPreviewRenderer;
+use crate::theme::visuals_for;
 
 pub struct App {
     core: AppCore,
@@ -24,23 +25,32 @@ impl Default for App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        ui.ctx().set_visuals(visuals_for(self.core.state.theme_mode));
         self.core.tick_preview(ui.ctx());
         let shortcut_action = consume_shortcut(ui.ctx());
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             let is_running = self.core.is_running();
             let editor = &self.core.state.editor;
+            let theme = self.core.state.theme;
             let events = &mut self.core.events;
             crate::ui::top_bar::draw_top_bar(
                 ui,
                 editor,
                 is_running,
                 self.core.state.console_visible,
+                self.core.state.theme_mode,
+                &theme,
                 events,
             );
 
             ui.separator();
-            crate::ui::workspace_ui::draw_workspace(ui, &mut self.core, &self.renderer);
+            crate::ui::workspace_ui::draw_workspace(
+                ui,
+                &mut self.core,
+                &self.renderer,
+                &theme,
+            );
         });
 
         self.handle_shortcut_action(shortcut_action);

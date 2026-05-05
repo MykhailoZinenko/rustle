@@ -1,44 +1,68 @@
 use eframe::egui::{
-    self, Align2, FontId, Frame, Id, Margin, Pos2, Rect, ScrollArea, Stroke, TextBuffer,
-    TextEdit, Ui, vec2,
+    self, Align2, FontId, Frame, Id, Margin, Pos2, Rect, ScrollArea, Stroke, TextBuffer, TextEdit,
+    Ui, vec2,
 };
 use egui::scroll_area::ScrollBarVisibility;
-use egui::text_edit::{TextEditOutput, TextEditState};
 use egui::text::{CCursor, CCursorRange};
+use egui::text_edit::{TextEditOutput, TextEditState};
 
 use crate::core::suggestion_core::{apply_suggestion, suggestion_context};
+use crate::state::app_state::PendingEditorCommand;
 use crate::state::editor_state::{Cursor, EditorState, EditorTab};
 use crate::state::suggestion_state::SuggestionState;
+use crate::theme::{EDITOR_CONTENT_PADDING, EDITOR_FONT_SIZE, ThemePalette};
 use crate::ui::editor_highlight_ui::highlight_layout;
-use crate::ui::editor_suggestions_ui::draw_suggestions_popup;
 use crate::ui::editor_status_bar_ui::EditorStatusSnapshot;
-use crate::theme::{
-    EDITOR_BG, EDITOR_CONTENT_PADDING, EDITOR_FONT_SIZE, GUTTER_BG, GUTTER_TEXT, SURFACE_STROKE,
-};
+use crate::ui::editor_suggestions_ui::draw_suggestions_popup;
 
 pub fn draw_editor_code_view(
     ui: &mut Ui,
     editor: &mut EditorState,
     suggestions: &mut SuggestionState,
+    pending_command: &mut Option<PendingEditorCommand>,
+    theme: &ThemePalette,
     active_index: usize,
     row_height: f32,
     line_count: usize,
 ) {
-    let gutter_width = gutter_width(ui, line_count);
+    let gutter_width = gutter_width(ui, theme, line_count);
     let viewport_height = ui.available_height().max(row_height);
     let tab_id = editor.tabs[active_index].id;
     let text_edit_id = Id::new(("editor_text", tab_id));
 
+    handle_external_undo_redo(
+        ui,
+        &mut editor.tabs[active_index],
+        text_edit_id,
+        pending_command,
+    );
     handle_backtick(ui, &mut editor.tabs[active_index], text_edit_id);
-    handle_cut_full_line(ui, suggestions, &mut editor.tabs[active_index], text_edit_id);
-    handle_auto_indent(ui, suggestions, &mut editor.tabs[active_index], text_edit_id);
-    handle_suggestion_keys(ui, suggestions, &mut editor.tabs[active_index], text_edit_id);
+    handle_cut_full_line(
+        ui,
+        suggestions,
+        &mut editor.tabs[active_index],
+        text_edit_id,
+    );
+    handle_auto_indent(
+        ui,
+        suggestions,
+        &mut editor.tabs[active_index],
+        text_edit_id,
+    );
+    handle_suggestion_keys(
+        ui,
+        suggestions,
+        &mut editor.tabs[active_index],
+        text_edit_id,
+    );
 
     Frame::new()
-        .fill(EDITOR_BG)
-        .stroke(Stroke::new(1.0, SURFACE_STROKE))
+        .fill(theme.editor_bg)
+        .stroke(Stroke::new(1.0, theme.surface_stroke))
         .inner_margin(Margin::ZERO)
         .show(ui, |ui| {
+            ui.spacing_mut().scroll.fade.strength = 0.0;
+
             ScrollArea::vertical()
                 .id_salt(Id::new(("editor_vertical_scroll", tab_id)))
                 .auto_shrink([false, false])
@@ -54,29 +78,29 @@ pub fn draw_editor_code_view(
                             .scroll_bar_visibility(ScrollBarVisibility::VisibleWhenNeeded)
                             .show(ui, |ui| {
                                 Frame::new()
-                                    .fill(EDITOR_BG)
+                                    .fill(theme.editor_bg)
                                     .inner_margin(Margin::same(EDITOR_CONTENT_PADDING))
                                     .show(ui, |ui| {
                                         ui.vertical(|ui| {
                                             let mut layouter =
                                                 |ui: &Ui, text: &dyn TextBuffer, _wrap_width: f32| {
-                                                    highlight_layout(ui, text.as_str())
+                                                    highlight_layout(ui, text.as_str(), theme)
                                                 };
 
-                                            let output =
-                                                TextEdit::multiline(&mut editor.tabs[active_index].buffer)
-                                                    .id(text_edit_id)
-                                                    .code_editor()
-                                                    .frame(Frame::NONE)
-                                                    .desired_rows(line_count.max(
-                                                        (viewport_height / row_height).ceil() as usize,
-                                                    ))
-                                                    .min_size(vec2(
-                                                        ui.available_width(),
-                                                        viewport_height,
-                                                    ))
-                                                    .layouter(&mut layouter)
-                                                    .show(ui);
+                                            let output = TextEdit::multiline(
+                                                &mut editor.tabs[active_index].buffer,
+                                            )
+                                            .id(text_edit_id)
+                                            .code_editor()
+                                            .frame(Frame::NONE)
+                                            .desired_rows(
+                                                line_count
+                                                    .max((viewport_height / row_height).ceil()
+                                                        as usize),
+                                            )
+                                            .min_size(vec2(ui.available_width(), viewport_height))
+                                            .layouter(&mut layouter)
+                                            .show(ui);
 
                                             if output.response.changed() {
                                                 editor.tabs[active_index].mark_dirty();
@@ -100,6 +124,7 @@ pub fn draw_editor_code_view(
                                                 ui,
                                                 suggestions,
                                                 &mut editor.tabs[active_index],
+                                                theme,
                                                 tab_id,
                                                 text_edit_id,
                                                 &output,
@@ -126,8 +151,8 @@ pub fn draw_editor_code_view(
                                 horizontal_output.inner.response.rect.bottom(),
                             ),
                         );
-                        ui.painter().rect_filled(gutter_rect, 0, GUTTER_BG);
-                        paint_gutter(ui, gutter_rect, &horizontal_output.inner, line_count);
+                        ui.painter().rect_filled(gutter_rect, 0, theme.gutter_bg);
+                        paint_gutter(ui, theme, gutter_rect, &horizontal_output.inner, line_count);
                     });
                 });
         });
@@ -137,24 +162,67 @@ pub fn line_count(buffer: &str) -> usize {
     buffer.chars().filter(|ch| *ch == '\n').count() + 1
 }
 
-fn gutter_width(ui: &Ui, line_count: usize) -> f32 {
+fn handle_external_undo_redo(
+    ui: &Ui,
+    tab: &mut EditorTab,
+    text_edit_id: Id,
+    pending_command: &mut Option<PendingEditorCommand>,
+) {
+    let Some(command) = pending_command.take() else {
+        return;
+    };
+
+    let mut state = TextEditState::load(ui.ctx(), text_edit_id).unwrap_or_default();
+    let cursor_range = state
+        .cursor
+        .char_range()
+        .unwrap_or_else(|| CCursorRange::one(CCursor::new(tab.buffer.chars().count())));
+    let current_state = (cursor_range, tab.buffer.clone());
+    let mut undoer = state.undoer();
+
+    let next_state = match command {
+        PendingEditorCommand::Undo => undoer.undo(&current_state).cloned(),
+        PendingEditorCommand::Redo => undoer.redo(&current_state).cloned(),
+    };
+
+    state.set_undoer(undoer);
+
+    let Some((next_cursor_range, next_buffer)) = next_state else {
+        state.store(ui.ctx(), text_edit_id);
+        return;
+    };
+
+    let changed = tab.buffer != next_buffer;
+    tab.buffer = next_buffer;
+    state.cursor.set_char_range(Some(next_cursor_range));
+    state.store(ui.ctx(), text_edit_id);
+
+    let cursor = cursor_from_char_index(&tab.buffer, next_cursor_range.primary.index);
+    tab.set_cursor(cursor.line, cursor.column);
+    if changed {
+        tab.mark_dirty();
+    }
+}
+
+fn gutter_width(ui: &Ui, theme: &ThemePalette, line_count: usize) -> f32 {
     let digits = line_count.max(1).to_string().len();
     let sample = "9".repeat(digits);
     let font_id = FontId::monospace(EDITOR_FONT_SIZE);
     let width = ui.fonts_mut(|fonts| {
         fonts
-            .layout_no_wrap(sample, font_id, GUTTER_TEXT)
+            .layout_no_wrap(sample, font_id, theme.gutter_text)
             .size()
             .x
     });
 
-    width + 8.0
+    width + 16.0
 }
 
 fn handle_suggestions(
     ui: &Ui,
     suggestions: &mut SuggestionState,
     tab: &mut EditorTab,
+    theme: &ThemePalette,
     tab_id: crate::state::editor_state::TabId,
     text_edit_id: Id,
     output: &TextEditOutput,
@@ -185,10 +253,14 @@ fn handle_suggestions(
         suggestions
             .selected_index
             .min(suggestion_context.items.len().saturating_sub(1)),
+        theme,
     ) {
         if let Some(item) = suggestion_context.items.get(index) {
-            let new_cursor_index =
-                apply_suggestion(&mut tab.buffer, suggestion_context.replace_range, &item.label);
+            let new_cursor_index = apply_suggestion(
+                &mut tab.buffer,
+                suggestion_context.replace_range,
+                &item.label,
+            );
             apply_suggestion_cursor(
                 ui,
                 tab,
@@ -235,7 +307,8 @@ fn handle_suggestion_keys(
     }
 
     if ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)) {
-        suggestions.selected_index = (suggestions.selected_index + 1) % suggestion_context.items.len();
+        suggestions.selected_index =
+            (suggestions.selected_index + 1) % suggestion_context.items.len();
     }
 
     if ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
@@ -246,8 +319,11 @@ fn handle_suggestion_keys(
 
     if ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
         if let Some(item) = suggestion_context.items.get(suggestions.selected_index) {
-            let new_cursor_index =
-                apply_suggestion(&mut tab.buffer, suggestion_context.replace_range, &item.label);
+            let new_cursor_index = apply_suggestion(
+                &mut tab.buffer,
+                suggestion_context.replace_range,
+                &item.label,
+            );
             let state = TextEditState::load(ui.ctx(), text_edit_id).unwrap_or_default();
             apply_suggestion_cursor(ui, tab, suggestions, text_edit_id, state, new_cursor_index);
         }
@@ -280,7 +356,14 @@ fn handle_auto_indent(
 
     replace_char_range(&mut tab.buffer, char_range, &replacement);
     let new_cursor_index = insert_at + replacement.chars().count();
-    apply_suggestion_cursor(ui, tab, &mut SuggestionState::default(), text_edit_id, state, new_cursor_index);
+    apply_suggestion_cursor(
+        ui,
+        tab,
+        &mut SuggestionState::default(),
+        text_edit_id,
+        state,
+        new_cursor_index,
+    );
 }
 
 fn handle_cut_full_line(
@@ -303,7 +386,10 @@ fn handle_cut_full_line(
     }
 
     if !ui.input_mut(|input| {
-        input.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::X))
+        input.consume_shortcut(&egui::KeyboardShortcut::new(
+            egui::Modifiers::CTRL,
+            egui::Key::X,
+        ))
     }) {
         return;
     }
@@ -314,7 +400,14 @@ fn handle_cut_full_line(
 
     replace_char_range(&mut tab.buffer, line_range.clone(), "");
     let new_cursor_index = line_range.start.min(tab.buffer.chars().count());
-    apply_suggestion_cursor(ui, tab, &mut SuggestionState::default(), text_edit_id, state, new_cursor_index);
+    apply_suggestion_cursor(
+        ui,
+        tab,
+        &mut SuggestionState::default(),
+        text_edit_id,
+        state,
+        new_cursor_index,
+    );
 }
 
 fn handle_backtick(ui: &Ui, tab: &mut EditorTab, text_edit_id: Id) {
@@ -385,7 +478,9 @@ fn focus_end_on_empty_click(
         ui.memory_mut(|memory| memory.request_focus(text_edit_id));
         let end_index = tab.buffer.chars().count();
         let mut state = output.state.clone();
-        state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(end_index))));
+        state
+            .cursor
+            .set_char_range(Some(CCursorRange::one(CCursor::new(end_index))));
         state.store(ui.ctx(), text_edit_id);
 
         let cursor = cursor_from_char_index(&tab.buffer, end_index);
@@ -393,7 +488,13 @@ fn focus_end_on_empty_click(
     }
 }
 
-fn paint_gutter(ui: &Ui, gutter_rect: Rect, output: &TextEditOutput, line_count: usize) {
+fn paint_gutter(
+    ui: &Ui,
+    theme: &ThemePalette,
+    gutter_rect: Rect,
+    output: &TextEditOutput,
+    line_count: usize,
+) {
     let painter = ui.painter().with_clip_rect(gutter_rect);
     let digits = line_count.max(1).to_string().len();
     let font_id = FontId::monospace(EDITOR_FONT_SIZE);
@@ -413,7 +514,7 @@ fn paint_gutter(ui: &Ui, gutter_rect: Rect, output: &TextEditOutput, line_count:
             Align2::RIGHT_TOP,
             text,
             font_id.clone(),
-            GUTTER_TEXT,
+            theme.gutter_text,
         );
     }
 }

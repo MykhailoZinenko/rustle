@@ -3,6 +3,7 @@ use eframe::egui;
 use crate::app_core::AppCore;
 use crate::events::app_events::AppEvent;
 use crate::renderer::egui_renderer::EguiPreviewRenderer;
+use crate::theme::ThemePalette;
 use crate::ui::console_ui::draw_console;
 use crate::ui::preview_ui::PreviewPanelState;
 
@@ -10,6 +11,7 @@ pub fn draw_workspace(
     ui: &mut egui::Ui,
     core: &mut AppCore,
     renderer: &EguiPreviewRenderer,
+    theme: &ThemePalette,
 ) {
     let mut preview_event = None;
     let available_rect = ui.available_rect_before_wrap();
@@ -57,7 +59,7 @@ pub fn draw_workspace(
                 .clamp(min_top_ratio, max_top_ratio);
             core.events.push(AppEvent::SetTopConsoleRatio(ratio));
         }
-        paint_splitter(ui, horizontal_splitter_rect, &horizontal_splitter_response);
+        paint_splitter(ui, horizontal_splitter_rect, &horizontal_splitter_response, theme);
         (top_rect, Some(bottom_rect))
     } else {
         (available_rect, None)
@@ -111,7 +113,7 @@ pub fn draw_workspace(
                     .clamp(min_ratio, max_ratio);
                 core.events.push(AppEvent::SetEditorPreviewRatio(ratio));
             }
-            paint_splitter(ui, vertical_splitter_rect, &vertical_splitter_response);
+            paint_splitter(ui, vertical_splitter_rect, &vertical_splitter_response, theme);
 
             ui.scope_builder(
                 egui::UiBuilder::new()
@@ -120,7 +122,7 @@ pub fn draw_workspace(
                 |ui| {
                     let state = &mut core.state;
                     let events = &mut core.events;
-                    crate::ui::editor_ui::draw_editor(ui, state, events);
+                    crate::ui::editor_ui::draw_editor(ui, state, theme, events);
                 },
             );
 
@@ -139,6 +141,7 @@ pub fn draw_workspace(
                             native_size: core.preview_native_size(),
                         },
                         renderer,
+                        theme,
                     );
                 },
             );
@@ -153,9 +156,7 @@ pub fn draw_workspace(
                 .max_rect(bottom_rect)
                 .layout(egui::Layout::top_down(egui::Align::Min)),
             |ui| {
-                if draw_console(ui, &core.console) {
-                    core.events.push(AppEvent::ToggleConsole);
-                }
+                draw_console(ui, &core.console, theme, &mut core.events);
             },
         );
     }
@@ -166,14 +167,19 @@ pub fn draw_workspace(
     }
 }
 
-fn paint_splitter(ui: &egui::Ui, rect: egui::Rect, response: &egui::Response) {
+fn paint_splitter(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    response: &egui::Response,
+    theme: &ThemePalette,
+) {
     ui.painter().rect_filled(
         rect,
         0.0,
         if response.dragged() || response.hovered() {
-            egui::Color32::from_rgb(78, 136, 224)
+            theme.active_tab_stroke
         } else {
-            egui::Color32::from_rgb(49, 54, 63)
+            theme.surface_stroke
         },
     );
 }

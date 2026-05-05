@@ -7,12 +7,15 @@ use crate::core::app_event_core::wrap_editor;
 use crate::events::app_events::AppEvent;
 use crate::events::editor_events::EditorEvent;
 use crate::state::editor_state::EditorState;
+use crate::theme::{ThemeMode, ThemePalette};
 
 pub fn draw_top_bar(
     ui: &mut egui::Ui,
     editor: &EditorState,
     is_running: bool,
     console_visible: bool,
+    theme_mode: ThemeMode,
+    _theme: &ThemePalette,
     events: &mut Vec<AppEvent>,
 ) {
 
@@ -60,11 +63,26 @@ pub fn draw_top_bar(
             });
 
             ui.menu_button("Edit", |ui| {
-                ui.label("Undo");
-                ui.label("Redo");
+                if ui.button("Undo        Ctrl+Z").clicked() {
+                    events.push(AppEvent::Undo);
+                    ui.close();
+                }
+                if ui.button("Redo        Ctrl+Y").clicked() {
+                    events.push(AppEvent::Redo);
+                    ui.close();
+                }
                 if ui.button("Toggle Suggestions   Ctrl+Space").clicked() {
                     events.push(AppEvent::ToggleSuggestions);
                     ui.close();
+                }
+            });
+
+            ui.menu_button("Theme", |ui| {
+                for mode in [ThemeMode::Dark, ThemeMode::Light] {
+                    if ui.selectable_label(theme_mode == mode, mode.label()).clicked() {
+                        events.push(AppEvent::SetTheme(mode));
+                        ui.close();
+                    }
                 }
             });
 

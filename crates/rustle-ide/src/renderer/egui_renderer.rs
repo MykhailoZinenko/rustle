@@ -1,12 +1,19 @@
 use eframe::egui::{self, Color32, Ui};
 use rustle_lang::{DrawCommand, Origin, RenderMode, ShapeData, ShapeDesc};
+use crate::theme::ThemePalette;
 
 pub struct EguiPreviewRenderer;
 
 impl EguiPreviewRenderer {
-    pub fn draw(&self, ui: &mut Ui, commands: &[DrawCommand], fitted_size: Option<egui::Vec2>) {
+    pub fn draw(
+        &self,
+        ui: &mut Ui,
+        commands: &[DrawCommand],
+        fitted_size: Option<egui::Vec2>,
+        theme: &ThemePalette,
+    ) {
         let Some(native_size) = preview_native_size(commands) else {
-            ui.label(egui::RichText::new("No shapes to render").color(Color32::GRAY));
+            ui.label(egui::RichText::new("No shapes to render").color(theme.muted_text));
             return;
         };
 
@@ -14,7 +21,7 @@ impl EguiPreviewRenderer {
         let (outer_rect, _) = ui.allocate_exact_size(canvas_size, egui::Sense::hover());
         let rect = egui::Rect::from_center_size(outer_rect.center(), canvas_size);
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, Color32::from_rgb(28, 28, 32));
+        painter.rect_filled(rect, 0.0, theme.preview_bg);
 
         let scale_x = if native_size.x > 0.0 { rect.width() / native_size.x } else { 1.0 };
         let scale_y = if native_size.y > 0.0 { rect.height() / native_size.y } else { 1.0 };

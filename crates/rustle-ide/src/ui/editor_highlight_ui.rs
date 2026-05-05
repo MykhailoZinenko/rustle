@@ -4,24 +4,26 @@ use eframe::egui::{self, Color32, FontId, TextFormat, Ui};
 use rustle_lang::syntax::lexer::Lexer;
 use rustle_lang::{Token, TokenKind};
 
-use crate::theme::{
-    EDITOR_FONT_SIZE, SYNTAX_FUNCTION, SYNTAX_IDENTIFIER, SYNTAX_KEYWORD, SYNTAX_LITERAL,
-    SYNTAX_OPERATOR, SYNTAX_PUNCTUATION, SYNTAX_TYPE,
-};
+use crate::theme::{EDITOR_FONT_SIZE, ThemePalette};
 
-pub fn highlight_layout(ui: &Ui, text: &str) -> Arc<egui::Galley> {
+pub fn highlight_layout(ui: &Ui, text: &str, theme: &ThemePalette) -> Arc<egui::Galley> {
     let mut job = egui::text::LayoutJob::default();
     job.wrap.max_width = f32::INFINITY;
 
     match Lexer::new(text).tokenize() {
-        Ok(tokens) => append_highlighted_text(&mut job, text, &tokens),
+        Ok(tokens) => append_highlighted_text(&mut job, text, &tokens, theme),
         Err(_) => append_plain(&mut job, text, ui.visuals().text_color()),
     }
 
     ui.fonts_mut(|fonts| fonts.layout_job(job))
 }
 
-fn append_highlighted_text(job: &mut egui::text::LayoutJob, text: &str, tokens: &[Token]) {
+fn append_highlighted_text(
+    job: &mut egui::text::LayoutJob,
+    text: &str,
+    tokens: &[Token],
+    theme: &ThemePalette,
+) {
     let line_starts = line_start_offsets(text);
     let mut cursor = 0usize;
 
@@ -32,20 +34,20 @@ fn append_highlighted_text(job: &mut egui::text::LayoutJob, text: &str, tokens: 
 
         let start = token_start_offset(text, &line_starts, token);
         if start > cursor && start <= text.len() {
-            append_plain(job, &text[cursor..start], SYNTAX_IDENTIFIER);
+            append_plain(job, &text[cursor..start], theme.syntax_identifier);
         }
 
         let end = start
             .saturating_add(token_source_len(text, start, token))
             .min(text.len());
         if end > start {
-            append_plain(job, &text[start..end], token_color(&token.kind, tokens.get(index + 1)));
+            append_plain(job, &text[start..end], token_color(&token.kind, tokens.get(index + 1), theme));
             cursor = end;
         }
     }
 
     if cursor < text.len() {
-        append_plain(job, &text[cursor..], SYNTAX_IDENTIFIER);
+        append_plain(job, &text[cursor..], theme.syntax_identifier);
     }
 }
 
@@ -65,17 +67,17 @@ fn append_plain(job: &mut egui::text::LayoutJob, text: &str, color: Color32) {
     );
 }
 
-fn token_color(kind: &TokenKind, next: Option<&Token>) -> Color32 {
+fn token_color(kind: &TokenKind, next: Option<&Token>, theme: &ThemePalette) -> Color32 {
     match kind {
         TokenKind::StringLit(_) | TokenKind::TemplateLit(_) | TokenKind::Float(_) | TokenKind::Bool(_) | TokenKind::HexColor(_) => {
-            SYNTAX_LITERAL
+            theme.syntax_literal
         }
-        kind if kind.is_type_keyword() => SYNTAX_TYPE,
-        kind if kind.is_keyword() => SYNTAX_KEYWORD,
+        kind if kind.is_type_keyword() => theme.syntax_type,
+        kind if kind.is_keyword() => theme.syntax_keyword,
         TokenKind::Ident(_) if next.is_some_and(|token| matches!(token.kind, TokenKind::LParen)) => {
-            SYNTAX_FUNCTION
+            theme.syntax_function
         }
-        TokenKind::Ident(_) => SYNTAX_IDENTIFIER,
+        TokenKind::Ident(_) => theme.syntax_identifier,
         TokenKind::Colon
         | TokenKind::Comma
         | TokenKind::Semicolon
@@ -85,9 +87,9 @@ fn token_color(kind: &TokenKind, next: Option<&Token>) -> Color32 {
         | TokenKind::LBrace
         | TokenKind::RBrace
         | TokenKind::LBracket
-        | TokenKind::RBracket => SYNTAX_PUNCTUATION,
-        TokenKind::Eof => SYNTAX_IDENTIFIER,
-        _ => SYNTAX_OPERATOR,
+        | TokenKind::RBracket => theme.syntax_punctuation,
+        TokenKind::Eof => theme.syntax_identifier,
+        _ => theme.syntax_operator,
     }
 }
 

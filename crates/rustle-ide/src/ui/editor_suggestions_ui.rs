@@ -1,7 +1,7 @@
 use eframe::egui::{self, Button, Color32, Frame, Margin, RichText, Stroke};
 
 use crate::core::suggestion_core::SuggestionContext;
-use crate::theme::{EDITOR_BG, SURFACE_STROKE, SYNTAX_IDENTIFIER};
+use crate::theme::ThemePalette;
 
 pub fn draw_suggestions_popup(
     ctx: &egui::Context,
@@ -9,6 +9,7 @@ pub fn draw_suggestions_popup(
     anchor: egui::Pos2,
     suggestions: &SuggestionContext,
     selected_index: usize,
+    theme: &ThemePalette,
 ) -> Option<usize> {
     let mut clicked_index = None;
 
@@ -17,14 +18,14 @@ pub fn draw_suggestions_popup(
         .fixed_pos(anchor)
         .show(ctx, |ui| {
             Frame::new()
-                .fill(EDITOR_BG)
-                .stroke(Stroke::new(1.0, SURFACE_STROKE))
+                .fill(theme.editor_bg)
+                .stroke(Stroke::new(1.0, theme.surface_stroke))
                 .inner_margin(Margin::same(6))
                 .show(ui, |ui| {
                     ui.set_min_width(260.0);
 
                     if suggestions.items.is_empty() {
-                        ui.label(RichText::new("No suggestions").color(Color32::GRAY));
+                        ui.label(RichText::new("No suggestions").color(theme.muted_text));
                         return;
                     }
 
@@ -36,7 +37,7 @@ pub fn draw_suggestions_popup(
                             Button::new(
                                 RichText::new(label)
                                     .monospace()
-                                    .color(SYNTAX_IDENTIFIER),
+                                    .color(theme.syntax_identifier),
                             )
                             .fill(if is_selected {
                                 Color32::from_rgb(50, 72, 110)

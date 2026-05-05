@@ -4,14 +4,17 @@ use eframe::egui::{Button, Frame, Margin, RichText, ScrollArea, Stroke, Ui};
 
 use crate::events::editor_events::EditorEvent;
 use crate::state::editor_state::EditorState;
-use crate::theme::{
-    ACTIVE_TAB_STROKE, SURFACE_STROKE, TAB_ACTIVE_BG, TAB_INACTIVE_BG,
-};
+use crate::theme::ThemePalette;
 
-pub fn draw_editor_tabs(ui: &mut Ui, editor: &EditorState, events: &mut Vec<AppEvent>) {
+pub fn draw_editor_tabs(
+    ui: &mut Ui,
+    editor: &EditorState,
+    theme: &ThemePalette,
+    events: &mut Vec<AppEvent>,
+) {
     Frame::new()
-        .fill(TAB_INACTIVE_BG)
-        .stroke(Stroke::new(1.0, SURFACE_STROKE))
+        .fill(theme.tab_inactive_bg)
+        .stroke(Stroke::new(1.0, theme.surface_stroke))
         .inner_margin(Margin::same(4))
         .show(ui, |ui| {
             ScrollArea::horizontal()
@@ -23,16 +26,16 @@ pub fn draw_editor_tabs(ui: &mut Ui, editor: &EditorState, events: &mut Vec<AppE
 
                             Frame::new()
                                 .fill(if is_active {
-                                    TAB_ACTIVE_BG
+                                    theme.tab_active_bg
                                 } else {
-                                    TAB_INACTIVE_BG
+                                    theme.tab_inactive_bg
                                 })
                                 .stroke(Stroke::new(
                                     1.0,
                                     if is_active {
-                                        ACTIVE_TAB_STROKE
+                                        theme.active_tab_stroke
                                     } else {
-                                        SURFACE_STROKE
+                                        theme.surface_stroke
                                     },
                                 ))
                                 .inner_margin(Margin::symmetric(8, 4))
