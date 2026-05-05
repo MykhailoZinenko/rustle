@@ -40,6 +40,7 @@ pub enum TokenKind {
     Break,
     Continue,
     None,
+    Struct,
 
     // Type keywords — only true primitives and parameterised collection types
     TFloat,
@@ -147,6 +148,7 @@ impl TokenKind {
             Self::Break        => "'break'",
             Self::Continue     => "'continue'",
             Self::None         => "'none'",
+            Self::Struct       => "'struct'",
             Self::TFloat       => "'float'",
             Self::TBool        => "'bool'",
             Self::TArray       => "'array'",
@@ -198,7 +200,7 @@ impl TokenKind {
             Self::Fn | Self::Let | Self::If | Self::Else | Self::Match | Self::While | Self::For | Self::Foreach
             | Self::In | Self::Return | Self::Const | Self::State | Self::Import
             | Self::Out | Self::Console | Self::Try | Self::And | Self::Or | Self::Not | Self::As
-            | Self::Break | Self::Continue | Self::None
+            | Self::Break | Self::Continue | Self::None | Self::Struct
         )
     }
 }
@@ -230,6 +232,7 @@ pub fn keyword_or_ident(s: String) -> TokenKind {
         "continue"  => TokenKind::Continue,
         "match"     => TokenKind::Match,
         "none"      => TokenKind::None,
+        "struct"    => TokenKind::Struct,
         "true"      => TokenKind::Bool(true),
         "false"     => TokenKind::Bool(false),
         "float"     => TokenKind::TFloat,

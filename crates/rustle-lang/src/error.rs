@@ -61,6 +61,18 @@ pub enum ErrorCode {
     S014,
     /// Cannot infer type.
     S015,
+    /// Private method accessed from outside struct.
+    S016,
+    /// Missing required field in struct construction.
+    S017,
+    /// Unknown field in struct construction.
+    S018,
+    /// Duplicate field in struct definition.
+    S019,
+    /// Duplicate method in struct definition.
+    S020,
+    /// `this` used outside struct method.
+    S021,
 
     // Runtime
     /// Runtime type error.
@@ -87,6 +99,8 @@ pub enum ErrorCode {
     R011,
     /// Assertion failed.
     R012,
+    /// Field not found on struct (runtime safety net).
+    R013,
 }
 
 impl ErrorCode {
@@ -120,6 +134,12 @@ impl ErrorCode {
             Self::S013 => "S013",
             Self::S014 => "S014",
             Self::S015 => "S015",
+            Self::S016 => "S016",
+            Self::S017 => "S017",
+            Self::S018 => "S018",
+            Self::S019 => "S019",
+            Self::S020 => "S020",
+            Self::S021 => "S021",
             Self::R001 => "R001",
             Self::R002 => "R002",
             Self::R003 => "R003",
@@ -132,6 +152,7 @@ impl ErrorCode {
             Self::R010 => "R010",
             Self::R011 => "R011",
             Self::R012 => "R012",
+            Self::R013 => "R013",
         }
     }
 }
