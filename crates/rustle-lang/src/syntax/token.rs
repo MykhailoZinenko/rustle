@@ -12,6 +12,8 @@ pub enum TokenKind {
     Bool(bool),
     Ident(String),
     StringLit(String),
+    /// Template string with interpolation: `hello ${name}`
+    TemplateLit(Vec<TemplatePart>),
     HexColor(String), // digits only — "ff0000" or "ff0000ff"
 
     // Keywords
@@ -91,7 +93,7 @@ pub enum TokenKind {
 impl TokenKind {
     #[must_use] 
     pub fn is_literal(&self) -> bool {
-        matches!(self, Self::Float(_) | Self::Bool(_) | Self::StringLit(_) | Self::HexColor(_))
+        matches!(self, Self::Float(_) | Self::Bool(_) | Self::StringLit(_) | Self::TemplateLit(_) | Self::HexColor(_))
     }
 
     #[must_use] 
@@ -120,7 +122,7 @@ impl TokenKind {
             Self::Float(_)     => "number",
             Self::Bool(_)      => "bool",
             Self::Ident(_)     => "identifier",
-            Self::StringLit(_) => "string",
+            Self::StringLit(_) | Self::TemplateLit(_) => "string",
             Self::HexColor(_)  => "color literal",
             Self::Fn           => "'fn'",
             Self::Let          => "'let'",
@@ -237,6 +239,17 @@ pub fn keyword_or_ident(s: String) -> TokenKind {
         "res"       => TokenKind::TRes,
         _           => TokenKind::Ident(s),
     }
+}
+
+// ─── Template string parts ───────────────────────────────────────────────────
+
+/// A segment of an interpolated template string.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TemplatePart {
+    /// Literal text between interpolations.
+    Lit(String),
+    /// Raw source text of an expression inside `${}`.
+    Expr(String),
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

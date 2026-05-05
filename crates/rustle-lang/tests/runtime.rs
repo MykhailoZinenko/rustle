@@ -2241,3 +2241,69 @@ fn string_replace() {
         other => panic!("expected string, got {other:?}"),
     }
 }
+
+// ─── String interpolation ───────────────────────────────────────────────────
+
+#[test]
+fn template_string_no_interpolation() {
+    let rt = run("state { let v: string = `hello world` }");
+    assert_eq!(s(&rt, "v"), "hello world");
+}
+
+#[test]
+fn template_string_with_variable() {
+    let rt = run(r#"
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            let name: string = "Rustle"
+            s.v = `hello ${name}`
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "hello Rustle");
+}
+
+#[test]
+fn template_string_with_expression() {
+    let rt = run("state { let v: string = `2 + 2 = ${2 + 2}` }");
+    assert_eq!(s(&rt, "v"), "2 + 2 = 4");
+}
+
+#[test]
+fn template_string_multiple_interpolations() {
+    let rt = run(r#"
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            let x: float = 10
+            let y: float = 20
+            s.v = `(${x}, ${y})`
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "(10, 20)");
+}
+
+#[test]
+fn template_string_nested_braces() {
+    let rt = run("state { let v: string = `value is ${(1 + 2) * 3}` }");
+    assert_eq!(s(&rt, "v"), "value is 9");
+}
+
+#[test]
+fn template_string_escape_backtick() {
+    let rt = run(r"state { let v: string = `hello \` world` }");
+    assert_eq!(s(&rt, "v"), "hello ` world");
+}
+
+#[test]
+fn template_string_escape_dollar() {
+    let rt = run(r"state { let v: string = `price is \$5` }");
+    assert_eq!(s(&rt, "v"), "price is $5");
+}
+
+#[test]
+fn regular_string_no_interpolation() {
+    // Regular "" strings should NOT interpolate
+    let rt = run(r#"state { let v: string = "hello ${world}" }"#);
+    assert_eq!(s(&rt, "v"), "hello ${world}");
+}

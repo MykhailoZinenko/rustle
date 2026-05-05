@@ -283,6 +283,19 @@ impl<'a> Interpreter<'a> {
         match expr {
             Expr::Float(v, _)     => Ok(Value::Float(*v)),
             Expr::Bool(v, _)      => Ok(Value::Bool(*v)),
+            Expr::Interpolated(parts, _) => {
+                let mut result = String::new();
+                for part in parts {
+                    match part {
+                        ast::InterpolPart::Lit(s) => result.push_str(s),
+                        ast::InterpolPart::Expr(e) => {
+                            let val = self.eval_expr(e)?;
+                            result.push_str(&val.to_string());
+                        }
+                    }
+                }
+                Ok(Value::Str(result))
+            }
             Expr::None(_)         => Ok(Value::None),
             Expr::StringLit(s, _) => Ok(Value::Str(s.clone())),
             Expr::HexColor(s, _)  => parse_hex_color(s),
@@ -1164,6 +1177,13 @@ fn collect_free_expr(expr: &Expr, bound: &HashSet<String>, free: &mut HashSet<St
             }
         }
         Expr::Float(..) | Expr::Bool(..) | Expr::None(..) | Expr::StringLit(..) | Expr::HexColor(..) => {}
+        Expr::Interpolated(parts, _) => {
+            for part in parts {
+                if let ast::InterpolPart::Expr(e) = part {
+                    collect_free_expr(e, bound, free);
+                }
+            }
+        }
         Expr::BinOp { left, right, .. } => {
             collect_free_expr(left, bound, free);
             collect_free_expr(right, bound, free);

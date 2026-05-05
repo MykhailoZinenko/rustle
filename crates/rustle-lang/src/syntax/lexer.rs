@@ -1,5 +1,5 @@
 use crate::error::{Error, ErrorCode};
-use crate::syntax::token::{Token, TokenKind, keyword_or_ident};
+use crate::syntax::token::{Token, TokenKind, TemplatePart, keyword_or_ident};
 
 pub struct Lexer<'a> {
     source: &'a [u8],
@@ -113,6 +113,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             b'"' => TokenKind::StringLit(self.read_string(line, col)?),
+            b'`' => TokenKind::TemplateLit(self.read_template_string(line, col)?),
             b'0'..=b'9' => TokenKind::Float(self.read_number(ch, line, col)?),
             b'a'..=b'z' | b'A'..=b'Z' | b'_' => keyword_or_ident(self.read_ident(ch)),
 
@@ -230,6 +231,68 @@ impl<'a> Lexer<'a> {
         }
         if let Some(e) = error { return Err(e); }
         Ok(s)
+    }
+
+    fn read_template_string(&mut self, start_line: usize, start_col: usize) -> Result<Vec<TemplatePart>, Error> {
+        let mut parts = Vec::new();
+        let mut buf = String::new();
+
+        loop {
+            if self.is_at_end() {
+                return Err(Error::new(ErrorCode::L002, start_line, start_col,
+                    "unterminated template string"));
+            }
+            let ch = self.peek();
+            if ch == b'`' {
+                self.advance();
+                if !buf.is_empty() {
+                    parts.push(TemplatePart::Lit(std::mem::take(&mut buf)));
+                }
+                break;
+            }
+            if ch == b'$' && self.peek_next() == b'{' {
+                if !buf.is_empty() {
+                    parts.push(TemplatePart::Lit(std::mem::take(&mut buf)));
+                }
+                self.advance(); // $
+                self.advance(); // {
+                let mut depth = 1usize;
+                let mut expr_src = String::new();
+                while !self.is_at_end() && depth > 0 {
+                    let c = self.advance();
+                    if c == b'{' { depth += 1; }
+                    if c == b'}' { depth -= 1; }
+                    if depth > 0 { expr_src.push(c as char); }
+                }
+                if depth > 0 {
+                    return Err(Error::new(ErrorCode::L002, start_line, start_col,
+                        "unterminated `${` in template string"));
+                }
+                parts.push(TemplatePart::Expr(expr_src));
+                continue;
+            }
+            if ch == b'\\' {
+                self.advance();
+                if self.is_at_end() {
+                    return Err(Error::new(ErrorCode::L002, start_line, start_col,
+                        "unterminated template string"));
+                }
+                match self.advance() {
+                    b'n'  => buf.push('\n'),
+                    b't'  => buf.push('\t'),
+                    b'`'  => buf.push('`'),
+                    b'\\' => buf.push('\\'),
+                    b'$'  => buf.push('$'),
+                    other => {
+                        buf.push('\\');
+                        buf.push(other as char);
+                    }
+                }
+                continue;
+            }
+            buf.push(self.advance() as char);
+        }
+        Ok(parts)
     }
 
     fn read_number(&mut self, first: u8, line: usize, col: usize) -> Result<f64, Error> {

@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::syntax::ast::{Program, Item, ImportDecl, StateBlock, StateField, Param, Stmt, FnDef, VarDecl, AssignTarget, BinOp, Expr, Assign, Span, PrintLevel, PrintStmt, OutStmt, IfStmt, MatchArm, MatchStmt, WhileStmt, ForStmt, ForeachStmt, UnOp, Type};
+use crate::syntax::ast::{Program, Item, ImportDecl, StateBlock, StateField, Param, Stmt, FnDef, VarDecl, AssignTarget, BinOp, Expr, Assign, Span, PrintLevel, PrintStmt, OutStmt, IfStmt, MatchArm, MatchStmt, WhileStmt, ForStmt, ForeachStmt, UnOp, Type, InterpolPart};
 use crate::error::{Error, ErrorCode};
 use crate::syntax::token::{Token, TokenKind};
 
@@ -692,6 +692,10 @@ impl Parser {
             TokenKind::Bool(v)  => { self.advance(); Ok(Expr::Bool(v, span)) }
             TokenKind::None     => { self.advance(); Ok(Expr::None(span)) }
             TokenKind::StringLit(s) => { self.advance(); Ok(Expr::StringLit(s, span)) }
+            TokenKind::TemplateLit(parts) => {
+                self.advance();
+                self.parse_template_parts(&parts, span)
+            }
             TokenKind::HexColor(s)  => { self.advance(); Ok(Expr::HexColor(s, span)) }
 
             // lambda or grouped expression
@@ -1018,6 +1022,30 @@ impl Parser {
         let body: Arc<[Stmt]> = self.parse_block()?.into();
         let span = self.span_from(&start);
         Ok(Expr::Lambda { params, return_ty, body, span })
+    }
+
+    #[expect(clippy::unused_self, reason = "method logically belongs to Parser for consistency")]
+    fn parse_template_parts(&mut self, parts: &[crate::syntax::token::TemplatePart], span: Span) -> Result<Expr, Error> {
+        use crate::syntax::token::TemplatePart;
+        let mut result = Vec::new();
+        for part in parts {
+            match part {
+                TemplatePart::Lit(s) => {
+                    result.push(InterpolPart::Lit(s.clone()));
+                }
+                TemplatePart::Expr(src) => {
+                    let tokens = crate::syntax::lexer::Lexer::new(src).tokenize()
+                        .map_err(|errs| errs.into_iter().next().unwrap_or_else(|| {
+                            Error::new(ErrorCode::L001, span.line, span.column,
+                                "invalid expression in template string")
+                        }))?;
+                    let mut sub_parser = Parser::new(tokens);
+                    let expr = sub_parser.parse_expr()?;
+                    result.push(InterpolPart::Expr(Box::new(expr)));
+                }
+            }
+        }
+        Ok(Expr::Interpolated(result, span))
     }
 
     /// Skip tokens until we find something that looks like a new statement.

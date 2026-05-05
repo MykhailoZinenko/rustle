@@ -67,7 +67,7 @@ fn append_plain(job: &mut egui::text::LayoutJob, text: &str, color: Color32) {
 
 fn token_color(kind: &TokenKind, next: Option<&Token>) -> Color32 {
     match kind {
-        TokenKind::StringLit(_) | TokenKind::Float(_) | TokenKind::Bool(_) | TokenKind::HexColor(_) => {
+        TokenKind::StringLit(_) | TokenKind::TemplateLit(_) | TokenKind::Float(_) | TokenKind::Bool(_) | TokenKind::HexColor(_) => {
             SYNTAX_LITERAL
         }
         kind if kind.is_type_keyword() => SYNTAX_TYPE,
@@ -115,6 +115,7 @@ fn token_source_len(text: &str, start: usize, token: &Token) -> usize {
         TokenKind::Float(_) => scan_number_len(bytes, start),
         TokenKind::Ident(name) => name.len(),
         TokenKind::StringLit(_) => scan_string_len(bytes, start),
+        TokenKind::TemplateLit(_) => scan_template_len(bytes, start),
         TokenKind::HexColor(value) => value.len() + 1,
         TokenKind::Bool(true) => 4,
         TokenKind::Bool(false) => 5,
@@ -229,5 +230,23 @@ fn scan_string_len(bytes: &[u8], start: usize) -> usize {
         }
     }
 
+    index.saturating_sub(start)
+}
+
+fn scan_template_len(bytes: &[u8], start: usize) -> usize {
+    if start >= bytes.len() || bytes[start] != b'`' {
+        return 0;
+    }
+    let mut index = start + 1;
+    while index < bytes.len() {
+        if bytes[index] == b'`' {
+            index += 1;
+            break;
+        }
+        if bytes[index] == b'\\' {
+            index += 1; // skip escaped char
+        }
+        index += 1;
+    }
     index.saturating_sub(start)
 }

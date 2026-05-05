@@ -454,6 +454,15 @@ impl<'a> TypeResolver<'a> {
             Expr::StringLit(_, _) => Ok(Type::String),
             Expr::HexColor(_, _)  => Ok(Type::Color),
 
+            Expr::Interpolated(parts, _) => {
+                for part in parts {
+                    if let crate::syntax::ast::InterpolPart::Expr(e) = part {
+                        self.infer_expr(e)?;
+                    }
+                }
+                Ok(Type::String)
+            }
+
             Expr::Ident(name, span) => self.lookup_type(name, span),
 
             Expr::BinOp { left, op, right, span } => {

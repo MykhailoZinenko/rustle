@@ -235,6 +235,8 @@ pub enum Expr {
     Bool(bool, Span),
     None(Span),
     StringLit(String, Span),
+    /// Template string with interpolated expressions: `hello ${name}`
+    Interpolated(Vec<InterpolPart>, Span),
     HexColor(String, Span),
     Ident(String, Span),
 
@@ -337,7 +339,8 @@ impl Expr {
         match self {
             Expr::Float(_, s) | Expr::Bool(_, s) | Expr::StringLit(_, s)
             | Expr::HexColor(_, s) | Expr::Ident(_, s)
-            | Expr::None(s) | Expr::List(_, s) => s,
+            | Expr::None(s) | Expr::List(_, s)
+            | Expr::Interpolated(_, s) => s,
             Expr::BinOp { span, .. }
             | Expr::UnOp { span, .. }
             | Expr::Ternary { span, .. }
@@ -426,6 +429,17 @@ pub enum Type {
     Fn(Vec<Type>, Option<Box<Type>>),
     /// User-defined types (future structs/enums). Built-in types have their own variants above.
     Named(String),
+}
+
+// ─── Interpolation ──────────────────────────────────────────────────────────
+
+/// A part of an interpolated template string expression.
+#[derive(Debug, Clone)]
+pub enum InterpolPart {
+    /// Literal text segment.
+    Lit(String),
+    /// An evaluated expression.
+    Expr(Box<Expr>),
 }
 
 impl Type {
