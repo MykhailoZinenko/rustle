@@ -49,6 +49,9 @@ Documented: intentionally absent. Equality handled by `values_equal()` with bitw
 ### 30. Scope::symbols HashMap Ordering
 Added `names.sort()` to `all_visible_names()` for deterministic suggestion output.
 
+### 18. State Type is Not in TypeRegistry
+Registered State in TypeRegistry with `keys()` → `list[string]` and `len()` → `float` methods. Fields remain dynamic via LookupContext. Updated `value_type_key` and `type_to_registry_key` to map State properly.
+
 ### 26. `for` Step Must Be an Assignment Statement
 Parser now accepts expression statements (like `i++`, `i--`, function calls) in the `for` loop step clause, not just assignments. Falls back to `parse_expr()` when `is_path_assign()` returns false.
 

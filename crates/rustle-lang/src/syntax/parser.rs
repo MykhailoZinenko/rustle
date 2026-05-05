@@ -77,6 +77,7 @@ impl Parser {
         } else {
             Vec::new()
         };
+        let span = self.span_from(&span);
         Ok(ImportDecl { namespace, members, span })
     }
 
@@ -91,6 +92,7 @@ impl Parser {
             fields.push(self.parse_state_field()?);
         }
         self.expect(TokenKind::RBrace)?;
+        let span = self.span_from(&span);
         Ok(StateBlock { fields, span })
     }
 
@@ -105,6 +107,7 @@ impl Parser {
         };
         self.expect(TokenKind::Eq)?;
         let initializer = self.parse_expr()?;
+        let span = self.span_from(&span);
         Ok(StateField { name, ty, initializer, span })
     }
 
@@ -122,22 +125,25 @@ impl Parser {
             self.expect(TokenKind::RParen)?;
             let return_ty = if self.matches(TokenKind::Arrow) { Some(self.parse_type()?) } else { None };
             let body: Arc<[Stmt]> = self.parse_block()?.into();
+            let span = self.span_from(&span);
             Ok(Item::FnDef(FnDef { name, params, return_ty, body, span }))
         } else {
             // fn name = expr
             self.expect(TokenKind::Eq)?;
             let value = self.parse_expr()?;
+            let span = self.span_from(&span);
             Ok(Item::Stmt(Stmt::FnVar { name, value, span }))
         }
     }
 
     /// `fn name = expr` inside a block.
     fn parse_fn_var_stmt(&mut self) -> Result<Stmt, Error> {
-        let span = self.span();
+        let start = self.span();
         self.expect(TokenKind::Fn)?;
         let name = self.expect_ident()?;
         self.expect(TokenKind::Eq)?;
         let value = self.parse_expr()?;
+        let span = self.span_from(&start);
         Ok(Stmt::FnVar { name, value, span })
     }
 
@@ -196,7 +202,7 @@ impl Parser {
     }
 
     fn parse_var_decl(&mut self, is_const: bool) -> Result<Stmt, Error> {
-        let span = self.span();
+        let start = self.span();
         self.advance(); // consume `let` or `const`
         let name = self.expect_ident()?;
         let ty = if self.matches(TokenKind::Colon) {
@@ -206,11 +212,12 @@ impl Parser {
         };
         self.expect(TokenKind::Eq)?;
         let initializer = self.parse_expr()?;
+        let span = self.span_from(&start);
         Ok(Stmt::VarDecl(VarDecl { name, ty, is_const, initializer, span }))
     }
 
     fn parse_assign(&mut self) -> Result<Stmt, Error> {
-        let span = self.span();
+        let start = self.span();
         let mut path = vec![self.expect_ident()?];
         while self.matches(TokenKind::Dot) {
             path.push(self.expect_ident()?);
@@ -241,14 +248,15 @@ impl Parser {
                     "expected `=`, `+=`, `-=`, `*=`, or `/=`"));
             };
             let rhs = self.parse_expr()?;
-            let lhs = self.path_to_expr(&path, &indices, span.clone());
+            let lhs = self.path_to_expr(&path, &indices, start.clone());
             Expr::BinOp {
                 left: Box::new(lhs),
                 op: binop,
                 right: Box::new(rhs),
-                span: span.clone(),
+                span: start.clone(),
             }
         };
+        let span = self.span_from(&start);
         Ok(Stmt::Assign(Assign { target, value, span }))
     }
 
@@ -274,7 +282,7 @@ impl Parser {
     }
 
     fn parse_print(&mut self) -> Result<Stmt, Error> {
-        let span = self.span();
+        let start = self.span();
         self.expect(TokenKind::Console)?;
         // Determine level from optional `.warn` or `.error`
         let level = if self.matches(TokenKind::Dot) {
@@ -289,7 +297,7 @@ impl Parser {
                 }
                 _ => return Err(Error::new(
                     crate::error::ErrorCode::P001,
-                    span.line, span.column,
+                    start.line, start.column,
                     "expected `warn` or `error` after `console.`",
                 )),
             }
@@ -301,11 +309,12 @@ impl Parser {
         while self.matches(TokenKind::LtLt) {
             values.push(self.parse_expr()?);
         }
+        let span = self.span_from(&start);
         Ok(Stmt::Print(PrintStmt { level, values, span }))
     }
 
     fn parse_out(&mut self) -> Result<Stmt, Error> {
-        let span = self.span();
+        let start = self.span();
         self.expect(TokenKind::Out)?;
         let mut shapes = Vec::new();
         self.expect(TokenKind::LtLt)?;
@@ -313,11 +322,12 @@ impl Parser {
         while self.matches(TokenKind::LtLt) {
             shapes.push(self.parse_expr()?);
         }
+        let span = self.span_from(&start);
         Ok(Stmt::Out(OutStmt { shapes, span }))
     }
 
     fn parse_if(&mut self) -> Result<Stmt, Error> {
-        let span = self.span();
+        let start = self.span();
         self.expect(TokenKind::If)?;
 
         // if let v = expr { ... } else { ... }
@@ -332,6 +342,7 @@ impl Parser {
             } else {
                 None
             };
+            let span = self.span_from(&start);
             return Ok(Stmt::IfLet { binding, expr, then_block, else_block, span });
         }
 
@@ -346,17 +357,18 @@ impl Parser {
         } else {
             None
         };
+        let span = self.span_from(&start);
         Ok(Stmt::If(IfStmt { condition, then_block, else_block, span }))
     }
 
     fn parse_match(&mut self) -> Result<Stmt, Error> {
-        let span = self.span();
+        let start = self.span();
         self.expect(TokenKind::Match)?;
         let expr = self.parse_expr()?;
         self.expect(TokenKind::LBrace)?;
         let mut arms = Vec::new();
         while !self.check(TokenKind::RBrace) && !self.is_at_end() {
-            let arm_span = self.span();
+            let arm_start = self.span();
             let (values, body) = if self.matches(TokenKind::Else) {
                 self.expect(TokenKind::FatArrow)?;
                 (Vec::new(), self.parse_block()?)
@@ -370,22 +382,25 @@ impl Parser {
                 let body = self.parse_block()?;
                 (values, body)
             };
+            let arm_span = self.span_from(&arm_start);
             arms.push(MatchArm { values, body, span: arm_span });
         }
         self.expect(TokenKind::RBrace)?;
+        let span = self.span_from(&start);
         Ok(Stmt::Match(MatchStmt { expr, arms, span }))
     }
 
     fn parse_while(&mut self) -> Result<Stmt, Error> {
-        let span = self.span();
+        let start = self.span();
         self.expect(TokenKind::While)?;
         let condition = self.parse_expr()?;
         let body = self.parse_block()?;
+        let span = self.span_from(&start);
         Ok(Stmt::While(WhileStmt { condition, body, span }))
     }
 
     fn parse_for(&mut self) -> Result<Stmt, Error> {
-        let span = self.span();
+        let start = self.span();
         self.expect(TokenKind::For)?;
         let init = Box::new(self.parse_var_decl(false)?);
         self.expect(TokenKind::Semicolon)?;
@@ -397,11 +412,12 @@ impl Parser {
             Box::new(Stmt::Expr(self.parse_expr()?))
         };
         let body = self.parse_block()?;
+        let span = self.span_from(&start);
         Ok(Stmt::For(ForStmt { init, condition, step, body, span }))
     }
 
     fn parse_foreach(&mut self) -> Result<Stmt, Error> {
-        let span = self.span();
+        let start = self.span();
         self.expect(TokenKind::Foreach)?;
         let var_name = self.expect_ident()?;
         let var_ty = if self.matches(TokenKind::Colon) {
@@ -412,17 +428,19 @@ impl Parser {
         self.expect(TokenKind::In)?;
         let iterable = self.parse_expr()?;
         let body = self.parse_block()?;
+        let span = self.span_from(&start);
         Ok(Stmt::Foreach(ForeachStmt { var_name, var_ty, iterable, body, span }))
     }
 
     fn parse_return(&mut self) -> Result<Stmt, Error> {
-        let span = self.span();
+        let start = self.span();
         self.expect(TokenKind::Return)?;
         let value = if self.check(TokenKind::RBrace) || self.is_at_end() {
             None
         } else {
             Some(self.parse_expr()?)
         };
+        let span = self.span_from(&start);
         Ok(Stmt::Return(value, span))
     }
 
@@ -950,6 +968,12 @@ impl Parser {
         Span::new(tok.line, tok.column)
     }
 
+    /// Create a span from a start position to the current token position.
+    fn span_from(&self, start: &Span) -> Span {
+        let end = self.peek();
+        Span::range(start.line, start.column, end.line, end.column)
+    }
+
     fn unexpected(&self, expected: &str) -> Error {
         let tok = self.peek();
         Error::new(
@@ -986,12 +1010,13 @@ impl Parser {
     }
 
     fn parse_lambda(&mut self) -> Result<Expr, Error> {
-        let span = self.span();
+        let start = self.span();
         self.expect(TokenKind::LParen)?;
         let params: Arc<[Param]> = self.parse_param_list()?.into();
         self.expect(TokenKind::RParen)?;
         let return_ty = if self.matches(TokenKind::Arrow) { Some(self.parse_type()?) } else { None };
         let body: Arc<[Stmt]> = self.parse_block()?.into();
+        let span = self.span_from(&start);
         Ok(Expr::Lambda { params, return_ty, body, span })
     }
 

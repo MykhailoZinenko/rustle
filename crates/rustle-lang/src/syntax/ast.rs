@@ -5,12 +5,20 @@ use std::sync::Arc;
 pub struct Span {
     pub line: usize,
     pub column: usize,
+    pub end_line: usize,
+    pub end_column: usize,
 }
 
 impl Span {
-    #[must_use] 
+    #[must_use]
     pub fn new(line: usize, column: usize) -> Self {
-        Self { line, column }
+        Self { line, column, end_line: line, end_column: column }
+    }
+
+    /// Create a span covering from start to end position.
+    #[must_use]
+    pub fn range(line: usize, column: usize, end_line: usize, end_column: usize) -> Self {
+        Self { line, column, end_line, end_column }
     }
 }
 

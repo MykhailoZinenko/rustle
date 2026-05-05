@@ -254,6 +254,7 @@ impl Default for TypeRegistry {
         r.register(list_desc());
         r.register(res_desc());
         r.register(input_desc());
+        r.register(state_desc());
         r
     }
 }
@@ -287,8 +288,9 @@ pub fn value_type_key(v: &Value) -> &'static str {
         | Value::ResErr(_)          => "res",
         Value::Input { .. }         => "Input",
         Value::None                 => "none",
+        Value::State(_)             => "State",
         // Not in registry — handled specially by the interpreter:
-        // Namespace, NativeFn, Closure, State, RenderMode
+        // Namespace, NativeFn, Closure, RenderMode
         _                           => "",
     }
 }
@@ -313,6 +315,7 @@ fn type_to_registry_key(ty: &Type) -> &'static str {
         Type::Line      => "line",
         Type::Polygon   => "polygon",
         Type::Input     => "Input",
+        Type::State     => "State",
         Type::List(_)   => "list",
         _ => "",
     }
@@ -1219,6 +1222,45 @@ fn mat3_desc() -> TypeDesc {
                     let Value::Mat3(m) = v else { unreachable!() };
                     let s = expect_float(&args[0], "scale s", line)?;
                     Ok(Value::Mat3(Box::new(m3_scale(m, s))))
+                },
+            },
+        ],
+    }
+}
+
+// ─── state ────────────────────────────────────────────────────────────────────
+
+/// State has no static fields (they are dynamic, resolved via `LookupContext`),
+/// but it can have methods that operate on the map as a whole.
+fn state_desc() -> TypeDesc {
+    TypeDesc {
+        name: "State",
+        fields: vec![],  // Fields are dynamic — handled by LookupContext
+        methods: vec![
+            MethodDesc {
+                name: "keys",
+                params: vec![],
+                ret: Some(Type::List(Box::new(Type::String))),
+                call: |v, _args, _line| {
+                    let Value::State(rc) = v else { unreachable!() };
+                    let mut keys: Vec<Value> = rc.borrow().keys()
+                        .map(|k| Value::Str(k.clone()))
+                        .collect();
+                    keys.sort_unstable_by(|a, b| {
+                        let (Value::Str(a), Value::Str(b)) = (a, b) else { unreachable!() };
+                        a.cmp(b)
+                    });
+                    Ok(Value::List(std::rc::Rc::new(std::cell::RefCell::new(keys))))
+                },
+            },
+            MethodDesc {
+                name: "len",
+                params: vec![],
+                ret: Some(Type::Float),
+                call: |v, _args, _line| {
+                    let Value::State(rc) = v else { unreachable!() };
+                    #[allow(clippy::cast_precision_loss)]
+                    Ok(Value::Float(rc.borrow().len() as f64))
                 },
             },
         ],
