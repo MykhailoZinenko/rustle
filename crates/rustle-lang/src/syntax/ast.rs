@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 /// Source location attached to every node for error reporting.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Span {
     pub line: usize,
     pub column: usize,
