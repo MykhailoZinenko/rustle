@@ -8,6 +8,7 @@ use crate::syntax::ast::{Type, Program, Item, StateBlock, FnDef, Stmt, VarDecl, 
 use crate::error::{Error, ErrorCode, suggest_similar};
 use crate::namespaces::NamespaceRegistry;
 use crate::types::binop_registry::{BinopRegistry, type_to_key, key_to_type};
+use crate::types::registry::TypeRegistry;
 use super::lookup::LookupContext;
 use super::symbols::{ScopeKind, Symbol, SymbolKind, SymbolTable};
 
@@ -28,23 +29,23 @@ pub struct TypeResolver<'a> {
 }
 
 impl<'a> TypeResolver<'a> {
-    #[must_use] 
-    pub fn new(table: SymbolTable, registry: &'a NamespaceRegistry) -> Self {
+    #[must_use]
+    pub fn new(table: SymbolTable, registry: &'a NamespaceRegistry, type_registry: &'a TypeRegistry) -> Self {
         Self {
             table,
             errors: Vec::new(),
             current_fn_order: None,
             current_fn_return: None,
             program: None,
-            lookup: LookupContext::new(None, registry),
+            lookup: LookupContext::new(None, registry, type_registry),
             binops: BinopRegistry::default(),
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn run(mut self, program: &'a Program) -> (SymbolTable, Vec<Error>) {
         self.program = Some(program);
-        self.lookup = LookupContext::new(Some(program), self.lookup.registry);
+        self.lookup = LookupContext::new(Some(program), self.lookup.registry, self.lookup.type_registry);
         if let Some(state) = &program.state {
             self.check_state(state);
         }

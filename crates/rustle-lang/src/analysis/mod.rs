@@ -7,6 +7,7 @@ pub mod validator;
 use crate::syntax::ast;
 use crate::error::Error;
 use crate::namespaces::NamespaceRegistry;
+use crate::types::registry::TypeRegistry;
 use collector::Collector;
 use checker::TypeResolver;
 use validator::Validator;
@@ -40,7 +41,8 @@ pub fn resolve(
     all_errors.extend(collect_errors);
 
     // ── Pass 2: type inference and checking ───────────────────────────────────
-    let (table, type_errors) = TypeResolver::new(table, registry).run(program);
+    let type_registry = TypeRegistry::default();
+    let (table, type_errors) = TypeResolver::new(table, registry, &type_registry).run(program);
     all_errors.extend(type_errors);
 
     // ── Pass 3: semantic validation ───────────────────────────────────────────

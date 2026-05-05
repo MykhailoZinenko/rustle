@@ -16,13 +16,13 @@ use super::collector::infer_literal_type;
 pub struct LookupContext<'a> {
     pub program:  Option<&'a Program>,
     pub registry: &'a NamespaceRegistry,
-    type_registry: TypeRegistry,
+    pub(super) type_registry: &'a TypeRegistry,
 }
 
 impl<'a> LookupContext<'a> {
-    #[must_use] 
-    pub fn new(program: Option<&'a Program>, registry: &'a NamespaceRegistry) -> Self {
-        Self { program, registry, type_registry: TypeRegistry::default() }
+    #[must_use]
+    pub fn new(program: Option<&'a Program>, registry: &'a NamespaceRegistry, type_registry: &'a TypeRegistry) -> Self {
+        Self { program, registry, type_registry }
     }
 
     /// Resolve the type of `obj.field`.

@@ -37,6 +37,18 @@ Implemented actual type conversions for `as` expressions: float<->bool, float->s
 ### 13. string Type Has No Methods or Operations
 Added string concatenation (`+`), comparison operators (`<`, `<=`, `>`, `>=`), and 9 methods: `len()`, `contains()`, `starts_with()`, `ends_with()`, `trim()`, `to_upper()`, `to_lower()`, `replace()`, `split()`. Registered string in binop_registry for operator dispatch.
 
+### 24. LookupContext Allocates a New TypeRegistry
+LookupContext now stores `&'a TypeRegistry` reference instead of owning one. Single TypeRegistry created in `resolve()` and shared through checker and lookup. One allocation per compile instead of two.
+
+### 27. PartialEq on TokenKind::Float
+Documented: IEEE NaN inequality is acceptable because the lexer never produces NaN tokens.
+
+### 28. Value Does Not Implement PartialEq
+Documented: intentionally absent. Equality handled by `values_equal()` with bitwise float semantics.
+
+### 30. Scope::symbols HashMap Ordering
+Added `names.sort()` to `all_visible_names()` for deterministic suggestion output.
+
 ### 26. `for` Step Must Be an Assignment Statement
 Parser now accepts expression statements (like `i++`, `i--`, function calls) in the `for` loop step clause, not just assignments. Falls back to `parse_expr()` when `is_path_assign()` returns false.
 

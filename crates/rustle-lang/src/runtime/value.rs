@@ -14,6 +14,10 @@ pub struct ClosureData {
     pub captured: HashMap<String, Value>,
 }
 
+// Note: Value intentionally does not implement PartialEq. Equality semantics
+// are handled by `values_equal()` in interpreter.rs, which uses bitwise float
+// comparison (NaN == NaN, +0 != -0) rather than IEEE equality.
+
 /// Runtime value in the Rustle interpreter.
 #[non_exhaustive]
 #[derive(Debug, Clone)]

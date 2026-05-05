@@ -189,6 +189,7 @@ impl Default for SymbolTable {
 
 impl SymbolTable {
     /// Collect all symbol names visible across all scopes (for suggestions).
+    /// Results are sorted for deterministic output.
     #[must_use]
     pub fn all_visible_names(&self) -> Vec<String> {
         let mut names = Vec::new();
@@ -199,6 +200,7 @@ impl SymbolTable {
                 }
             }
         }
+        names.sort();
         names
     }
 

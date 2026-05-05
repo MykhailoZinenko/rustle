@@ -14,7 +14,7 @@ Sorted by priority descending, then complexity descending.
 
 ## CRITICAL — Fix Before Proceeding
 
-### 1. AST Cloning on Every Tick (Priority: 10, Complexity: 7)
+### ✅ 1. AST Cloning on Every Tick (Priority: 10, Complexity: 7)
 
 **File:** `runtime/interpreter.rs:154`, `lib.rs:119`
 
@@ -34,7 +34,7 @@ For a 60fps animation with nested function calls, this means thousands of AST cl
 
 ---
 
-### 2. Rc Cycle Memory Leaks (Priority: 9, Complexity: 8)
+### ✅ 2. Rc Cycle Memory Leaks (Priority: 9, Complexity: 8)
 
 **Files:** `runtime/value.rs:20,33`, documented in CLAUDE.md
 
@@ -53,7 +53,7 @@ For a 60fps animation with nested function calls, this means thousands of AST cl
 
 ---
 
-### 3. No `break`/`continue` Statements (Priority: 8, Complexity: 4)
+### ✅ 3. No `break`/`continue` Statements (Priority: 8, Complexity: 4)
 
 **Files:** `syntax/ast.rs`, `syntax/parser.rs`, `runtime/interpreter.rs`
 
@@ -65,7 +65,7 @@ For a 60fps animation with nested function calls, this means thousands of AST cl
 
 ---
 
-### 4. `Type::Named` String Comparison is Fragile (Priority: 8, Complexity: 6)
+### ✅ 4. `Type::Named` String Comparison is Fragile (Priority: 8, Complexity: 6)
 
 **Files:** Throughout — `checker.rs`, `lookup.rs`, `collector.rs`, `registry.rs`
 
@@ -86,7 +86,7 @@ There's no canonical registry of type names. "string" is `Type::Named("string")`
 
 ---
 
-### 5. `TypeRegistry` and `BinopRegistry` Recreated on Every Frame (Priority: 7, Complexity: 3)
+### ✅ 5. `TypeRegistry` and `BinopRegistry` Recreated on Every Frame (Priority: 7, Complexity: 3)
 
 **Files:** `lib.rs:113`, `runtime/interpreter.rs:77-78`
 
@@ -148,7 +148,7 @@ The `error()` function always resolves to `res<float>` regardless of context. If
 
 ---
 
-### 9. No Recursion Depth Limit (Priority: 6, Complexity: 2)
+### ✅ 9. No Recursion Depth Limit (Priority: 6, Complexity: 2)
 
 **File:** `runtime/interpreter.rs:480-515`
 
@@ -225,7 +225,7 @@ The `string` type descriptor exists but likely has no methods registered (the fi
 
 ## MEDIUM — Address When Convenient
 
-### 14. `program.items.clone()` in Top-Level Execution (Priority: 5, Complexity: 2)
+### ✅ 14. `program.items.clone()` in Top-Level Execution (Priority: 5, Complexity: 2)
 
 **File:** `runtime/interpreter.rs:154`
 
@@ -247,7 +247,7 @@ Three separate `as_float` functions doing the same thing (extract f64 from Value
 
 ---
 
-### 16. `peek_kind()` Clones TokenKind on Every Call (Priority: 4, Complexity: 2)
+### ✅ 16. `peek_kind()` Clones TokenKind on Every Call (Priority: 4, Complexity: 2)
 
 **File:** `syntax/parser.rs:824-826`
 
@@ -277,7 +277,7 @@ Pass 3 (Validator) re-walks the entire AST to check const reassignment. But the 
 
 ---
 
-### 18. `State` Type is Not in TypeRegistry (Priority: 4, Complexity: 3)
+### ⏭ 18. `State` Type is Not in TypeRegistry (Priority: 4, Complexity: 3)
 
 **Files:** `types/registry.rs` (not registered), `runtime/interpreter.rs:978-993`
 
@@ -287,7 +287,7 @@ State fields are handled by special-case code in both the resolver (`lookup.rs:3
 
 ---
 
-### 19. `fn on_update` Scanned by Linear Search on Every Tick (Priority: 4, Complexity: 1)
+### ✅ 19. `fn on_update` Scanned by Linear Search on Every Tick (Priority: 4, Complexity: 1)
 
 **File:** `lib.rs:119`
 
@@ -303,7 +303,7 @@ This linear scan happens every single frame. Same pattern in `run_init`, `run_on
 
 ---
 
-### 20. `Env::get` Clones Values on Every Access (Priority: 4, Complexity: 5)
+### ✅ 20. `Env::get` Clones Values on Every Access (Priority: 4, Complexity: 5)
 
 **File:** `runtime/interpreter.rs:48-51`
 
@@ -375,7 +375,7 @@ Ok(f as usize)
 
 ---
 
-### 24. `LookupContext` Allocates a New `TypeRegistry` (Priority: 3, Complexity: 2)
+### ✅ 24. `LookupContext` Allocates a New `TypeRegistry` (Priority: 3, Complexity: 2)
 
 **File:** `analysis/lookup.rs:23`
 
@@ -391,7 +391,7 @@ The resolver creates a `LookupContext` which constructs its own `TypeRegistry::d
 
 ---
 
-### 25. No Integer Type (Priority: 3, Complexity: 7)
+### ⏭ 25. No Integer Type (Priority: 3, Complexity: 7)
 
 **Files:** Throughout
 
@@ -419,7 +419,7 @@ The `for` loop step clause is restricted to assignment statements. `i++` doesn't
 
 ## LOW — Nice to Have
 
-### 27. `PartialEq` Not Derived on `TokenKind::Float(f64)` (Priority: 2, Complexity: 1)
+### ✅ 27. `PartialEq` Not Derived on `TokenKind::Float(f64)` (Priority: 2, Complexity: 1)
 
 **File:** `syntax/token.rs:1`
 
@@ -427,7 +427,7 @@ The `for` loop step clause is restricted to assignment statements. `i++` doesn't
 
 ---
 
-### 28. `Value` Does Not Implement `PartialEq` (Priority: 2, Complexity: 3)
+### ✅ 28. `Value` Does Not Implement `PartialEq` (Priority: 2, Complexity: 3)
 
 **File:** `runtime/value.rs`
 
@@ -435,7 +435,7 @@ The `for` loop step clause is restricted to assignment statements. `i++` doesn't
 
 ---
 
-### 29. Error Recovery in Parser is Minimal (Priority: 2, Complexity: 5)
+### ⏭ 29. Error Recovery in Parser is Minimal (Priority: 2, Complexity: 5)
 
 **File:** `syntax/parser.rs:970-988`
 
@@ -445,7 +445,7 @@ The `recover()` function just skips tokens until it finds a keyword that looks l
 
 ---
 
-### 30. `Scope::symbols` Uses `HashMap` — No Deterministic Ordering (Priority: 2, Complexity: 2)
+### ✅ 30. `Scope::symbols` Uses `HashMap` — No Deterministic Ordering (Priority: 2, Complexity: 2)
 
 **File:** `analysis/symbols.rs:43-44`
 
@@ -465,7 +465,7 @@ Symbol tables use `HashMap`, so iteration order is non-deterministic. The `all_v
 
 ---
 
-### 32. No `impl std::error::Error` for Error Types (Priority: 1, Complexity: 1)
+### ✅ 32. No `impl std::error::Error` for Error Types (Priority: 1, Complexity: 1)
 
 **File:** `error.rs`
 

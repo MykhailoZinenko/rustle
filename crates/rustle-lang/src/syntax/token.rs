@@ -2,6 +2,9 @@
 // This causes cloning in parser's peek_kind(). A string-interning approach
 // would eliminate this, but isn't worth the complexity until parsing
 // becomes a measured bottleneck. See PRACTICES_REVIEW.md #31.
+//
+// Note: Float(f64) uses IEEE equality (NaN != NaN). This is acceptable because
+// the lexer never produces NaN literals, and token comparison is only used for parsing.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     // Literals
