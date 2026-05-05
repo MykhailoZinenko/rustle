@@ -71,7 +71,7 @@ impl<'a> Collector<'a> {
                 import.namespace.clone(),
                 Some(Type::Named(import.namespace.clone())),
                 SymbolKind::Variable,
-                import.span.clone(),
+                import.span,
             );
             self.table.declare_top_level(sym);
         } else {
@@ -86,7 +86,7 @@ impl<'a> Collector<'a> {
                         export.name,
                         Some(export.ty),
                         kind,
-                        import.span.clone(),
+                        import.span,
                     );
                     if !self.table.declare_top_level(sym) {
                         self.errors.push(Error::new(
@@ -122,7 +122,7 @@ impl<'a> Collector<'a> {
                 format!("__state__{}", field.name),
                 field.ty.clone(),
                 SymbolKind::StateField,
-                field.span.clone(),
+                field.span,
             );
             self.table.declare_top_level(sym);
         }
@@ -133,7 +133,7 @@ impl<'a> Collector<'a> {
     fn collect_fn_sig(&mut self, f: &FnDef) {
         let param_types: Vec<Type> = f.params.iter().map(|p| p.ty.clone()).collect();
         let fn_ty = Type::Fn(param_types, f.return_ty.clone().map(Box::new));
-        let sym = Symbol::new(f.name.clone(), Some(fn_ty), SymbolKind::Function, f.span.clone());
+        let sym = Symbol::new(f.name.clone(), Some(fn_ty), SymbolKind::Function, f.span);
         if !self.table.declare_top_level(sym) {
             self.errors.push(Error::new(
                 ErrorCode::S003,
@@ -152,7 +152,7 @@ impl<'a> Collector<'a> {
                 // Complex initializers are resolved in pass 2 (TypeResolver).
                 let ty = v.ty.clone().or_else(|| infer_literal_type(&v.initializer));
                 let kind = if v.is_const { SymbolKind::Const } else { SymbolKind::Variable };
-                let sym = Symbol::new(v.name.clone(), ty, kind, v.span.clone());
+                let sym = Symbol::new(v.name.clone(), ty, kind, v.span);
                 if !self.table.declare_top_level(sym) {
                     self.errors.push(Error::new(
                         ErrorCode::S003,
@@ -163,7 +163,7 @@ impl<'a> Collector<'a> {
             }
             Stmt::FnVar { name, span, .. } => {
                 // `fn f = expr` — type resolved in pass 2
-                let sym = Symbol::new(name.clone(), None, SymbolKind::Function, span.clone());
+                let sym = Symbol::new(name.clone(), None, SymbolKind::Function, *span);
                 if !self.table.declare_top_level(sym) {
                     self.errors.push(Error::new(
                         ErrorCode::S003,

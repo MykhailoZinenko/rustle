@@ -248,12 +248,12 @@ impl Parser {
                     "expected `=`, `+=`, `-=`, `*=`, or `/=`"));
             };
             let rhs = self.parse_expr()?;
-            let lhs = self.path_to_expr(&path, &indices, start.clone());
+            let lhs = self.path_to_expr(&path, &indices, start);
             Expr::BinOp {
                 left: Box::new(lhs),
                 op: binop,
                 right: Box::new(rhs),
-                span: start.clone(),
+                span: start,
             }
         };
         let span = self.span_from(&start);
@@ -261,21 +261,21 @@ impl Parser {
     }
 
     /// Build an Expr that reads the value at the given path (e.g. `x`, `s.x`, or `arr[i]`).
-    #[expect(clippy::unused_self, clippy::needless_pass_by_value, reason = "Span is small and not Copy; self kept for API consistency")]
+    #[expect(clippy::unused_self, reason = "method logically belongs to Parser")]
     fn path_to_expr(&self, path: &[String], indices: &[Expr], span: Span) -> Expr {
-        let mut expr = Expr::Ident(path[0].clone(), span.clone());
+        let mut expr = Expr::Ident(path[0].clone(), span);
         for part in path.iter().skip(1) {
             expr = Expr::Field {
                 expr: Box::new(expr),
                 field: part.clone(),
-                span: span.clone(),
+                span,
             };
         }
         for idx in indices {
             expr = Expr::Index {
                 expr: Box::new(expr),
                 index: Box::new(idx.clone()),
-                span: span.clone(),
+                span,
             };
         }
         expr
@@ -459,7 +459,7 @@ impl Parser {
     fn parse_ternary(&mut self) -> Result<Expr, Error> {
         let expr = self.parse_or()?;
         if self.matches(TokenKind::Question) {
-            let span = expr.span().clone();
+            let span = *expr.span();
             let then_expr = self.parse_or()?;
             self.expect(TokenKind::Colon)?;
             let else_expr = self.parse_or()?;
@@ -476,7 +476,7 @@ impl Parser {
     fn parse_or(&mut self) -> Result<Expr, Error> {
         let mut left = self.parse_coalesce()?;
         while self.check(TokenKind::Or) {
-            let span = left.span().clone();
+            let span = *left.span();
             self.advance();
             let right = self.parse_coalesce()?;
             left = Expr::BinOp { left: Box::new(left), op: BinOp::Or, right: Box::new(right), span };
@@ -487,7 +487,7 @@ impl Parser {
     fn parse_coalesce(&mut self) -> Result<Expr, Error> {
         let mut left = self.parse_and()?;
         while self.check(TokenKind::QuestionQuestion) {
-            let span = left.span().clone();
+            let span = *left.span();
             self.advance();
             let right = self.parse_and()?;
             left = Expr::BinOp { left: Box::new(left), op: BinOp::Coalesce, right: Box::new(right), span };
@@ -498,7 +498,7 @@ impl Parser {
     fn parse_and(&mut self) -> Result<Expr, Error> {
         let mut left = self.parse_equality()?;
         while self.check(TokenKind::And) {
-            let span = left.span().clone();
+            let span = *left.span();
             self.advance();
             let right = self.parse_equality()?;
             left = Expr::BinOp { left: Box::new(left), op: BinOp::And, right: Box::new(right), span };
@@ -514,7 +514,7 @@ impl Parser {
                 TokenKind::BangEq => BinOp::NotEq,
                 _ => break,
             };
-            let span = left.span().clone();
+            let span = *left.span();
             self.advance();
             let right = self.parse_comparison()?;
             left = Expr::BinOp { left: Box::new(left), op, right: Box::new(right), span };
@@ -532,7 +532,7 @@ impl Parser {
                 TokenKind::GtEq => BinOp::GtEq,
                 _ => break,
             };
-            let span = left.span().clone();
+            let span = *left.span();
             self.advance();
             let right = self.parse_addition()?;
             left = Expr::BinOp { left: Box::new(left), op, right: Box::new(right), span };
@@ -548,7 +548,7 @@ impl Parser {
                 TokenKind::Minus => BinOp::Sub,
                 _ => break,
             };
-            let span = left.span().clone();
+            let span = *left.span();
             self.advance();
             let right = self.parse_multiplication()?;
             left = Expr::BinOp { left: Box::new(left), op, right: Box::new(right), span };
@@ -565,7 +565,7 @@ impl Parser {
                 TokenKind::Percent => BinOp::Mod,
                 _ => break,
             };
-            let span = left.span().clone();
+            let span = *left.span();
             self.advance();
             let right = self.parse_unary()?;
             left = Expr::BinOp { left: Box::new(left), op, right: Box::new(right), span };
@@ -601,7 +601,7 @@ impl Parser {
             match self.peek_kind() {
                 // field access or method call: expr.name or expr.name(args)
                 TokenKind::Dot => {
-                    let span = expr.span().clone();
+                    let span = *expr.span();
                     self.advance();
                     // Allow keyword `in` as a method name (used by shape.in()).
                     let field = if self.check(TokenKind::In) {
@@ -622,7 +622,7 @@ impl Parser {
 
                 // optional chaining: expr?.field
                 TokenKind::QuestionDot => {
-                    let span = expr.span().clone();
+                    let span = *expr.span();
                     self.advance();
                     let field = self.expect_ident()?;
                     expr = Expr::OptionalChain { expr: Box::new(expr), field, span };
@@ -630,7 +630,7 @@ impl Parser {
 
                 // index: expr[i]
                 TokenKind::LBracket => {
-                    let span = expr.span().clone();
+                    let span = *expr.span();
                     self.advance();
                     let index = self.parse_expr()?;
                     self.expect(TokenKind::RBracket)?;
@@ -639,7 +639,7 @@ impl Parser {
 
                 // transform: expr@t or expr@(t1, t2, t3)
                 TokenKind::At => {
-                    let span = expr.span().clone();
+                    let span = *expr.span();
                     self.advance();
                     let transforms = if self.check(TokenKind::LParen) {
                         self.advance(); // consume (
@@ -658,7 +658,7 @@ impl Parser {
 
                 // cast: expr as Type
                 TokenKind::As => {
-                    let span = expr.span().clone();
+                    let span = *expr.span();
                     self.advance();
                     let ty = self.parse_type()?;
                     expr = Expr::Cast { expr: Box::new(expr), ty, span };
@@ -666,12 +666,12 @@ impl Parser {
 
                 // postfix ++ and --
                 TokenKind::PlusPlus => {
-                    let span = expr.span().clone();
+                    let span = *expr.span();
                     self.advance();
                     expr = Expr::UnOp { op: UnOp::PostfixInc, operand: Box::new(expr), span };
                 }
                 TokenKind::MinusMinus => {
-                    let span = expr.span().clone();
+                    let span = *expr.span();
                     self.advance();
                     expr = Expr::UnOp { op: UnOp::PostfixDec, operand: Box::new(expr), span };
                 }

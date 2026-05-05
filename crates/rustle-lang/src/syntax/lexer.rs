@@ -107,7 +107,10 @@ impl<'a> Lexer<'a> {
 
             b'#' => {
                 if self.is_hex_sequence() { TokenKind::HexColor(self.read_hex_color()) }
-                else { self.skip_line(); return Ok(None); }
+                else {
+                    return Err(Error::new(ErrorCode::L001, line, col,
+                        "expected hex color after `#` (e.g., `#ff0000`)"));
+                }
             }
             b'"' => TokenKind::StringLit(self.read_string(line, col)?),
             b'0'..=b'9' => TokenKind::Float(self.read_number(ch, line, col)?),
@@ -198,7 +201,7 @@ impl<'a> Lexer<'a> {
         let mut s = String::new();
         let mut error: Option<Error> = None;
         loop {
-            if self.is_at_end() || self.peek() == b'\n' {
+            if self.is_at_end() {
                 return Err(Error::new(ErrorCode::L002, start_line, start_col,
                     "unterminated string literal"));
             }
@@ -375,8 +378,18 @@ mod tests {
     }
 
     #[test]
-    fn metadata_comment_skipped() {
-        assert_eq!(lex("# author: name\n42"), vec![TokenKind::Float(42.0), TokenKind::Eof]);
+    fn hash_without_hex_is_error() {
+        let errs = lex_err("# author: name");
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, ErrorCode::L001);
+    }
+
+    #[test]
+    fn multiline_string() {
+        assert_eq!(
+            lex("\"hello\nworld\""),
+            vec![TokenKind::StringLit("hello\nworld".into()), TokenKind::Eof]
+        );
     }
 
     #[test]

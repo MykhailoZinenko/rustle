@@ -1123,17 +1123,21 @@ fn cast_value(val: Value, target: &ast::Type, line: usize) -> Result<Value, Runt
 
 // Language-level equality uses exact float comparison (== on f64), matching the spec.
 #[allow(clippy::float_cmp)]
+/// Language-level equality using bitwise float comparison.
+/// NaN == NaN is true, +0.0 != -0.0 (totalOrder semantics).
 fn values_equal(a: &Value, b: &Value) -> bool {
     match (a, b) {
-        (Value::Float(x),  Value::Float(y))  => x == y,
+        (Value::Float(x), Value::Float(y)) => x.to_bits() == y.to_bits(),
         (Value::Bool(x),   Value::Bool(y))   => x == y,
         (Value::Str(x),    Value::Str(y))    => x == y,
-        (Value::Vec2(ax, ay), Value::Vec2(bx, by)) => ax == bx && ay == by,
-        (Value::Vec3(ax,ay,az), Value::Vec3(bx,by,bz)) => ax==bx && ay==by && az==bz,
-        (Value::Vec4(ax,ay,az,aw), Value::Vec4(bx,by,bz,bw)) => ax==bx && ay==by && az==bz && aw==bw,
-        (Value::Color { r: ar, g: ag, b: ab, a: aa }, Value::Color { r: br, g: bg, b: bb, a: ba }) => {
-            ar == br && ag == bg && ab == bb && aa == ba
-        }
+        (Value::Vec2(ax, ay), Value::Vec2(bx, by)) =>
+            ax.to_bits() == bx.to_bits() && ay.to_bits() == by.to_bits(),
+        (Value::Vec3(ax,ay,az), Value::Vec3(bx,by,bz)) =>
+            ax.to_bits() == bx.to_bits() && ay.to_bits() == by.to_bits() && az.to_bits() == bz.to_bits(),
+        (Value::Vec4(ax,ay,az,aw), Value::Vec4(bx,by,bz,bw)) =>
+            ax.to_bits() == bx.to_bits() && ay.to_bits() == by.to_bits() && az.to_bits() == bz.to_bits() && aw.to_bits() == bw.to_bits(),
+        (Value::Color { r: ar, g: ag, b: ab, a: aa }, Value::Color { r: br, g: bg, b: bb, a: ba }) =>
+            ar.to_bits() == br.to_bits() && ag.to_bits() == bg.to_bits() && ab.to_bits() == bb.to_bits() && aa.to_bits() == ba.to_bits(),
         _ => false,
     }
 }

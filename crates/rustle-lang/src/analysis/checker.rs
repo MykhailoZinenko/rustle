@@ -94,7 +94,7 @@ impl<'a> TypeResolver<'a> {
 
         // Declare params in function scope
         for param in f.params.iter() {
-            let sym = Symbol::new(param.name.clone(), Some(param.ty.clone()), SymbolKind::Param, param.span.clone());
+            let sym = Symbol::new(param.name.clone(), Some(param.ty.clone()), SymbolKind::Param, param.span);
             self.table.declare(sym);
         }
 
@@ -156,7 +156,7 @@ impl<'a> TypeResolver<'a> {
         };
 
         let kind = if v.is_const { SymbolKind::Const } else { SymbolKind::Variable };
-        let sym = Symbol::new(v.name.clone(), Some(final_ty), kind, v.span.clone());
+        let sym = Symbol::new(v.name.clone(), Some(final_ty), kind, v.span);
 
         if self.table.current_scope_kind() == &ScopeKind::Global {
             // Update the already-declared top-level symbol's type
@@ -308,7 +308,7 @@ impl<'a> TypeResolver<'a> {
         };
         // Then block: binding has the unwrapped type
         self.table.push_scope(ScopeKind::Block);
-        let sym = Symbol::new(binding.to_string(), Some(inner), SymbolKind::Variable, span.clone());
+        let sym = Symbol::new(binding.to_string(), Some(inner), SymbolKind::Variable, *span);
         self.table.declare(sym);
         for s in then_block { self.check_stmt(s); }
         self.table.pop_scope();
@@ -375,7 +375,7 @@ impl<'a> TypeResolver<'a> {
             } else {
                 elem_ty
             };
-            let sym = Symbol::new(f.var_name.clone(), Some(var_ty), SymbolKind::Variable, f.span.clone());
+            let sym = Symbol::new(f.var_name.clone(), Some(var_ty), SymbolKind::Variable, f.span);
             self.table.declare(sym);
         }
 
@@ -422,7 +422,7 @@ impl<'a> TypeResolver<'a> {
                     self.table.update_type(name, ty);
                 } else {
                     // Local fn-var (inside a function body) — declare in the current scope.
-                    let sym = Symbol::new(name.to_string(), Some(ty), SymbolKind::Function, span.clone());
+                    let sym = Symbol::new(name.to_string(), Some(ty), SymbolKind::Function, *span);
                     if !self.table.declare(sym) {
                         self.errors.push(Error::new(
                             ErrorCode::S003, span.line, span.column,
@@ -623,9 +623,8 @@ impl<'a> TypeResolver<'a> {
 
             Expr::List(items, span) => {
                 if items.is_empty() {
-                    // Empty list — type cannot be inferred here; return a placeholder.
-                    // The surrounding context (var decl annotation) should provide the type.
-                    return Ok(Type::List(Box::new(Type::Float))); // lenient for now
+                    // Empty list — Unit placeholder, compatible with any list[T] via types_compatible.
+                    return Ok(Type::List(Box::new(Type::Unit)));
                 }
                 let first_ty = self.infer_expr(&items[0])?;
                 for item in items.iter().skip(1) {
@@ -651,7 +650,7 @@ impl<'a> TypeResolver<'a> {
                 self.table.push_scope(ScopeKind::Function);
                 let prev_return = std::mem::replace(&mut self.current_fn_return, return_ty.clone());
                 for param in params.iter() {
-                    let sym = Symbol::new(param.name.clone(), Some(param.ty.clone()), SymbolKind::Param, param.span.clone());
+                    let sym = Symbol::new(param.name.clone(), Some(param.ty.clone()), SymbolKind::Param, param.span);
                     self.table.declare(sym);
                 }
                 for stmt in body.iter() { self.check_stmt(stmt); }
@@ -683,7 +682,21 @@ impl<'a> TypeResolver<'a> {
                 return Ok(Type::Res(Box::new(inner)));
             }
             "error" => {
-                return Ok(Type::Res(Box::new(Type::Float))); // placeholder
+                if let Some(arg) = args.first()
+                    && let Ok(ty) = self.infer_expr(arg)
+                        && ty != Type::String {
+                            self.errors.push(Error::new(
+                                ErrorCode::S002, span.line, span.column,
+                                format!("`error` expects a string message, found `{}`", type_name(&ty)),
+                            ));
+                        }
+                let inner = self.current_fn_return.as_ref()
+                    .and_then(|ret| match ret {
+                        Type::Res(inner) => Some(*inner.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or(Type::Unit);
+                return Ok(Type::Res(Box::new(inner)));
             }
             "len" => {
                 if let Some(arg) = args.first() {
@@ -957,6 +970,12 @@ pub fn types_compatible(expected: &Type, actual: &Type) -> bool {
     if expected == actual { return true; }
     // Concrete shape kind → erased shape
     if *expected == Type::Shape && is_drawable(actual) { return true; }
+    // Empty list (list[()]) is compatible with any list[T]
+    if let (Type::List(_), Type::List(inner)) = (expected, actual)
+        && **inner == Type::Unit { return true; }
+    // res<()> is compatible with any res<T> (from error() without context)
+    if let (Type::Res(_), Type::Res(inner)) = (expected, actual)
+        && **inner == Type::Unit { return true; }
     // Optional compatibility rules
     if let Type::Optional(inner) = expected {
         // none literal (Optional(Unit)) fits any Optional(T)
