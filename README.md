@@ -14,7 +14,7 @@ Rustle is designed for generative art and interactive 2D scenes. You get explici
 
 ## Roadmap
 
-### Phase 1 — Language Foundations
+### Phase 1 — Language Foundations ✅
 
 - [x] Lifecycle hooks: `on_init`, `on_update`, `on_exit`
 - [x] `else if`
@@ -22,11 +22,16 @@ Rustle is designed for generative art and interactive 2D scenes. You get explici
 - [x] Index assignment: `list[i] = x`, `list[i] += 1`
 - [x] `match` (simple value matching)
 - [x] `++`, `--`
+- [x] `break`, `continue`
 - [x] Comments (`//` and `/* */`)
-- [ ] `null` / `none` value
-- [ ] Type coercion / truthiness rules
-- [ ] Console output: `console << x`, `console.warn`, `console.error`
-- [ ] String interpolation and operations
+- [x] `none` value with optional types (`T?`, `??`, `if let`, `?.`)
+- [x] Type coercion / truthiness rules
+- [x] Boolean arithmetic (`true + 1` → `2`)
+- [x] Console output: `console << x`, `console.warn`, `console.error`
+- [x] String interpolation (`` `hello ${name}` ``)
+- [x] String operations (`len`, `contains`, `trim`, `replace`, `split`, `to_upper`, `to_lower`, `starts_with`, `ends_with`, `+`)
+- [x] Type conversions (`x as string`, `x as float`, `x as bool`)
+- [x] Better error messages with hints and suggestions
 
 ### Phase 2 — Language Expressiveness
 
@@ -40,7 +45,7 @@ Rustle is designed for generative art and interactive 2D scenes. You get explici
 ### Phase 3 — wgpu Renderer
 
 - [ ] Implement `rustle-renderer` as a proper wgpu crate
-- [ ] Replace egui tessellation in `rustle-app`
+- [ ] Replace egui tessellation in `rustle-ide`
 - [ ] `rustle run myscript.rustle` standalone CLI runner
 
 ### Phase 4 — Rendering Features
@@ -53,4 +58,4 @@ Rustle is designed for generative art and interactive 2D scenes. You get explici
 
 - [x] Run / Stop buttons, no auto-run on edit
 - [x] Stop triggers `on_exit`
-- [ ] Console panel
+- [x] Console panel
