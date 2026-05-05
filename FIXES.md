@@ -49,6 +49,9 @@ Documented: intentionally absent. Equality handled by `values_equal()` with bitw
 ### 30. Scope::symbols HashMap Ordering
 Added `names.sort()` to `all_visible_names()` for deterministic suggestion output.
 
+### 12. Span Lacks End Position
+Extended `Span` with `end_line` and `end_column` fields. `Span::new()` defaults end to start (backward compatible). Added `Span::range()` for explicit ranges. Updated all 17 statement/definition parsers to use `span_from()` for end position tracking. Enables IDE squiggly underlines.
+
 ### 18. State Type is Not in TypeRegistry
 Registered State in TypeRegistry with `keys()` → `list[string]` and `len()` → `float` methods. Fields remain dynamic via LookupContext. Updated `value_type_key` and `type_to_registry_key` to map State properly.
 

@@ -194,7 +194,7 @@ Expr::Cast { expr, .. } => self.eval_expr(expr),
 
 ---
 
-### 12. `Span` Lacks End Position (Priority: 5, Complexity: 4)
+### ✅ 12. `Span` Lacks End Position (Priority: 5, Complexity: 4)
 
 **Files:** `syntax/ast.rs:1-6`
 
