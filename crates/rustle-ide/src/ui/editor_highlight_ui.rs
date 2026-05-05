@@ -144,6 +144,7 @@ fn token_source_len(text: &str, start: usize, token: &Token) -> usize {
         TokenKind::Break => 5,
         TokenKind::Continue => 8,
         TokenKind::None => 4,
+        TokenKind::Struct => 6,
         TokenKind::TFloat => 5,
         TokenKind::TBool => 4,
         TokenKind::TArray => 5,
@@ -163,6 +164,7 @@ fn token_source_len(text: &str, start: usize, token: &Token) -> usize {
         | TokenKind::Comma
         | TokenKind::Semicolon
         | TokenKind::Dot
+        | TokenKind::Hash
         | TokenKind::LParen
         | TokenKind::RParen
         | TokenKind::LBrace

@@ -47,6 +47,7 @@ impl<'a> Collector<'a> {
             match item {
                 Item::FnDef(f)  => self.collect_fn_sig(f),
                 Item::Stmt(s)   => self.collect_top_stmt(s),
+                Item::Struct(s) => self.collect_struct(s),
             }
         }
 
@@ -139,6 +140,24 @@ impl<'a> Collector<'a> {
                 ErrorCode::S003,
                 f.span.line, f.span.column,
                 format!("function `{}` already declared", f.name),
+            ));
+        }
+    }
+
+    // ── Struct definitions ────────────────────────────────────────────────────
+
+    fn collect_struct(&mut self, def: &crate::syntax::ast::StructDef) {
+        let sym = Symbol::new(
+            def.name.clone(),
+            Some(Type::Named(def.name.clone())),
+            SymbolKind::Struct,
+            def.span,
+        );
+        if !self.table.declare_top_level(sym) {
+            self.errors.push(Error::new(
+                ErrorCode::S003,
+                def.span.line, def.span.column,
+                format!("'{}' is already defined", def.name),
             ));
         }
     }

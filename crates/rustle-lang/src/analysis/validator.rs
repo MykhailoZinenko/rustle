@@ -6,7 +6,7 @@
 
 use crate::{
     error::{Error, ErrorCode},
-    syntax::ast::{Item, Program, Stmt, Type},
+    syntax::ast::{Item, Program, Stmt, StructDef, Type},
 };
 
 pub struct Validator {
@@ -35,6 +35,7 @@ impl Validator {
         self.check_on_init_signature(program);
         self.check_on_exit_signature(program);
         self.check_break_continue(program);
+        self.check_struct_definitions(program);
         self.errors
     }
 
@@ -96,6 +97,42 @@ impl Validator {
         }
     }
 
+    // ── struct definition validation ────────────────────────────────────────
+
+    fn check_struct_definitions(&mut self, program: &Program) {
+        for item in &program.items {
+            if let Item::Struct(def) = item {
+                self.validate_struct(def);
+            }
+        }
+    }
+
+    fn validate_struct(&mut self, def: &StructDef) {
+        let mut seen_fields = std::collections::HashSet::new();
+        for field in &def.fields {
+            if !seen_fields.insert(&field.name) {
+                self.errors.push(Error::new(
+                    ErrorCode::S019,
+                    field.span.line,
+                    field.span.column,
+                    format!("duplicate field '{}' in '{}'", field.name, def.name),
+                ));
+            }
+        }
+
+        let mut seen_methods = std::collections::HashSet::new();
+        for method in &def.methods {
+            if !seen_methods.insert(&method.def.name) {
+                self.errors.push(Error::new(
+                    ErrorCode::S020,
+                    method.span.line,
+                    method.span.column,
+                    format!("duplicate method '{}' in '{}'", method.def.name, def.name),
+                ));
+            }
+        }
+    }
+
     // ── break / continue validation ──────────────────────────────────────────
 
     fn check_break_continue(&mut self, program: &Program) {
@@ -103,6 +140,7 @@ impl Validator {
             match item {
                 Item::FnDef(f) => self.scan_stmts_for_break_continue(&f.body),
                 Item::Stmt(s) => self.scan_stmt_for_break_continue(s),
+                Item::Struct(_) => {}
             }
         }
     }

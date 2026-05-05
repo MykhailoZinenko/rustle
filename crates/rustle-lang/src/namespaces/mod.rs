@@ -184,6 +184,7 @@ pub(crate) fn value_type_name(v: &Value) -> &'static str {
         Value::Namespace(_)  => "namespace",
         Value::NativeFn(_) | Value::Closure(_) => "fn",
         Value::State(_)      => "State",
+        Value::Object(_)     => "object",
         Value::Input {..}    => "Input",
         Value::None          => "none",
     }

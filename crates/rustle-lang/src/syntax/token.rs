@@ -41,6 +41,7 @@ pub enum TokenKind {
     Continue,
     None,
     Struct,
+    Hash,       // # (for #fn private methods in structs)
 
     // Type keywords — only true primitives and parameterised collection types
     TFloat,
@@ -149,6 +150,7 @@ impl TokenKind {
             Self::Continue     => "'continue'",
             Self::None         => "'none'",
             Self::Struct       => "'struct'",
+            Self::Hash         => "'#'",
             Self::TFloat       => "'float'",
             Self::TBool        => "'bool'",
             Self::TArray       => "'array'",

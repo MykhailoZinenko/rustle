@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::syntax::ast::{Program, Item, ImportDecl, StateBlock, StateField, Param, Stmt, FnDef, VarDecl, AssignTarget, BinOp, Expr, Assign, Span, PrintLevel, PrintStmt, OutStmt, IfStmt, MatchArm, MatchStmt, WhileStmt, ForStmt, ForeachStmt, UnOp, Type, InterpolPart};
+use crate::syntax::ast::{Program, Item, ImportDecl, StateBlock, StateField, Param, Stmt, FnDef, VarDecl, AssignTarget, BinOp, Expr, Assign, Span, PrintLevel, PrintStmt, OutStmt, IfStmt, MatchArm, MatchStmt, WhileStmt, ForStmt, ForeachStmt, UnOp, Type, InterpolPart, StructDef, StructField, StructMethod, Visibility};
 use crate::error::{Error, ErrorCode};
 use crate::syntax::token::{Token, TokenKind};
 
@@ -36,6 +36,10 @@ impl Parser {
                 },
                 TokenKind::Fn => match self.parse_fn_item() {
                     Ok(item) => items.push(item),
+                    Err(e) => { errors.push(e); self.recover(); }
+                },
+                TokenKind::Struct => match self.parse_struct_def() {
+                    Ok(s) => items.push(Item::Struct(s)),
                     Err(e) => { errors.push(e); self.recover(); }
                 },
                 TokenKind::Eof => break,
@@ -109,6 +113,84 @@ impl Parser {
         let initializer = self.parse_expr()?;
         let span = self.span_from(&span);
         Ok(StateField { name, ty, initializer, span })
+    }
+
+    // ─── Struct definition ────────────────────────────────────────────────────
+
+    fn parse_struct_def(&mut self) -> Result<StructDef, Error> {
+        let start = self.span();
+        self.expect(TokenKind::Struct)?;
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::LBrace)?;
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            match self.peek_kind() {
+                TokenKind::Let => fields.push(self.parse_struct_field()?),
+                TokenKind::Plus | TokenKind::Hash => methods.push(self.parse_struct_method()?),
+                _ => {
+                    return Err(Error::new(
+                        ErrorCode::P001,
+                        self.peek().line,
+                        self.peek().column,
+                        format!(
+                            "expected field (`let`) or method (`+fn`/`#fn`) in struct, found {}",
+                            self.peek_kind().display_name()
+                        ),
+                    ));
+                }
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+        let span = self.span_from(&start);
+        Ok(StructDef { name, fields, methods, span })
+    }
+
+    fn parse_struct_field(&mut self) -> Result<StructField, Error> {
+        let start = self.span();
+        self.expect(TokenKind::Let)?;
+        let name = self.expect_ident()?;
+        let ty = if self.matches(TokenKind::Colon) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        let default = if self.matches(TokenKind::Eq) {
+            Some(self.parse_expr()?)
+        } else {
+            None
+        };
+        // Must have at least a type or a default
+        if ty.is_none() && default.is_none() {
+            return Err(Error::new(
+                ErrorCode::P001,
+                self.peek().line,
+                self.peek().column,
+                "struct field must have a type annotation, a default value, or both",
+            ));
+        }
+        let span = self.span_from(&start);
+        Ok(StructField { name, ty, default, span })
+    }
+
+    fn parse_struct_method(&mut self) -> Result<StructMethod, Error> {
+        let start = self.span();
+        let visibility = if self.matches(TokenKind::Plus) {
+            Visibility::Public
+        } else {
+            self.expect(TokenKind::Hash)?;
+            Visibility::Private
+        };
+        self.expect(TokenKind::Fn)?;
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::LParen)?;
+        let params: Arc<[Param]> = self.parse_param_list()?.into();
+        self.expect(TokenKind::RParen)?;
+        let return_ty = if self.matches(TokenKind::Arrow) { Some(self.parse_type()?) } else { None };
+        let body: Arc<[Stmt]> = self.parse_block()?.into();
+        let span = self.span_from(&start);
+        let def = FnDef { name, params, return_ty, body, span };
+        Ok(StructMethod { visibility, def, span })
     }
 
     // ─── Function definition / variable ──────────────────────────────────────
@@ -745,9 +827,28 @@ impl Parser {
             let (args, named_args) = self.parse_mixed_arg_list()?;
             self.expect(TokenKind::RParen)?;
             Ok(Expr::Call { callee: name, args, named_args, span })
+        } else if name.starts_with(char::is_uppercase) && self.check(TokenKind::LBrace) && self.is_struct_construction_start() {
+            self.parse_struct_construction(name, span)
         } else {
             Ok(Expr::Ident(name, span))
         }
+    }
+
+    fn parse_struct_construction(&mut self, name: String, start: Span) -> Result<Expr, Error> {
+        self.expect(TokenKind::LBrace)?;
+        let mut fields = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            let field_name = self.expect_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let value = self.parse_expr()?;
+            fields.push((field_name, value));
+            if !self.check(TokenKind::RBrace) {
+                self.expect(TokenKind::Comma)?;
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+        let span = self.span_from(&start);
+        Ok(Expr::StructConstruction { name, fields, span })
     }
 
     // ─── Argument lists ──────────────────────────────────────────────────────
@@ -993,6 +1094,26 @@ impl Parser {
         Error::new(ErrorCode::P001, tok.line, tok.column, msg)
     }
 
+    /// Returns true when the current `{` starts a struct construction.
+    /// Pattern: `{ ident :` (field initializer) or `}` (empty struct).
+    fn is_struct_construction_start(&self) -> bool {
+        // Current token should be `{`
+        let brace = self.pos;
+        if brace >= self.tokens.len() || self.tokens[brace].kind != TokenKind::LBrace {
+            return false;
+        }
+        let after_brace = brace + 1;
+        if after_brace >= self.tokens.len() { return false; }
+        // Empty struct `Name {}`
+        if self.tokens[after_brace].kind == TokenKind::RBrace { return true; }
+        // `Name { field: ...`
+        if matches!(self.tokens[after_brace].kind, TokenKind::Ident(_)) {
+            let after_ident = after_brace + 1;
+            return after_ident < self.tokens.len() && self.tokens[after_ident].kind == TokenKind::Colon;
+        }
+        false
+    }
+
     /// Returns true if the current `(` starts a lambda expression.
     /// Lambda patterns: `() ->` or `(ident :`
     fn is_lambda_start(&self) -> bool {
@@ -1066,6 +1187,7 @@ impl Parser {
                 | TokenKind::Continue
                 | TokenKind::State
                 | TokenKind::Import
+                | TokenKind::Struct
                 | TokenKind::RBrace => break,
                 _ => { self.advance(); }
             }
@@ -1228,7 +1350,7 @@ mod tests {
                 assert_eq!(f.params.len(), 2);
                 assert_eq!(f.return_ty, Some(Type::Float));
             }
-            Item::Stmt(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1237,7 +1359,7 @@ mod tests {
         let p = parse("fn draw() { }");
         match &p.items[0] {
             Item::FnDef(f) => assert!(f.return_ty.is_none()),
-            Item::Stmt(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1438,7 +1560,7 @@ mod tests {
                 assert_eq!(f.params[1].ty, Type::Input);
                 assert_eq!(f.return_ty, Some(Type::State));
             }
-            Item::Stmt(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1451,7 +1573,7 @@ mod tests {
                 assert_eq!(f.params[1].ty, Type::Color);
                 assert_eq!(f.return_ty, Some(Type::Shape));
             }
-            Item::Stmt(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1791,7 +1913,7 @@ mod tests {
             Item::FnDef(f) => {
                 assert!(matches!(f.body[0], Stmt::Return(None, _)));
             }
-            Item::Stmt(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1802,7 +1924,7 @@ mod tests {
             Item::FnDef(f) => {
                 assert!(matches!(f.body[0], Stmt::Return(Some(_), _)));
             }
-            Item::Stmt(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1823,7 +1945,7 @@ mod tests {
                 assert!(f.params.is_empty());
                 assert_eq!(f.return_ty, Some(Type::Float));
             }
-            Item::Stmt(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1871,7 +1993,7 @@ mod tests {
             Item::FnDef(f) => {
                 assert_eq!(f.params[0].ty, Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))));
             }
-            Item::Stmt(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1882,7 +2004,7 @@ mod tests {
             Item::FnDef(f) => {
                 assert_eq!(f.params[0].ty, Type::Fn(vec![Type::Float], None));
             }
-            Item::Stmt(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
         }
     }
 
@@ -2043,7 +2165,7 @@ fn on_update(s: State, input: Input) -> State {
                 assert_eq!(f.return_ty, Some(Type::State));
                 assert_eq!(f.body.len(), 4);
             }
-            Item::Stmt(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
         }
     }
 
@@ -2058,7 +2180,7 @@ fn mul(a: float, b: float) -> float { return a * b }
         assert_eq!(p.items.len(), 3);
         let names: Vec<&str> = p.items.iter().map(|i| match i {
             Item::FnDef(f) => f.name.as_str(),
-            Item::Stmt(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
         }).collect();
         assert_eq!(names, vec!["add", "sub", "mul"]);
     }
@@ -2075,7 +2197,7 @@ fn mul(a: float, b: float) -> float { return a * b }
                 assert_eq!(f.params[0].ty, Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))));
                 assert_eq!(f.params[1].ty, Type::Float);
             }
-            Item::Stmt(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
         }
     }
 
@@ -2189,7 +2311,7 @@ if result.ok {
             Item::FnDef(f) => {
                 assert_eq!(f.return_ty, Some(Type::Res(Box::new(Type::Float))));
             }
-            Item::Stmt(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
         }
     }
 

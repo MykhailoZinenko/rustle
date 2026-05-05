@@ -123,7 +123,7 @@ impl TypeRegistry {
     #[must_use] 
     pub fn method_names_for_type(&self, ty: &Type) -> Vec<&str> {
         match ty {
-            Type::List(_)     => vec!["push", "pop", "len"],
+            Type::List(_)     => vec!["push", "pop", "len", "clone"],
             Type::Array(_, _) => vec!["len"],
             _ => {
                 let key = type_to_registry_key(ty);
@@ -162,9 +162,10 @@ impl TypeRegistry {
     {
         match ty {
             Type::List(elem) => match method {
-                "push" => Some((vec![*elem.clone()], None)),
-                "pop"  => Some((vec![], Some(*elem.clone()))),
-                "len"  => Some((vec![], Some(Type::Float))),
+                "push"  => Some((vec![*elem.clone()], None)),
+                "pop"   => Some((vec![], Some(*elem.clone()))),
+                "len"   => Some((vec![], Some(Type::Float))),
+                "clone" => Some((vec![], Some(ty.clone()))),
                 _ => None,
             },
             Type::Array(_elem, _) => match method {
@@ -1134,6 +1135,14 @@ fn list_desc() -> TypeDesc {
                     let Value::List(items) = v else { unreachable!() };
                     items.borrow_mut().pop()
                         .ok_or_else(|| RuntimeError::new(ErrorCode::R011, line, 0, "pop on empty list"))
+                },
+            },
+            MethodDesc {
+                // Deep-clone the list — independent copy.
+                name: "clone", params: vec![], ret: Some(Type::Float), // placeholder
+                call: |v, _args, _line| {
+                    use crate::runtime::object::deep_clone_value;
+                    Ok(deep_clone_value(v))
                 },
             },
         ],

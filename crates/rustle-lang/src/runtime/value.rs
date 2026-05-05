@@ -41,6 +41,7 @@ pub enum Value {
     NativeFn(String),
     Closure(Box<ClosureData>),
     State(Rc<RefCell<HashMap<String, Value>>>),
+    Object(Rc<RefCell<Box<dyn crate::runtime::object::RustleObject>>>),
     Input { dt: f64 },
     None,
 }
@@ -95,6 +96,7 @@ impl fmt::Display for Value {
             Value::NativeFn(n)   => write!(f, "<fn:{n}>"),
             Value::Closure(_) => write!(f, "<closure>"),
             Value::State(_)  => write!(f, "<state>"),
+            Value::Object(rc) => write!(f, "{}", rc.borrow().display()),
             Value::Input { dt } => write!(f, "input(dt={dt})"),
             Value::None => write!(f, "none"),
         }

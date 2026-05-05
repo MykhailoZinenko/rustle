@@ -26,6 +26,8 @@ pub struct TypeResolver<'a> {
     lookup: LookupContext<'a>,
     /// Operator type table — same registry used at runtime, queried for return types.
     binops: BinopRegistry,
+    /// When inside a struct method, holds the struct name for `this` resolution.
+    current_struct: Option<String>,
 }
 
 impl<'a> TypeResolver<'a> {
@@ -39,6 +41,7 @@ impl<'a> TypeResolver<'a> {
             program: None,
             lookup: LookupContext::new(None, registry, type_registry),
             binops: BinopRegistry::default(),
+            current_struct: None,
         }
     }
 
@@ -53,6 +56,7 @@ impl<'a> TypeResolver<'a> {
             match item {
                 Item::FnDef(f)  => self.check_fn(f),
                 Item::Stmt(s)   => { self.check_stmt(s); }
+                Item::Struct(def) => self.check_struct(def),
             }
         }
         (self.table, self.errors)
@@ -105,6 +109,69 @@ impl<'a> TypeResolver<'a> {
         self.table.pop_scope();
         self.current_fn_order  = prev_order;
         self.current_fn_return = prev_return;
+    }
+
+    // ── Structs ───────────────────────────────────────────────────────────────
+
+    fn check_struct(&mut self, def: &crate::syntax::ast::StructDef) {
+        // Check field default expressions
+        for field in &def.fields {
+            if let Some(ref default_expr) = field.default {
+                let expr_ty = self.infer_expr(default_expr);
+                if let (Some(expected_ty), Ok(actual_ty)) = (&field.ty, &expr_ty) {
+                    self.expect_type(expected_ty, actual_ty, &field.span);
+                }
+            }
+        }
+
+        // Check method bodies with `this` and struct fields in scope
+        for method in &def.methods {
+            self.current_struct = Some(def.name.clone());
+            self.check_struct_method(&method.def, &def.fields);
+            self.current_struct = None;
+        }
+    }
+
+    fn check_struct_method(&mut self, f: &FnDef, fields: &[crate::syntax::ast::StructField]) {
+        let fn_order = self.table.lookup(&f.name)
+            .map_or(0, |s| s.declaration_order);
+
+        let prev_order  = self.current_fn_order.replace(fn_order);
+        let prev_return = std::mem::replace(&mut self.current_fn_return, f.return_ty.clone());
+
+        self.table.push_scope(ScopeKind::Function);
+
+        // Declare struct fields as local variables in the method scope
+        for field in fields {
+            if let Some(ref ty) = field.ty {
+                let sym = Symbol::new(field.name.clone(), Some(ty.clone()), SymbolKind::Variable, field.span);
+                self.table.declare(sym);
+            }
+        }
+
+        // Declare params in function scope
+        for param in f.params.iter() {
+            let sym = Symbol::new(param.name.clone(), Some(param.ty.clone()), SymbolKind::Param, param.span);
+            self.table.declare(sym);
+        }
+
+        for stmt in f.body.iter() {
+            self.check_stmt(stmt);
+        }
+
+        self.table.pop_scope();
+        self.current_fn_order  = prev_order;
+        self.current_fn_return = prev_return;
+    }
+
+    fn find_struct_def(&self, name: &str) -> Option<&crate::syntax::ast::StructDef> {
+        let program = self.program?;
+        program.items.iter().find_map(|item| {
+            if let Item::Struct(def) = item {
+                if def.name == name { return Some(def); }
+            }
+            None
+        })
     }
 
     // ── Statements ────────────────────────────────────────────────────────────
@@ -591,6 +658,25 @@ impl<'a> TypeResolver<'a> {
 
             Expr::MethodCall { expr, method, args, named_args: _, span } => {
                 let obj_ty = self.infer_expr(expr)?;
+
+                // Private method access check for struct types
+                if let Type::Named(ref struct_name) = obj_ty {
+                    if let Some(def) = self.find_struct_def(struct_name) {
+                        if let Some(m) = def.methods.iter().find(|m| m.def.name == *method) {
+                            if m.visibility == crate::syntax::ast::Visibility::Private
+                                && self.current_struct.as_deref() != Some(struct_name.as_str())
+                            {
+                                return Err(vec![Error::new(
+                                    ErrorCode::S016,
+                                    span.line,
+                                    span.column,
+                                    format!("method '{}' is private in '{}'", method, struct_name),
+                                )]);
+                            }
+                        }
+                    }
+                }
+
                 let ty = self.resolve_method_call(&obj_ty, method, args, span);
                 ty.ok_or_else(|| {
                     let mut err = Error::new(
@@ -667,6 +753,58 @@ impl<'a> TypeResolver<'a> {
                 self.current_fn_return = prev_return;
 
                 Ok(Type::Fn(param_types, ret))
+            }
+
+            Expr::StructConstruction { name, fields, span } => {
+                let struct_def = self.find_struct_def(name);
+                let Some(struct_def) = struct_def else {
+                    return Err(vec![Error::new(
+                        ErrorCode::S001, span.line, span.column,
+                        format!("undefined struct '{name}'"),
+                    )]);
+                };
+                let struct_def = struct_def.clone();
+
+                // Check each provided field
+                for (field_name, field_expr) in fields {
+                    let field_def = struct_def.fields.iter().find(|f| f.name == *field_name);
+                    let Some(field_def) = field_def else {
+                        let mut err = Error::new(
+                            ErrorCode::S018, span.line, span.column,
+                            format!("'{field_name}' is not a field of '{name}'"),
+                        );
+                        let candidates: Vec<&str> = struct_def.fields.iter().map(|f| f.name.as_str()).collect();
+                        if let Some(suggestion) = suggest_similar(field_name, &candidates, 2) {
+                            err = err.with_hint(format!("did you mean '{suggestion}'?"));
+                        }
+                        return Err(vec![err]);
+                    };
+                    let field_def = field_def.clone();
+
+                    let expr_ty = self.infer_expr(field_expr)?;
+                    if let Some(ref expected_ty) = field_def.ty {
+                        if !types_compatible(expected_ty, &expr_ty) {
+                            return Err(vec![Error::new(
+                                ErrorCode::S002, span.line, span.column,
+                                format!("field '{field_name}' expects `{}`, got `{}`",
+                                    type_name(expected_ty), type_name(&expr_ty)),
+                            )]);
+                        }
+                    }
+                }
+
+                // Check that all required fields (no default) are provided
+                let provided: Vec<&str> = fields.iter().map(|(n, _)| n.as_str()).collect();
+                for field_def in &struct_def.fields {
+                    if field_def.default.is_none() && !provided.contains(&field_def.name.as_str()) {
+                        return Err(vec![Error::new(
+                            ErrorCode::S017, span.line, span.column,
+                            format!("missing required field '{}' in '{name}'", field_def.name),
+                        )]);
+                    }
+                }
+
+                Ok(Type::Named(name.clone()))
             }
         }
     }
@@ -927,6 +1065,15 @@ impl<'a> TypeResolver<'a> {
     }
 
     fn lookup_type(&mut self, name: &str, span: &Span) -> Result<Type, Vec<Error>> {
+        if name == "this" {
+            if let Some(ref struct_name) = self.current_struct {
+                return Ok(Type::Named(struct_name.clone()));
+            }
+            return Err(vec![Error::new(
+                ErrorCode::S021, span.line, span.column,
+                "'this' is only valid inside struct methods".to_string(),
+            )]);
+        }
         let sym = self.lookup_symbol(name, span);
         if let Some(s) = sym { match &s.ty {
             Some(t) => Ok(t.clone()),

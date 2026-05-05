@@ -107,10 +107,7 @@ impl<'a> Lexer<'a> {
 
             b'#' => {
                 if self.is_hex_sequence() { TokenKind::HexColor(self.read_hex_color()) }
-                else {
-                    return Err(Error::new(ErrorCode::L001, line, col,
-                        "expected hex color after `#` (e.g., `#ff0000`)"));
-                }
+                else { TokenKind::Hash }
             }
             b'"' => TokenKind::StringLit(self.read_string(line, col)?),
             b'`' => TokenKind::TemplateLit(self.read_template_string(line, col)?),
@@ -441,10 +438,10 @@ mod tests {
     }
 
     #[test]
-    fn hash_without_hex_is_error() {
-        let errs = lex_err("# author: name");
-        assert_eq!(errs.len(), 1);
-        assert_eq!(errs[0].code, ErrorCode::L001);
+    fn hash_without_hex_is_hash_token() {
+        let kinds = lex("# fn");
+        assert_eq!(kinds[0], TokenKind::Hash);
+        assert_eq!(kinds[1], TokenKind::Fn);
     }
 
     #[test]

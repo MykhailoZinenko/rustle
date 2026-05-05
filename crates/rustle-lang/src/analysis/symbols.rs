@@ -11,6 +11,7 @@ pub enum SymbolKind {
     Function,
     Param,
     StateField,
+    Struct,
 }
 
 #[derive(Debug, Clone)]
@@ -162,7 +163,7 @@ impl SymbolTable {
         // Check global scope with ordering constraint
         if let Some(sym) = self.scopes[0].get(name) {
             match sym.kind {
-                SymbolKind::Function => return Some(sym), // always visible
+                SymbolKind::Function | SymbolKind::Struct => return Some(sym), // always visible
                 _ if sym.declaration_order < fn_order => return Some(sym),
                 _ => return None,
             }

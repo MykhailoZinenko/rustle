@@ -54,11 +54,43 @@ pub struct StateField {
     pub span: Span,
 }
 
+// ─── Structs ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Visibility {
+    Public,
+    Private,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructField {
+    pub name: String,
+    pub ty: Option<Type>,
+    pub default: Option<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructMethod {
+    pub visibility: Visibility,
+    pub def: FnDef,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructDef {
+    pub name: String,
+    pub fields: Vec<StructField>,
+    pub methods: Vec<StructMethod>,
+    pub span: Span,
+}
+
 /// A top-level item is either a function definition or a statement.
 #[derive(Debug, Clone)]
 pub enum Item {
     FnDef(FnDef),
     Stmt(Stmt),
+    Struct(StructDef),
 }
 
 // ─── Functions ───────────────────────────────────────────────────────────────
@@ -331,6 +363,13 @@ pub enum Expr {
         body: Arc<[Stmt]>,
         span: Span,
     },
+
+    /// `Point { x: 5.0, y: 10.0 }`
+    StructConstruction {
+        name: String,
+        fields: Vec<(String, Expr)>,
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -352,7 +391,8 @@ impl Expr {
             | Expr::OptionalChain { span, .. }
             | Expr::MethodCall { span, .. }
             | Expr::Transform { span, .. }
-            | Expr::Lambda { span, .. } => span,
+            | Expr::Lambda { span, .. }
+            | Expr::StructConstruction { span, .. } => span,
         }
     }
 }

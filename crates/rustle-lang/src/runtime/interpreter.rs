@@ -10,6 +10,7 @@ use crate::error::{ErrorCode, RuntimeError};
 use crate::namespaces::{as_float, value_type_name, NamespaceRegistry, RuntimeState};
 use crate::{Input, State, Value};
 use crate::runtime::value::ClosureData;
+use crate::runtime::object::{StructInstance, StructMethodDef, StructMethods};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -65,6 +66,8 @@ const MAX_CALL_DEPTH: usize = 256;
 pub struct Interpreter<'a> {
     program: &'a ast::Program,
     fn_table: HashMap<&'a str, &'a ast::FnDef>,
+    struct_defs: HashMap<&'a str, &'a ast::StructDef>,
+    method_cache: HashMap<String, Rc<StructMethods>>,
     registry: &'a NamespaceRegistry,
     binops: &'a BinopRegistry,
     types: &'a TypeRegistry,
@@ -87,11 +90,32 @@ impl<'a> Interpreter<'a> {
     ) -> Self {
         let fn_table = program.items.iter().filter_map(|item| match item {
             ast::Item::FnDef(f) => Some((f.name.as_str(), f)),
-            ast::Item::Stmt(_) => None,
+            ast::Item::Stmt(_) | ast::Item::Struct(_) => None,
+        }).collect();
+        let struct_defs: HashMap<&str, &ast::StructDef> = program.items.iter().filter_map(|item| match item {
+            ast::Item::Struct(s) => Some((s.name.as_str(), s)),
+            _ => None,
+        }).collect();
+        let method_cache = struct_defs.iter().map(|(&name, sdef)| {
+            let methods: StructMethods = sdef.methods.iter().map(|m| {
+                let vis = match m.visibility {
+                    ast::Visibility::Public => crate::runtime::object::Visibility::Public,
+                    ast::Visibility::Private => crate::runtime::object::Visibility::Private,
+                };
+                (m.def.name.clone(), StructMethodDef {
+                    visibility: vis,
+                    params: m.def.params.clone(),
+                    body: m.def.body.clone(),
+                    return_ty: m.def.return_ty.clone(),
+                })
+            }).collect();
+            (name.to_string(), Rc::new(methods))
         }).collect();
         Self {
             program,
             fn_table,
+            struct_defs,
+            method_cache,
             registry,
             binops,
             types,
@@ -441,6 +465,30 @@ impl<'a> Interpreter<'a> {
                     .collect();
                 Ok(Value::Closure(Box::new(ClosureData { params: params.clone(), body: body.clone(), captured })))
             }
+
+            Expr::StructConstruction { name, fields, span } => {
+                let struct_def = self.struct_defs.get(name.as_str())
+                    .ok_or_else(|| self.err(ErrorCode::R002, span.line, format!("undefined struct: `{name}`")))?;
+                // Build field values: start with defaults, then override with provided
+                let mut field_values = HashMap::new();
+                for field_def in &struct_def.fields {
+                    if let Some(ref default_expr) = field_def.default {
+                        field_values.insert(field_def.name.clone(), self.eval_expr(default_expr)?);
+                    }
+                }
+                for (field_name, field_expr) in fields {
+                    field_values.insert(field_name.clone(), self.eval_expr(field_expr)?);
+                }
+                let methods = self.method_cache.get(name.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| Rc::new(HashMap::new()));
+                let instance = StructInstance {
+                    type_name: name.clone(),
+                    fields: field_values,
+                    methods,
+                };
+                Ok(Value::Object(Rc::new(RefCell::new(Box::new(instance)))))
+            }
         }
     }
 
@@ -575,6 +623,67 @@ impl<'a> Interpreter<'a> {
             return Err(self.err(ErrorCode::R004, span.line, format!("`{ns_name}` has no member `{method}`")));
         }
 
+        // Object method dispatch — struct instances
+        if let Value::Object(rc) = &obj {
+            // Built-in clone
+            if method == "clone" {
+                let cloned = rc.borrow().clone_deep();
+                return Ok(Value::Object(Rc::new(RefCell::new(cloned))));
+            }
+            // Look up method in the struct's method table via method_cache
+            let type_name = rc.borrow().type_name().to_string();
+            let method_def = self.method_cache.get(&type_name)
+                .and_then(|methods| methods.get(method).cloned());
+            if let Some(mdef) = method_def {
+                let arg_vals: Vec<Value> = args.iter()
+                    .map(|a| self.eval_expr(a))
+                    .collect::<Result<_, _>>()?;
+                if mdef.params.len() != arg_vals.len() {
+                    return Err(self.err(ErrorCode::R008, span.line, format!(
+                        "`{type_name}.{method}` expects {} args, got {}", mdef.params.len(), arg_vals.len()
+                    )));
+                }
+                self.check_cancel(span.line)?;
+                if self.call_depth >= MAX_CALL_DEPTH {
+                    return Err(self.err(ErrorCode::R011, span.line,
+                        format!("maximum call depth ({MAX_CALL_DEPTH}) exceeded — possible infinite recursion")));
+                }
+                self.call_depth += 1;
+                self.env.push_scope();
+                // Bind `this` to the same Rc — mutations go through to original
+                self.env.declare("this", Value::Object(rc.clone()));
+                for (p, v) in mdef.params.iter().zip(&arg_vals) {
+                    self.env.declare(&p.name, v.clone());
+                }
+                let saved = self.return_value.take();
+                let mut err_result = None;
+                for stmt in mdef.body.iter() {
+                    match self.exec_stmt(stmt) {
+                        Ok(()) => {}
+                        Err(mut e) => {
+                            e.push_frame(method, span.line);
+                            err_result = Some(e);
+                            break;
+                        }
+                    }
+                    if self.should_stop_block() { break; }
+                }
+                self.call_depth -= 1;
+                if let Some(e) = err_result {
+                    self.return_value = saved;
+                    self.env.pop_scope();
+                    return Err(e);
+                }
+                let result = self.return_value.take().unwrap_or(Value::Float(0.0));
+                self.return_value = saved;
+                self.env.pop_scope();
+                return Ok(result);
+            }
+            return Err(self.err(ErrorCode::R004, span.line, format!(
+                "`{type_name}` has no method `{method}`"
+            )));
+        }
+
         // All other types: evaluate args, delegate to TypeRegistry.
         let arg_vals: Vec<Value> = args.iter()
             .map(|a| self.eval_expr(a))
@@ -613,6 +722,8 @@ impl<'a> Interpreter<'a> {
                             .ok_or_else(|| self.err(ErrorCode::R002, a.span.line, format!("undefined: `{root}`")))?;
                         if let Value::State(rc) = &obj {
                             assign_state_path(rc, &p[1..], val, a.span.line, self.types)?;
+                        } else if let Value::Object(rc) = &obj {
+                            assign_object_path(rc, &p[1..], val, a.span.line, self.types)?;
                         } else {
                             let updated = set_field_path(self.types, obj, &p[1..], val, a.span.line)?;
                             self.env.set(root, updated);
@@ -876,6 +987,8 @@ impl<'a> Interpreter<'a> {
                     .ok_or_else(|| self.err(ErrorCode::R002, line, format!("undefined: `{root}`")))?;
                 if let Value::State(rc) = &obj {
                     assign_state_path(rc, &p[1..], val, line, self.types)?;
+                } else if let Value::Object(rc) = &obj {
+                    assign_object_path(rc, &p[1..], val, line, self.types)?;
                 } else {
                     let updated = set_field_path(self.types, obj, &p[1..], val, line)?;
                     self.env.set(root, updated);
@@ -977,6 +1090,15 @@ fn eval_field(types: &TypeRegistry, obj: &Value, field: &str, line: usize) -> Re
                     format!("state has no field `{field}` (available: {})", keys.join(", ")))
             });
     }
+    // Object (struct) fields — reference type with dynamic fields.
+    if let Value::Object(rc) = obj {
+        let guard = rc.borrow();
+        return guard.get_field(field).ok_or_else(|| {
+            let names = guard.field_names();
+            RuntimeError::new(ErrorCode::R003, line, 0,
+                format!("'{}' has no field `{field}` (available: {})", guard.type_name(), names.join(", ")))
+        });
+    }
     types.get_field(obj, field)
         .ok_or_else(|| RuntimeError::new(ErrorCode::R003, line, 0, format!(
             "`{}` has no field `{field}`", value_type_name(obj)
@@ -1006,8 +1128,49 @@ fn assign_state_path(
                     format!("state has no field `{field}` (available: {})", keys.join(", ")))
             })?;
         drop(guard);
-        let updated = set_field_path(types, intermediate, &path[1..], val, line)?;
-        rc.borrow_mut().insert(field.clone(), updated);
+        if let Value::Object(obj_rc) = &intermediate {
+            assign_object_path(obj_rc, &path[1..], val, line, types)?;
+        } else {
+            let updated = set_field_path(types, intermediate, &path[1..], val, line)?;
+            rc.borrow_mut().insert(field.clone(), updated);
+        }
+    }
+    Ok(())
+}
+
+/// Assign into an Object value at `path`, mutating through the Rc in-place.
+fn assign_object_path(
+    rc: &Rc<RefCell<Box<dyn crate::runtime::object::RustleObject>>>,
+    path: &[String],
+    val: Value,
+    line: usize,
+    types: &TypeRegistry,
+) -> Result<(), RuntimeError> {
+    let field = &path[0];
+    if path.len() == 1 {
+        let mut guard = rc.borrow_mut();
+        if !guard.set_field(field, val) {
+            let names = guard.field_names();
+            return Err(RuntimeError::new(ErrorCode::R003, line, 0,
+                format!("'{}' has no field `{field}` (available: {})", guard.type_name(), names.join(", "))));
+        }
+    } else {
+        // Multi-level: get intermediate, check if it's also an Object (recurse) or value type (rebuild)
+        let intermediate = {
+            let guard = rc.borrow();
+            guard.get_field(field).ok_or_else(|| {
+                let names = guard.field_names();
+                RuntimeError::new(ErrorCode::R003, line, 0,
+                    format!("'{}' has no field `{field}` (available: {})", guard.type_name(), names.join(", ")))
+            })?
+        };
+        if let Value::Object(inner_rc) = &intermediate {
+            assign_object_path(inner_rc, &path[1..], val, line, types)?;
+        } else {
+            let updated = set_field_path(types, intermediate, &path[1..], val, line)?;
+            let mut guard = rc.borrow_mut();
+            guard.set_field(field, updated);
+        }
     }
     Ok(())
 }
@@ -1151,6 +1314,7 @@ fn values_equal(a: &Value, b: &Value) -> bool {
             ax.to_bits() == bx.to_bits() && ay.to_bits() == by.to_bits() && az.to_bits() == bz.to_bits() && aw.to_bits() == bw.to_bits(),
         (Value::Color { r: ar, g: ag, b: ab, a: aa }, Value::Color { r: br, g: bg, b: bb, a: ba }) =>
             ar.to_bits() == br.to_bits() && ag.to_bits() == bg.to_bits() && ab.to_bits() == bb.to_bits() && aa.to_bits() == ba.to_bits(),
+        (Value::Object(a), Value::Object(b)) => Rc::ptr_eq(a, b),
         _ => false,
     }
 }
@@ -1223,6 +1387,9 @@ fn collect_free_expr(expr: &Expr, bound: &HashSet<String>, free: &mut HashSet<St
             let mut inner_bound = bound.clone();
             for p in params.iter() { inner_bound.insert(p.name.clone()); }
             for s in body.iter() { collect_free_stmt(s, &mut inner_bound, free); }
+        }
+        Expr::StructConstruction { fields, .. } => {
+            for (_, e) in fields { collect_free_expr(e, bound, free); }
         }
     }
 }

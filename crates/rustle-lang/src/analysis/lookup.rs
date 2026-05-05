@@ -43,7 +43,24 @@ impl<'a> LookupContext<'a> {
                     }
             return None;
         }
-        // 3. TypeRegistry — handles all built-in types including generics.
+        // 3. Struct fields — look up from program AST.
+        if let Type::Named(name) = obj_ty {
+            if let Some(program) = self.program {
+                for item in &program.items {
+                    if let crate::syntax::ast::Item::Struct(def) = item {
+                        if def.name == *name {
+                            if let Some(f) = def.fields.iter().find(|f| f.name == field) {
+                                return f.ty.clone().or_else(|| {
+                                    f.default.as_ref().and_then(infer_literal_type)
+                                });
+                            }
+                            return None; // struct found but field doesn't exist
+                        }
+                    }
+                }
+            }
+        }
+        // 4. TypeRegistry — handles all built-in types including generics.
         self.type_registry.resolve_field_type(obj_ty, field)
     }
 
@@ -57,12 +74,38 @@ impl<'a> LookupContext<'a> {
                 }
             return Vec::new();
         }
+        if let Type::Named(name) = obj_ty {
+            if let Some(program) = self.program {
+                for item in &program.items {
+                    if let crate::syntax::ast::Item::Struct(def) = item {
+                        if def.name == *name {
+                            return def.fields.iter().map(|f| f.name.as_str()).collect();
+                        }
+                    }
+                }
+            }
+        }
         self.type_registry.field_names_for_type(obj_ty)
     }
 
     /// Return all method names available on the given type.
     #[must_use]
     pub fn method_names(&self, obj_ty: &Type) -> Vec<&str> {
+        if let Type::Named(name) = obj_ty {
+            if let Some(program) = self.program {
+                for item in &program.items {
+                    if let crate::syntax::ast::Item::Struct(def) = item {
+                        if def.name == *name {
+                            let mut names: Vec<&str> = def.methods.iter()
+                                .map(|m| m.def.name.as_str())
+                                .collect();
+                            names.push("clone");
+                            return names;
+                        }
+                    }
+                }
+            }
+        }
         self.type_registry.method_names_for_type(obj_ty)
     }
 
@@ -75,7 +118,28 @@ impl<'a> LookupContext<'a> {
                 && let Some(export) = ns.get_export(method) {
                     return Some(export.ty);
                 }
-        // 2. TypeRegistry — handles all built-in types including generics.
+        // 2. Struct methods — look up from program AST.
+        if let Type::Named(name) = obj_ty {
+            if let Some(program) = self.program {
+                for item in &program.items {
+                    if let crate::syntax::ast::Item::Struct(def) = item {
+                        if def.name == *name {
+                            // Built-in clone method
+                            if method == "clone" {
+                                return Some(Type::Fn(vec![], Some(Box::new(Type::Named(name.clone())))));
+                            }
+                            if let Some(m) = def.methods.iter().find(|m| m.def.name == method) {
+                                let params: Vec<Type> = m.def.params.iter().map(|p| p.ty.clone()).collect();
+                                let ret = m.def.return_ty.clone();
+                                return Some(Type::Fn(params, ret.map(Box::new)));
+                            }
+                            return None;
+                        }
+                    }
+                }
+            }
+        }
+        // 3. TypeRegistry — handles all built-in types including generics.
         let (params, ret) = self.type_registry.resolve_method_signature(obj_ty, method)?;
         Some(Type::Fn(params, ret.map(Box::new)))
     }
