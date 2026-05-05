@@ -67,6 +67,7 @@ pub struct StructField {
     pub name: String,
     pub ty: Option<Type>,
     pub default: Option<Expr>,
+    pub visibility: Visibility,
     pub span: Span,
 }
 

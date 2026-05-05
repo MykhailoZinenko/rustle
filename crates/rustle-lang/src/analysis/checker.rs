@@ -251,6 +251,22 @@ impl<'a> TypeResolver<'a> {
             }
             let mut ty = sym.ty.clone();
             for segment in &path[1..] {
+                // Check private field visibility on assignment path
+                if let Some(Type::Named(ref struct_name)) = ty {
+                    if let Some(def) = self.find_struct_def(struct_name) {
+                        if let Some(f) = def.fields.iter().find(|f| f.name == *segment) {
+                            if f.visibility == crate::syntax::ast::Visibility::Private
+                                && self.current_struct.as_deref() != Some(struct_name.as_str())
+                            {
+                                self.errors.push(Error::new(
+                                    ErrorCode::S016, a.span.line, a.span.column,
+                                    format!("field '{}' is private in '{}'", segment, struct_name),
+                                ));
+                                return;
+                            }
+                        }
+                    }
+                }
                 ty = ty.and_then(|t| self.lookup.resolve_field(&t, segment));
             }
             // For indexed target, drill down to element type and check index is float
@@ -611,6 +627,23 @@ impl<'a> TypeResolver<'a> {
 
             Expr::Field { expr, field, span } => {
                 let obj_ty = self.infer_expr(expr)?;
+                // Check private field visibility for struct types
+                if let Type::Named(ref struct_name) = obj_ty {
+                    if let Some(def) = self.find_struct_def(struct_name) {
+                        if let Some(f) = def.fields.iter().find(|f| f.name == *field) {
+                            if f.visibility == crate::syntax::ast::Visibility::Private
+                                && self.current_struct.as_deref() != Some(struct_name.as_str())
+                            {
+                                return Err(vec![Error::new(
+                                    ErrorCode::S016,
+                                    span.line,
+                                    span.column,
+                                    format!("field '{}' is private in '{}'", field, struct_name),
+                                )]);
+                            }
+                        }
+                    }
+                }
                 let ty = self.lookup.resolve_field(&obj_ty, field);
                 ty.ok_or_else(|| {
                     let mut err = Error::new(

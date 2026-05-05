@@ -2345,8 +2345,8 @@ fn console_with_template_cast_expr() {
 fn struct_construction_and_field_read() {
     let rt = run(r#"
         struct Point {
-            let x: float = 0.0
-            let y: float
+            +let x: float = 0.0
+            +let y: float
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2362,8 +2362,8 @@ fn struct_construction_and_field_read() {
 fn struct_field_mutation() {
     let rt = run(r#"
         struct Point {
-            let x: float = 0.0
-            let y: float = 0.0
+            +let x: float = 0.0
+            +let y: float = 0.0
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2380,8 +2380,8 @@ fn struct_field_mutation() {
 fn struct_default_fields() {
     let rt = run(r#"
         struct Point {
-            let x: float = 0.0
-            let y: float = 0.0
+            +let x: float = 0.0
+            +let y: float = 0.0
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2397,8 +2397,8 @@ fn struct_default_fields() {
 fn struct_reference_semantics() {
     let rt = run(r#"
         struct Point {
-            let x: float = 0.0
-            let y: float = 0.0
+            +let x: float = 0.0
+            +let y: float = 0.0
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2416,8 +2416,8 @@ fn struct_reference_semantics() {
 fn struct_method_call() {
     let rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
 
             +fn sum() -> float {
                 return this.x + this.y
@@ -2437,8 +2437,8 @@ fn struct_method_call() {
 fn struct_method_with_params() {
     let rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
 
             +fn add(dx: float, dy: float) -> Point {
                 return Point { x: this.x + dx, y: this.y + dy }
@@ -2459,7 +2459,7 @@ fn struct_method_with_params() {
 fn struct_method_mutates_this() {
     let rt = run(r#"
         struct Counter {
-            let count: float
+            +let count: float
 
             +fn increment() {
                 this.count = this.count + 1.0
@@ -2482,7 +2482,7 @@ fn struct_method_mutates_this() {
 fn struct_method_calls_another_method() {
     let rt = run(r#"
         struct Calc {
-            let val: float
+            +let val: float
 
             +fn doubled() -> float {
                 return this.helper(2.0)
@@ -2508,12 +2508,12 @@ fn struct_method_calls_another_method() {
 fn struct_nested_field_access() {
     let rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
         }
         struct Bounds {
-            let min: Point
-            let max: Point
+            +let min: Point
+            +let max: Point
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2532,12 +2532,12 @@ fn struct_nested_field_access() {
 fn struct_nested_field_mutation() {
     let rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
         }
         struct Bounds {
-            let min: Point
-            let max: Point
+            +let min: Point
+            +let max: Point
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2557,13 +2557,13 @@ fn struct_nested_field_mutation() {
 fn struct_nested_method_call() {
     let rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
             +fn sum() -> float { return this.x + this.y }
         }
         struct Bounds {
-            let min: Point
-            let max: Point
+            +let min: Point
+            +let max: Point
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2582,8 +2582,8 @@ fn struct_nested_method_call() {
 fn struct_as_state_field() {
     let rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
         }
         state { let p: Point = Point { x: 1.0, y: 2.0 } }
         fn on_init(s: State) -> State {
@@ -2608,8 +2608,8 @@ fn struct_as_state_field() {
 fn struct_console_output() {
     let mut rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
         }
         let p: Point = Point { x: 1.0, y: 2.0 }
         console << p
@@ -2625,8 +2625,8 @@ fn struct_console_output() {
 fn struct_clone_independence() {
     let rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
         }
         state {
             let a_x: float = 0.0
@@ -2649,12 +2649,12 @@ fn struct_clone_independence() {
 fn struct_clone_nested() {
     let rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
         }
         struct Bounds {
-            let min: Point
-            let max: Point
+            +let min: Point
+            +let max: Point
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2690,8 +2690,8 @@ fn list_clone() {
 fn struct_no_methods() {
     let rt = run(r#"
         struct Pair {
-            let a: float
-            let b: float
+            +let a: float
+            +let b: float
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2717,8 +2717,8 @@ fn struct_no_fields() {
 fn struct_in_list() {
     let rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2736,8 +2736,8 @@ fn struct_in_list() {
 fn struct_method_with_struct_param() {
     let rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
 
             +fn distance_to(o: Point) -> float {
                 let dx: float = this.x - o.x
@@ -2760,8 +2760,8 @@ fn struct_method_with_struct_param() {
 fn struct_passed_to_function() {
     let rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
         }
         fn sum_point(p: Point) -> float {
             return p.x + p.y
@@ -2780,8 +2780,8 @@ fn struct_passed_to_function() {
 fn struct_returned_from_function() {
     let rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
         }
         fn make_point(x: float, y: float) -> Point {
             return Point { x: x, y: y }
@@ -2803,8 +2803,8 @@ fn struct_empty_construction() {
     // All fields have defaults — empty {} is valid
     let rt = run(r#"
         struct Config {
-            let width: float = 800.0
-            let height: float = 600.0
+            +let width: float = 800.0
+            +let height: float = 600.0
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2821,8 +2821,8 @@ fn struct_field_order_independent() {
     // Fields can be provided in any order
     let rt = run(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2839,7 +2839,7 @@ fn struct_field_expression_default() {
     // Default is an expression, not just a literal
     let rt = run(r#"
         struct Config {
-            let half: float = 100.0 / 2.0
+            +let half: float = 100.0 / 2.0
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2858,7 +2858,7 @@ fn struct_method_no_return() {
     // Method with no return value (void)
     let rt = run(r#"
         struct Counter {
-            let count: float = 0.0
+            +let count: float = 0.0
             +fn reset() {
                 this.count = 0.0
             }
@@ -2878,8 +2878,8 @@ fn struct_method_no_return() {
 fn struct_method_multiple_params() {
     let rt = run(r#"
         struct Rect {
-            let w: float
-            let h: float
+            +let w: float
+            +let h: float
             +fn scale(sx: float, sy: float) -> Rect {
                 return Rect { w: this.w * sx, h: this.h * sy }
             }
@@ -2899,8 +2899,8 @@ fn struct_method_multiple_params() {
 fn struct_method_returns_bool() {
     let rt = run(r#"
         struct Box {
-            let w: float
-            let h: float
+            +let w: float
+            +let h: float
             +fn is_square() -> bool {
                 return this.w == this.h
             }
@@ -2919,7 +2919,7 @@ fn struct_method_returns_bool() {
 fn struct_chained_method_calls() {
     let rt = run(r#"
         struct Builder {
-            let val: float = 0.0
+            +let val: float = 0.0
             +fn add(n: float) -> Builder {
                 return Builder { val: this.val + n }
             }
@@ -2942,8 +2942,8 @@ fn struct_reference_through_function() {
     // Passing struct to a function — function mutates via reference
     let rt = run(r#"
         struct Point {
-            let x: float = 0.0
-            let y: float = 0.0
+            +let x: float = 0.0
+            +let y: float = 0.0
         }
         fn move_point(p: Point, dx: float, dy: float) {
             p.x = p.x + dx
@@ -2964,7 +2964,7 @@ fn struct_reference_through_function() {
 fn struct_multiple_references() {
     let rt = run(r#"
         struct Data {
-            let val: float = 0.0
+            +let val: float = 0.0
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -2985,8 +2985,8 @@ fn struct_multiple_references() {
 fn struct_string_field() {
     let rt = run(r#"
         struct Named {
-            let name: string
-            let value: float
+            +let name: string
+            +let value: float
         }
         state { let v: string = "" }
         fn on_init(s: State) -> State {
@@ -3002,8 +3002,8 @@ fn struct_string_field() {
 fn struct_bool_field() {
     let rt = run(r#"
         struct Flags {
-            let active: bool = true
-            let visible: bool = false
+            +let active: bool = true
+            +let visible: bool = false
         }
         state { let v: bool = false }
         fn on_init(s: State) -> State {
@@ -3019,7 +3019,7 @@ fn struct_bool_field() {
 fn struct_list_field() {
     let rt = run(r#"
         struct Container {
-            let items: list[float]
+            +let items: list[float]
         }
         state { let v: float = 0.0 }
         fn on_init(s: State) -> State {
@@ -3038,7 +3038,7 @@ fn struct_list_field() {
 fn struct_method_with_if() {
     let rt = run(r#"
         struct Abs {
-            let val: float
+            +let val: float
             +fn absolute() -> float {
                 if this.val < 0.0 {
                     return 0.0 - this.val
@@ -3060,7 +3060,7 @@ fn struct_method_with_if() {
 fn struct_method_with_loop() {
     let rt = run(r#"
         struct Summer {
-            let items: list[float]
+            +let items: list[float]
             +fn total() -> float {
                 let sum: float = 0.0
                 foreach v: float in this.items {
@@ -3085,7 +3085,7 @@ fn struct_method_with_loop() {
 fn struct_persists_in_state() {
     let mut rt = run(r#"
         struct Counter {
-            let n: float = 0.0
+            +let n: float = 0.0
             +fn inc() { this.n = this.n + 1.0 }
         }
         state { let c: Counter = Counter {} }
@@ -3414,4 +3414,26 @@ fn list_chained_operations() {
         }
     "#);
     assert_eq!(f(&rt, "v"), 3.0);
+}
+
+// ─── Struct field visibility ────────────────────────────────────────────────
+
+#[test]
+fn struct_private_field_access_via_method() {
+    let rt = run(r#"
+        struct Counter {
+            #let count: float = 0.0
+            +fn inc() { this.count = this.count + 1.0 }
+            +fn get() -> float { return this.count }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let c: Counter = Counter {}
+            c.inc()
+            c.inc()
+            s.v = c.get()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 2.0);
 }

@@ -126,15 +126,30 @@ impl Parser {
         let mut methods = Vec::new();
         while !self.check(TokenKind::RBrace) && !self.is_at_end() {
             match self.peek_kind() {
-                TokenKind::Let => fields.push(self.parse_struct_field()?),
-                TokenKind::Plus | TokenKind::Hash => methods.push(self.parse_struct_method()?),
+                TokenKind::Let => {
+                    // Bare `let` without visibility prefix is an error
+                    return Err(Error::new(
+                        ErrorCode::P001,
+                        self.peek().line,
+                        self.peek().column,
+                        "struct fields require '+let' (public) or '#let' (private)",
+                    ));
+                }
+                TokenKind::Plus | TokenKind::Hash => {
+                    // Peek ahead to determine if it's a field (+let/#let) or method (+fn/#fn)
+                    if self.peek_next_is(TokenKind::Let) {
+                        fields.push(self.parse_struct_field()?);
+                    } else {
+                        methods.push(self.parse_struct_method()?);
+                    }
+                }
                 _ => {
                     return Err(Error::new(
                         ErrorCode::P001,
                         self.peek().line,
                         self.peek().column,
                         format!(
-                            "expected field (`let`) or method (`+fn`/`#fn`) in struct, found {}",
+                            "expected field (`+let`/`#let`) or method (`+fn`/`#fn`) in struct, found {}",
                             self.peek_kind().display_name()
                         ),
                     ));
@@ -148,6 +163,13 @@ impl Parser {
 
     fn parse_struct_field(&mut self) -> Result<StructField, Error> {
         let start = self.span();
+        // Consume visibility prefix (+/# already confirmed by caller)
+        let visibility = if self.matches(TokenKind::Plus) {
+            Visibility::Public
+        } else {
+            self.expect(TokenKind::Hash)?;
+            Visibility::Private
+        };
         self.expect(TokenKind::Let)?;
         let name = self.expect_ident()?;
         let ty = if self.matches(TokenKind::Colon) {
@@ -170,7 +192,7 @@ impl Parser {
             ));
         }
         let span = self.span_from(&start);
-        Ok(StructField { name, ty, default, span })
+        Ok(StructField { name, ty, default, visibility, span })
     }
 
     fn parse_struct_method(&mut self) -> Result<StructMethod, Error> {
@@ -627,8 +649,8 @@ impl Parser {
         loop {
             let op = match self.peek_kind() {
                 TokenKind::Plus  => {
-                    // Don't treat `+fn` as binary addition — it's a method visibility prefix
-                    if self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1].kind == TokenKind::Fn {
+                    // Don't treat `+fn` or `+let` as binary addition — they're struct member visibility prefixes
+                    if self.pos + 1 < self.tokens.len() && matches!(self.tokens[self.pos + 1].kind, TokenKind::Fn | TokenKind::Let) {
                         break;
                     }
                     BinOp::Add

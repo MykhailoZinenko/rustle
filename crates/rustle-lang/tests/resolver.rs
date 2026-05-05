@@ -1389,8 +1389,8 @@ fn cast_string_to_float_allowed() {
 fn struct_basic_declaration() {
     let src = r#"
         struct Point {
-            let x: float = 0.0
-            let y: float
+            +let x: float = 0.0
+            +let y: float
         }
     "#;
     assert!(compile(src).is_ok());
@@ -1400,8 +1400,8 @@ fn struct_basic_declaration() {
 fn struct_construction_parses() {
     let src = r#"
         struct Point {
-            let x: float = 0.0
-            let y: float = 0.0
+            +let x: float = 0.0
+            +let y: float = 0.0
         }
         let p: Point = Point { x: 5.0, y: 10.0 }
     "#;
@@ -1412,8 +1412,8 @@ fn struct_construction_parses() {
 fn struct_field_access_resolves() {
     let src = r#"
         struct Point {
-            let x: float = 0.0
-            let y: float = 0.0
+            +let x: float = 0.0
+            +let y: float = 0.0
         }
         let p: Point = Point { x: 1.0, y: 2.0 }
         let v: float = p.x
@@ -1425,8 +1425,8 @@ fn struct_field_access_resolves() {
 fn struct_field_access_wrong_field_errors() {
     let src = r#"
         struct Point {
-            let x: float = 0.0
-            let y: float = 0.0
+            +let x: float = 0.0
+            +let y: float = 0.0
         }
         let p: Point = Point { x: 1.0, y: 2.0 }
         let v: float = p.z
@@ -1438,7 +1438,7 @@ fn struct_field_access_wrong_field_errors() {
 fn struct_method_resolves() {
     let src = r#"
         struct Counter {
-            let value: float
+            +let value: float
             +fn inc(amount: float) -> float {
                 value + amount
             }
@@ -1459,10 +1459,10 @@ fn struct_method_resolves() {
 fn struct_duplicate_name_errors() {
     let src = r#"
         struct Foo {
-            let x: float = 0.0
+            +let x: float = 0.0
         }
         struct Foo {
-            let y: float = 0.0
+            +let y: float = 0.0
         }
     "#;
     assert!(compile(src).is_err());
@@ -1472,8 +1472,8 @@ fn struct_duplicate_name_errors() {
 fn struct_construction_type_checks() {
     let src = r#"
         struct Point {
-            let x: float = 0.0
-            let y: float
+            +let x: float = 0.0
+            +let y: float
         }
         let p: Point = Point { x: 5.0, y: 10.0 }
     "#;
@@ -1484,8 +1484,8 @@ fn struct_construction_type_checks() {
 fn struct_missing_required_field() {
     let errs = err(r#"
         struct Point {
-            let x: float = 0.0
-            let y: float
+            +let x: float = 0.0
+            +let y: float
         }
         let p: Point = Point { x: 5.0 }
     "#);
@@ -1496,8 +1496,8 @@ fn struct_missing_required_field() {
 fn struct_unknown_field_in_construction() {
     let errs = err(r#"
         struct Point {
-            let x: float = 0.0
-            let y: float = 0.0
+            +let x: float = 0.0
+            +let y: float = 0.0
         }
         let p: Point = Point { z: 5.0 }
     "#);
@@ -1508,8 +1508,8 @@ fn struct_unknown_field_in_construction() {
 fn struct_this_in_method() {
     let src = r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
 
             +fn sum() -> float {
                 return this.x + this.y
@@ -1533,8 +1533,8 @@ fn struct_this_outside_method() {
 fn struct_duplicate_field() {
     let errs = err(r#"
         struct Point {
-            let x: float
-            let x: float
+            +let x: float
+            +let x: float
         }
     "#);
     assert!(has(&errs, ErrorCode::S019));
@@ -1544,7 +1544,7 @@ fn struct_duplicate_field() {
 fn struct_duplicate_method() {
     let errs = err(r#"
         struct Point {
-            let x: float
+            +let x: float
             +fn foo() -> float {
                 1.0
             }
@@ -1560,7 +1560,7 @@ fn struct_duplicate_method() {
 fn struct_private_method_access() {
     let errs = err(r#"
         struct Point {
-            let x: float
+            +let x: float
             #fn secret() -> float {
                 this.x
             }
@@ -1575,7 +1575,7 @@ fn struct_private_method_access() {
 fn struct_private_method_from_inside() {
     ok(r#"
         struct Point {
-            let x: float
+            +let x: float
             #fn secret() -> float {
                 this.x
             }
@@ -1590,8 +1590,8 @@ fn struct_private_method_from_inside() {
 fn struct_type_infer_from_default() {
     let src = r#"
         struct Config {
-            let width = 800.0
-            let title = "untitled"
+            +let width = 800.0
+            +let title = "untitled"
         }
         let c: Config = Config {}
         let w: float = c.width
@@ -1604,8 +1604,8 @@ fn struct_type_infer_from_default() {
 fn struct_field_default_before_method() {
     let src = r#"
         struct Point {
-            let x: float = 0.0
-            let y: float = 0.0
+            +let x: float = 0.0
+            +let y: float = 0.0
             +fn sum() -> float { return this.x + this.y }
         }
         let p: Point = Point { x: 3.0, y: 4.0 }
@@ -1617,8 +1617,8 @@ fn struct_field_default_before_method() {
 fn struct_field_type_mismatch() {
     let errs = err(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
         }
         let p: Point = Point { x: "hello", y: 2.0 }
     "#);
@@ -1637,7 +1637,7 @@ fn struct_undefined() {
 fn struct_method_wrong_arg_count() {
     let errs = err(r#"
         struct Point {
-            let x: float
+            +let x: float
             +fn add(dx: float) -> float { return this.x + dx }
         }
         let p: Point = Point { x: 1.0 }
@@ -1650,14 +1650,60 @@ fn struct_method_wrong_arg_count() {
 fn struct_assign_wrong_type() {
     let errs = err(r#"
         struct Point {
-            let x: float
-            let y: float
+            +let x: float
+            +let y: float
         }
         struct Rect {
-            let w: float
-            let h: float
+            +let w: float
+            +let h: float
         }
         let p: Point = Rect { w: 1.0, h: 2.0 }
     "#);
     assert!(has(&errs, ErrorCode::S002));
+}
+
+#[test]
+fn struct_private_field_access_error() {
+    let errs = err(r#"
+        struct Player {
+            #let health: float = 100.0
+            +let name: string
+        }
+        let p: Player = Player { health: 50.0, name: "bob" }
+        let h: float = p.health
+    "#);
+    assert!(has(&errs, ErrorCode::S016));
+}
+
+#[test]
+fn struct_private_field_via_this() {
+    ok(r#"
+        struct Player {
+            #let health: float = 100.0
+            +fn get_health() -> float { return this.health }
+        }
+    "#);
+}
+
+#[test]
+fn struct_bare_let_error() {
+    let errs = err(r#"
+        struct Point {
+            let x: float = 0.0
+        }
+    "#);
+    assert!(has(&errs, ErrorCode::P001));
+}
+
+#[test]
+fn struct_private_field_assign_error() {
+    let errs = err(r#"
+        struct Player {
+            #let health: float = 100.0
+            +let name: string
+        }
+        let p: Player = Player { health: 50.0, name: "bob" }
+        p.health = 200.0
+    "#);
+    assert!(has(&errs, ErrorCode::S016));
 }
