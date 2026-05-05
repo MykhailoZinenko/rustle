@@ -1382,3 +1382,220 @@ fn cast_float_to_bool_allowed() {
 fn cast_string_to_float_allowed() {
     ok(r#"let v = "3.14" as float"#);
 }
+
+// ── Struct declarations ──────────────────────────────────────────────────────
+
+#[test]
+fn struct_basic_declaration() {
+    let src = r#"
+        struct Point {
+            let x: float = 0.0
+            let y: float
+        }
+    "#;
+    assert!(compile(src).is_ok());
+}
+
+#[test]
+fn struct_construction_parses() {
+    let src = r#"
+        struct Point {
+            let x: float = 0.0
+            let y: float = 0.0
+        }
+        let p: Point = Point { x: 5.0, y: 10.0 }
+    "#;
+    assert!(compile(src).is_ok());
+}
+
+#[test]
+fn struct_field_access_resolves() {
+    let src = r#"
+        struct Point {
+            let x: float = 0.0
+            let y: float = 0.0
+        }
+        let p: Point = Point { x: 1.0, y: 2.0 }
+        let v: float = p.x
+    "#;
+    assert!(compile(src).is_ok());
+}
+
+#[test]
+fn struct_field_access_wrong_field_errors() {
+    let src = r#"
+        struct Point {
+            let x: float = 0.0
+            let y: float = 0.0
+        }
+        let p: Point = Point { x: 1.0, y: 2.0 }
+        let v: float = p.z
+    "#;
+    assert!(compile(src).is_err());
+}
+
+#[test]
+fn struct_method_resolves() {
+    let src = r#"
+        struct Counter {
+            let value: float
+            +fn inc(amount: float) -> float {
+                value + amount
+            }
+        }
+        let c: Counter = Counter { value: 0.0 }
+        let v: float = c.inc(1.0)
+    "#;
+    let result = compile(src);
+    if let Err(ref errs) = result {
+        for e in errs {
+            eprintln!("  [{:?}] {}:{} — {}", e.code, e.line, e.column, e.message);
+        }
+    }
+    assert!(result.is_ok());
+}
+
+#[test]
+fn struct_duplicate_name_errors() {
+    let src = r#"
+        struct Foo {
+            let x: float = 0.0
+        }
+        struct Foo {
+            let y: float = 0.0
+        }
+    "#;
+    assert!(compile(src).is_err());
+}
+
+#[test]
+fn struct_construction_type_checks() {
+    let src = r#"
+        struct Point {
+            let x: float = 0.0
+            let y: float
+        }
+        let p: Point = Point { x: 5.0, y: 10.0 }
+    "#;
+    assert!(compile(src).is_ok());
+}
+
+#[test]
+fn struct_missing_required_field() {
+    let errs = err(r#"
+        struct Point {
+            let x: float = 0.0
+            let y: float
+        }
+        let p: Point = Point { x: 5.0 }
+    "#);
+    assert!(has(&errs, ErrorCode::S017));
+}
+
+#[test]
+fn struct_unknown_field_in_construction() {
+    let errs = err(r#"
+        struct Point {
+            let x: float = 0.0
+            let y: float = 0.0
+        }
+        let p: Point = Point { z: 5.0 }
+    "#);
+    assert!(has(&errs, ErrorCode::S018));
+}
+
+#[test]
+fn struct_this_in_method() {
+    let src = r#"
+        struct Point {
+            let x: float
+            let y: float
+
+            +fn sum() -> float {
+                return this.x + this.y
+            }
+        }
+    "#;
+    assert!(compile(src).is_ok());
+}
+
+#[test]
+fn struct_this_outside_method() {
+    let errs = err(r#"
+        fn foo() -> float {
+            return this.x
+        }
+    "#);
+    assert!(has(&errs, ErrorCode::S021));
+}
+
+#[test]
+fn struct_duplicate_field() {
+    let errs = err(r#"
+        struct Point {
+            let x: float
+            let x: float
+        }
+    "#);
+    assert!(has(&errs, ErrorCode::S019));
+}
+
+#[test]
+fn struct_duplicate_method() {
+    let errs = err(r#"
+        struct Point {
+            let x: float
+            +fn foo() -> float {
+                1.0
+            }
+            +fn foo() -> float {
+                2.0
+            }
+        }
+    "#);
+    assert!(has(&errs, ErrorCode::S020));
+}
+
+#[test]
+fn struct_private_method_access() {
+    let errs = err(r#"
+        struct Point {
+            let x: float
+            #fn secret() -> float {
+                this.x
+            }
+        }
+        let p: Point = Point { x: 1.0 }
+        let v: float = p.secret()
+    "#);
+    assert!(has(&errs, ErrorCode::S016));
+}
+
+#[test]
+fn struct_private_method_from_inside() {
+    ok(r#"
+        struct Point {
+            let x: float
+            #fn secret() -> float {
+                this.x
+            }
+            +fn public_call() -> float {
+                this.secret()
+            }
+        }
+    "#);
+}
+
+#[test]
+fn struct_type_infer_from_default() {
+    let src = r#"
+        struct Config {
+            let width = 800.0
+            let title = "untitled"
+        }
+        let c: Config = Config {}
+        let w: float = c.width
+        let t: string = c.title
+    "#;
+    assert!(compile(src).is_ok());
+}

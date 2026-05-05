@@ -2340,3 +2340,458 @@ fn console_with_template_cast_expr() {
     }
     assert_eq!(f(&rt, "frame"), 100.0);
 }
+
+#[test]
+fn struct_construction_and_field_read() {
+    let rt = run(r#"
+        struct Point {
+            let x: float = 0.0
+            let y: float
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let p: Point = Point { x: 5.0, y: 10.0 }
+            s.v = p.x + p.y
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 15.0);
+}
+
+#[test]
+fn struct_field_mutation() {
+    let rt = run(r#"
+        struct Point {
+            let x: float = 0.0
+            let y: float = 0.0
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let p: Point = Point { x: 1.0, y: 2.0 }
+            p.x = 99.0
+            s.v = p.x
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 99.0);
+}
+
+#[test]
+fn struct_default_fields() {
+    let rt = run(r#"
+        struct Point {
+            let x: float = 0.0
+            let y: float = 0.0
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let p: Point = Point { y: 7.0 }
+            s.v = p.x + p.y
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 7.0);
+}
+
+#[test]
+fn struct_reference_semantics() {
+    let rt = run(r#"
+        struct Point {
+            let x: float = 0.0
+            let y: float = 0.0
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let a: Point = Point { x: 1.0, y: 2.0 }
+            let b: Point = a
+            b.x = 99.0
+            s.v = a.x
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 99.0);  // shared reference — a.x changed too
+}
+
+#[test]
+fn struct_method_call() {
+    let rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+
+            +fn sum() -> float {
+                return this.x + this.y
+            }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let p: Point = Point { x: 3.0, y: 4.0 }
+            s.v = p.sum()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 7.0);
+}
+
+#[test]
+fn struct_method_with_params() {
+    let rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+
+            +fn add(dx: float, dy: float) -> Point {
+                return Point { x: this.x + dx, y: this.y + dy }
+            }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let p: Point = Point { x: 1.0, y: 2.0 }
+            let q: Point = p.add(10.0, 20.0)
+            s.v = q.x + q.y
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 33.0);
+}
+
+#[test]
+fn struct_method_mutates_this() {
+    let rt = run(r#"
+        struct Counter {
+            let count: float
+
+            +fn increment() {
+                this.count = this.count + 1.0
+            }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let c: Counter = Counter { count: 0.0 }
+            c.increment()
+            c.increment()
+            c.increment()
+            s.v = c.count
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
+}
+
+#[test]
+fn struct_method_calls_another_method() {
+    let rt = run(r#"
+        struct Calc {
+            let val: float
+
+            +fn doubled() -> float {
+                return this.helper(2.0)
+            }
+
+            +fn helper(factor: float) -> float {
+                return this.val * factor
+            }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let c: Calc = Calc { val: 5.0 }
+            s.v = c.doubled()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 10.0);
+}
+
+// ─── Nested Structs & Deep Access ────────────────────────────────────────────
+
+#[test]
+fn struct_nested_field_access() {
+    let rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+        }
+        struct Bounds {
+            let min: Point
+            let max: Point
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let b: Bounds = Bounds {
+                min: Point { x: 1.0, y: 2.0 },
+                max: Point { x: 10.0, y: 20.0 }
+            }
+            s.v = b.min.x + b.max.y
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 21.0);
+}
+
+#[test]
+fn struct_nested_field_mutation() {
+    let rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+        }
+        struct Bounds {
+            let min: Point
+            let max: Point
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let b: Bounds = Bounds {
+                min: Point { x: 1.0, y: 2.0 },
+                max: Point { x: 10.0, y: 20.0 }
+            }
+            b.min.x = 99.0
+            s.v = b.min.x
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 99.0);
+}
+
+#[test]
+fn struct_nested_method_call() {
+    let rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+            +fn sum() -> float { return this.x + this.y }
+        }
+        struct Bounds {
+            let min: Point
+            let max: Point
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let b: Bounds = Bounds {
+                min: Point { x: 3.0, y: 4.0 },
+                max: Point { x: 10.0, y: 20.0 }
+            }
+            s.v = b.min.sum()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 7.0);
+}
+
+#[test]
+fn struct_as_state_field() {
+    let rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+        }
+        state { let p: Point = Point { x: 1.0, y: 2.0 } }
+        fn on_init(s: State) -> State {
+            s.p.x = 99.0
+            return s
+        }
+    "#);
+    match rt.state().0.get("p") {
+        Some(Value::Object(rc)) => {
+            let obj = rc.borrow();
+            let val = obj.get_field("x").unwrap();
+            match val {
+                Value::Float(x) => assert_eq!(x, 99.0),
+                other => panic!("expected Float, got {other:?}"),
+            }
+        }
+        other => panic!("expected Object, got {other:?}"),
+    }
+}
+
+#[test]
+fn struct_console_output() {
+    let mut rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+        }
+        let p: Point = Point { x: 1.0, y: 2.0 }
+        console << p
+    "#);
+    let cmds = tick(&mut rt);
+    let found = cmds.iter().any(|c| matches!(c, DrawCommand::Print(msg) if msg.contains("Point")));
+    assert!(found, "expected Print containing 'Point', got: {cmds:?}");
+}
+
+// ─── Clone deep copy ─────────────────────────────────────────────────────────
+
+#[test]
+fn struct_clone_independence() {
+    let rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+        }
+        state {
+            let a_x: float = 0.0
+            let b_x: float = 0.0
+        }
+        fn on_init(s: State) -> State {
+            let a: Point = Point { x: 1.0, y: 2.0 }
+            let b: Point = a.clone()
+            b.x = 99.0
+            s.a_x = a.x
+            s.b_x = b.x
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "a_x"), 1.0);
+    assert_eq!(f(&rt, "b_x"), 99.0);
+}
+
+#[test]
+fn struct_clone_nested() {
+    let rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+        }
+        struct Bounds {
+            let min: Point
+            let max: Point
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let b1: Bounds = Bounds {
+                min: Point { x: 1.0, y: 2.0 },
+                max: Point { x: 10.0, y: 20.0 }
+            }
+            let b2: Bounds = b1.clone()
+            b2.min.x = 99.0
+            s.v = b1.min.x
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 1.0);
+}
+
+#[test]
+fn list_clone() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let a: list[float] = [1.0, 2.0, 3.0]
+            let b: list[float] = a.clone()
+            b.push(99.0)
+            s.v = a.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
+}
+
+#[test]
+fn struct_no_methods() {
+    let rt = run(r#"
+        struct Pair {
+            let a: float
+            let b: float
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let p: Pair = Pair { a: 3.0, b: 4.0 }
+            s.v = p.a + p.b
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 7.0);
+}
+
+#[test]
+fn struct_no_fields() {
+    let _rt = run(r#"
+        struct Marker {
+            +fn tag() -> string { return "marker" }
+        }
+        let m: Marker = Marker {}
+    "#);
+}
+
+#[test]
+fn struct_in_list() {
+    let rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let points: list[Point] = []
+            points.push(Point { x: 1.0, y: 2.0 })
+            points.push(Point { x: 3.0, y: 4.0 })
+            s.v = points.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 2.0);
+}
+
+#[test]
+fn struct_method_with_struct_param() {
+    let rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+
+            +fn distance_to(o: Point) -> float {
+                let dx: float = this.x - o.x
+                let dy: float = this.y - o.y
+                return sqrt(dx * dx + dy * dy)
+            }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let a: Point = Point { x: 0.0, y: 0.0 }
+            let b: Point = Point { x: 3.0, y: 4.0 }
+            s.v = a.distance_to(b)
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 5.0);
+}
+
+#[test]
+fn struct_passed_to_function() {
+    let rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+        }
+        fn sum_point(p: Point) -> float {
+            return p.x + p.y
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let p: Point = Point { x: 10.0, y: 20.0 }
+            s.v = sum_point(p)
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 30.0);
+}
+
+#[test]
+fn struct_returned_from_function() {
+    let rt = run(r#"
+        struct Point {
+            let x: float
+            let y: float
+        }
+        fn make_point(x: float, y: float) -> Point {
+            return Point { x: x, y: y }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let p: Point = make_point(7.0, 8.0)
+            s.v = p.x + p.y
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 15.0);
+}
