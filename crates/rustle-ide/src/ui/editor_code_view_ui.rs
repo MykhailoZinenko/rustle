@@ -29,6 +29,7 @@ pub fn draw_editor_code_view(
     let tab_id = editor.tabs[active_index].id;
     let text_edit_id = Id::new(("editor_text", tab_id));
 
+    handle_backtick(ui, &mut editor.tabs[active_index], text_edit_id);
     handle_cut_full_line(ui, suggestions, &mut editor.tabs[active_index], text_edit_id);
     handle_auto_indent(ui, suggestions, &mut editor.tabs[active_index], text_edit_id);
     handle_suggestion_keys(ui, suggestions, &mut editor.tabs[active_index], text_edit_id);
@@ -314,6 +315,34 @@ fn handle_cut_full_line(
     replace_char_range(&mut tab.buffer, line_range.clone(), "");
     let new_cursor_index = line_range.start.min(tab.buffer.chars().count());
     apply_suggestion_cursor(ui, tab, &mut SuggestionState::default(), text_edit_id, state, new_cursor_index);
+}
+
+fn handle_backtick(ui: &Ui, tab: &mut EditorTab, text_edit_id: Id) {
+    if !ui.memory(|memory| memory.has_focus(text_edit_id)) {
+        return;
+    }
+    if !ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Backtick)) {
+        return;
+    }
+
+    let state = TextEditState::load(ui.ctx(), text_edit_id).unwrap_or_default();
+    let cursor_range = state
+        .cursor
+        .char_range()
+        .unwrap_or_else(|| CCursorRange::one(CCursor::new(tab.buffer.chars().count())));
+    let char_range = cursor_range.as_sorted_char_range();
+
+    let insert_at = char_range.start;
+    replace_char_range(&mut tab.buffer, char_range, "`");
+    let new_cursor_index = insert_at + 1;
+    apply_suggestion_cursor(
+        ui,
+        tab,
+        &mut SuggestionState::default(),
+        text_edit_id,
+        state,
+        new_cursor_index,
+    );
 }
 
 fn apply_suggestion_cursor(

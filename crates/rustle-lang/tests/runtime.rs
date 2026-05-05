@@ -2307,3 +2307,36 @@ fn regular_string_no_interpolation() {
     let rt = run(r#"state { let v: string = "hello ${world}" }"#);
     assert_eq!(s(&rt, "v"), "hello ${world}");
 }
+
+#[test]
+fn console_with_template_string() {
+    let _rt = run(r#"
+        state { let v: string = "test" }
+        fn on_update(s: State, input: Input) -> State {
+            console << `frame ${s.v}`
+            return s
+        }
+    "#);
+}
+
+#[test]
+fn console_with_template_cast_expr() {
+    let mut rt = run(r#"
+        state {
+            let frame: float = 0.0
+            let t: float = 1.5
+        }
+        fn on_update(s: State, input: Input) -> State {
+            s.frame = s.frame + 1.0
+            if s.frame % 100.0 == 0.0 {
+                console << `frame ${s.frame as string}: t=${(round(s.t * 100.0) / 100.0) as string}s`
+            }
+            return s
+        }
+    "#);
+    // Tick 100 times to trigger the console log
+    for _ in 0..100 {
+        tick(&mut rt);
+    }
+    assert_eq!(f(&rt, "frame"), 100.0);
+}
