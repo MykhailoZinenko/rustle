@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 // ─── Environment ──────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
-struct Env {
+pub(crate) struct Env {
     scopes: Vec<HashMap<String, Value>>,
     output: Rc<RefCell<Vec<DrawCommand>>>,
 }
@@ -121,6 +121,22 @@ impl<'a> Interpreter<'a> {
         self
     }
 
+    /// Extract the current environment for caching (e.g. after top-level setup).
+    #[must_use]
+    pub(crate) fn take_env(&self) -> Env {
+        self.env.clone()
+    }
+
+    /// Restore a cached environment's scopes with a fresh output buffer.
+    #[must_use]
+    pub(crate) fn with_env(mut self, env: Env) -> Self {
+        self.env = Env {
+            scopes: env.scopes,
+            output: Rc::new(RefCell::new(Vec::new())),
+        };
+        self
+    }
+
     fn check_cancel(&self, line: usize) -> Result<(), RuntimeError> {
         if let Some(ref c) = self.cancel
             && c.load(Ordering::Relaxed) {
@@ -198,7 +214,6 @@ impl<'a> Interpreter<'a> {
     /// Returns a runtime error if `on_update` fails during execution.
     pub fn run_update(&mut self, state: State, input: &Input) -> Result<State, RuntimeError> {
         let Some(f) = self.fn_table.get("on_update").copied() else { return Ok(state); };
-        self.run_top_level()?;
         let input_val = Value::Input { dt: input.dt };
         self.run_lifecycle("on_update", f, state, &[("input", input_val)])
     }

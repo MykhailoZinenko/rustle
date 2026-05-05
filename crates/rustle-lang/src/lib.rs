@@ -80,6 +80,7 @@ pub struct Runtime {
     program: Program,
     state: State,
     runtime_state: RuntimeState,
+    base_env: Option<crate::runtime::interpreter::Env>,
     cancel: Option<Arc<AtomicBool>>,
 }
 
@@ -111,6 +112,10 @@ impl Runtime {
         //    runtime_state.coord_meta which persists for all subsequent ticks.
         interp.run_top_level()?;
 
+        // Cache the environment after top-level setup (imports + constants).
+        // This avoids re-running imports and top-level statements on every tick.
+        let base_env = Some(interp.take_env());
+
         // 2. Evaluate state{} field initializers.
         let mut state = State::default();
         if let Some(ref state_block) = program.ast.state {
@@ -125,7 +130,7 @@ impl Runtime {
 
         let runtime_state = interp.take_runtime_state();
 
-        Ok(Self { program, state, runtime_state, cancel })
+        Ok(Self { program, state, runtime_state, base_env, cancel })
     }
 
     /// Execute one frame. Runs `update(state, input)` if present, otherwise
@@ -143,8 +148,13 @@ impl Runtime {
         }
 
         if interp.has_fn("on_update") {
+            // Restore cached env (imports + top-level vars) instead of re-running top_level
+            if let Some(ref env) = self.base_env {
+                interp = interp.with_env(env.clone());
+            }
             self.state = interp.run_update(self.state.clone(), input)?;
         } else {
+            // Static scripts (no on_update): must re-run top-level each frame to emit shapes
             interp.run_top_level()?;
         }
 

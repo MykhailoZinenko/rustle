@@ -49,6 +49,9 @@ Documented: intentionally absent. Equality handled by `values_equal()` with bitw
 ### 30. Scope::symbols HashMap Ordering
 Added `names.sort()` to `all_visible_names()` for deterministic suggestion output.
 
+### 6. Interpreter Creates New Environment on Every Tick
+Cached the base environment (imports + top-level constants) after initial `run_top_level()`. On subsequent ticks with `on_update`, the cached env is restored instead of re-running all imports and top-level statements. Fresh output buffer per tick. Static scripts (no `on_update`) still re-run top-level each frame. Removed redundant `run_top_level()` call from `run_update()`.
+
 ### 12. Span Lacks End Position
 Extended `Span` with `end_line` and `end_column` fields. `Span::new()` defaults end to start (backward compatible). Added `Span::range()` for explicit ranges. Updated all 17 statement/definition parsers to use `span_from()` for end position tracking. Enables IDE squiggly underlines.
 
