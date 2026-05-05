@@ -123,7 +123,7 @@ impl TypeRegistry {
     #[must_use]
     pub fn method_names_for_type(&self, ty: &Type) -> Vec<&str> {
         match ty {
-            Type::List(_)     => vec!["push", "pop", "len", "clone", "map", "filter", "reduce", "find", "any", "all"],
+            Type::List(_)     => vec!["push", "pop", "len", "clone", "map", "filter", "any", "all", "search", "bsearch", "sort", "take", "drop", "cut", "paste"],
             Type::Array(_, _) => vec!["len"],
             _ => {
                 let key = type_to_registry_key(ty);
@@ -177,14 +177,13 @@ impl TypeRegistry {
                     let fn_ty = Type::Fn(vec![*elem.clone()], Some(Box::new(Type::Bool)));
                     Some((vec![fn_ty], Some(ty.clone())))
                 },
-                "reduce" => {
-                    let fn_ty = Type::Fn(vec![*elem.clone(), *elem.clone()], Some(elem.clone()));
-                    Some((vec![fn_ty, *elem.clone()], Some(*elem.clone())))
-                },
-                "find" => {
-                    let fn_ty = Type::Fn(vec![*elem.clone()], Some(Box::new(Type::Bool)));
-                    Some((vec![fn_ty], Some(Type::Optional(elem.clone()))))
-                },
+                "search" => Some((vec![*elem.clone()], Some(Type::Float))),
+                "bsearch" => Some((vec![*elem.clone()], Some(Type::Float))),
+                "sort" => Some((vec![], None)),
+                "take" => Some((vec![Type::Float, Type::Float], Some(Type::List(elem.clone())))),
+                "drop" => Some((vec![Type::Float, Type::Float], Some(Type::List(elem.clone())))),
+                "cut" => Some((vec![Type::Float, Type::Float], Some(Type::List(elem.clone())))),
+                "paste" => Some((vec![Type::Float, *elem.clone()], None)),
                 "any" | "all" => {
                     let fn_ty = Type::Fn(vec![*elem.clone()], Some(Box::new(Type::Bool)));
                     Some((vec![fn_ty], Some(Type::Bool)))

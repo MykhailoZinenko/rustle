@@ -1039,6 +1039,21 @@ impl<'a> TypeResolver<'a> {
     ) -> Option<Type> {
         let member_ty = self.lookup.get_method_type(obj_ty, method)?;
         if let Type::Fn(param_types, ret_ty) = &member_ty {
+            // sort() accepts 0 or 1 args (optional comparator) — skip strict count check
+            if method == "sort" && matches!(obj_ty, Type::List(_)) && args.len() <= 1 {
+                for arg in args {
+                    self.infer_expr(arg).ok();
+                }
+                return Some(ret_ty.clone().map_or(Type::Unit, |t| *t));
+            }
+            // paste() accepts a single value OR a list — skip strict type check on second arg
+            if method == "paste" && matches!(obj_ty, Type::List(_)) && args.len() == 2 {
+                // Just validate types without strict matching (list[T] is also acceptable)
+                for arg in args {
+                    self.infer_expr(arg).ok();
+                }
+                return Some(ret_ty.clone().map_or(Type::Unit, |t| *t));
+            }
             if args.len() == param_types.len() {
                 for (arg, expected) in args.iter().zip(param_types.iter()) {
                     match self.infer_expr(arg) {

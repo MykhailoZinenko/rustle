@@ -3150,46 +3150,6 @@ fn list_filter() {
     assert_eq!(f(&rt, "v"), 2.0);
 }
 
-#[test]
-fn list_reduce() {
-    let rt = run(r#"
-        state { let v: float = 0.0 }
-        fn on_init(s: State) -> State {
-            let nums: list[float] = [1.0, 2.0, 3.0, 4.0]
-            s.v = nums.reduce((acc: float, x: float) -> float { return acc + x }, 0.0)
-            return s
-        }
-    "#);
-    assert_eq!(f(&rt, "v"), 10.0);
-}
-
-#[test]
-fn list_find_some() {
-    let rt = run(r#"
-        state { let v: float = 0.0 }
-        fn on_init(s: State) -> State {
-            let nums: list[float] = [1.0, 2.0, 3.0, 4.0]
-            let found: float? = nums.find((x: float) -> bool { return x > 2.5 })
-            s.v = found ?? 0.0
-            return s
-        }
-    "#);
-    assert_eq!(f(&rt, "v"), 3.0);
-}
-
-#[test]
-fn list_find_none() {
-    let rt = run(r#"
-        state { let v: float = 0.0 }
-        fn on_init(s: State) -> State {
-            let nums: list[float] = [1.0, 2.0, 3.0]
-            let found: float? = nums.find((x: float) -> bool { return x > 100.0 })
-            s.v = found ?? -1.0
-            return s
-        }
-    "#);
-    assert_eq!(f(&rt, "v"), -1.0);
-}
 
 #[test]
 fn list_any_true() {
@@ -3270,4 +3230,188 @@ fn list_filter_empty_result() {
         }
     "#);
     assert_eq!(f(&rt, "v"), 0.0);
+}
+
+#[test]
+fn list_search_found() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [10.0, 20.0, 30.0, 40.0]
+            s.v = nums.search(30.0)
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 2.0);
+}
+
+#[test]
+fn list_search_not_found() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [10.0, 20.0, 30.0]
+            s.v = nums.search(99.0)
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), -1.0);
+}
+
+#[test]
+fn list_bsearch_found() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0, 4.0, 5.0]
+            s.v = nums.bsearch(4.0)
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
+}
+
+#[test]
+fn list_bsearch_not_found() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0, 4.0, 5.0]
+            s.v = nums.bsearch(3.5)
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), -1.0);
+}
+
+#[test]
+fn list_sort_default() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [3.0, 1.0, 4.0, 1.0, 5.0]
+            nums.sort()
+            s.v = nums.pop()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 5.0);
+}
+
+#[test]
+fn list_sort_with_comparator() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [3.0, 1.0, 4.0, 1.0, 5.0]
+            nums.sort((a: float, b: float) -> float { return b - a })
+            s.v = nums.pop()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 1.0);
+}
+
+#[test]
+fn list_take() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [10.0, 20.0, 30.0, 40.0, 50.0]
+            let first_three: list[float] = nums.take(0, 3)
+            s.v = first_three.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
+}
+
+#[test]
+fn list_take_does_not_modify() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [10.0, 20.0, 30.0, 40.0, 50.0]
+            let sub: list[float] = nums.take(1, 3)
+            s.v = nums.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 5.0);
+}
+
+#[test]
+fn list_drop() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [10.0, 20.0, 30.0, 40.0, 50.0]
+            let without_mid: list[float] = nums.drop(1, 3)
+            s.v = without_mid.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
+}
+
+#[test]
+fn list_cut() {
+    let rt = run(r#"
+        state {
+            let removed_len: float = 0.0
+            let remaining_len: float = 0.0
+        }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [10.0, 20.0, 30.0, 40.0, 50.0]
+            let removed: list[float] = nums.cut(1, 3)
+            s.removed_len = removed.len()
+            s.remaining_len = nums.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "removed_len"), 2.0);
+    assert_eq!(f(&rt, "remaining_len"), 3.0);
+}
+
+#[test]
+fn list_paste_single() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0]
+            nums.paste(1, 99.0)
+            s.v = nums.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 4.0);
+}
+
+#[test]
+fn list_paste_list() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 4.0, 5.0]
+            nums.paste(1, [2.0, 3.0])
+            s.v = nums.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 5.0);
+}
+
+#[test]
+fn list_chained_operations() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0, 4.0, 5.0]
+            let result: list[float] = nums.filter((x: float) -> bool { return x > 2.0 })
+                                          .map((x: float) -> float { return x * 10.0 })
+            s.v = result.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
 }

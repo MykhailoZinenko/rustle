@@ -687,7 +687,7 @@ impl<'a> Interpreter<'a> {
         // List higher-order methods — need interpreter access to call closures.
         if let Value::List(ref items_rc) = obj {
             match method {
-                "map" | "filter" | "reduce" | "find" | "any" | "all" => {
+                "map" | "filter" | "any" | "all" | "sort" | "search" | "bsearch" | "take" | "drop" | "cut" | "paste" => {
                     let arg_vals: Vec<Value> = args.iter()
                         .map(|a| self.eval_expr(a))
                         .collect::<Result<_, _>>()?;
@@ -760,31 +760,139 @@ impl<'a> Interpreter<'a> {
                 }
                 Ok(Value::List(Rc::new(RefCell::new(result))))
             }
-            "reduce" => {
-                if args.len() != 2 {
-                    return Err(self.err(ErrorCode::R008, line, format!("`reduce` expects 2 arguments, got {}", args.len())));
-                }
-                let closure = args[0].clone();
-                let mut acc = args[1].clone();
-                let items = items_rc.borrow().clone();
-                for item in items {
-                    acc = self.call_closure_value(&closure, &[acc, item], line)?;
-                }
-                Ok(acc)
-            }
-            "find" => {
+            "search" => {
                 if args.len() != 1 {
-                    return Err(self.err(ErrorCode::R008, line, format!("`find` expects 1 argument, got {}", args.len())));
+                    return Err(self.err(ErrorCode::R008, line, format!("`search` expects 1 argument, got {}", args.len())));
                 }
-                let closure = args[0].clone();
-                let items = items_rc.borrow().clone();
-                for item in items {
-                    let val = self.call_closure_value(&closure, std::slice::from_ref(&item), line)?;
-                    if val.is_truthy() {
-                        return Ok(item);
+                let target = &args[0];
+                let items = items_rc.borrow();
+                for (i, item) in items.iter().enumerate() {
+                    if values_equal(item, target) {
+                        return Ok(Value::Float(i as f64));
                     }
                 }
-                Ok(Value::None)
+                Ok(Value::Float(-1.0))
+            }
+            "bsearch" => {
+                if args.len() != 1 {
+                    return Err(self.err(ErrorCode::R008, line, format!("`bsearch` expects 1 argument, got {}", args.len())));
+                }
+                let target = &args[0];
+                let items = items_rc.borrow();
+                let result = items.binary_search_by(|item| {
+                    match (item, target) {
+                        (Value::Float(a), Value::Float(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
+                        (Value::Str(a), Value::Str(b)) => a.cmp(b),
+                        _ => std::cmp::Ordering::Equal,
+                    }
+                });
+                match result {
+                    Ok(idx) => Ok(Value::Float(idx as f64)),
+                    Err(_) => Ok(Value::Float(-1.0)),
+                }
+            }
+            "sort" => {
+                if args.is_empty() {
+                    // Default sort: ascending numeric/string
+                    let mut items = items_rc.borrow_mut();
+                    items.sort_by(|a, b| {
+                        match (a, b) {
+                            (Value::Float(x), Value::Float(y)) => x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal),
+                            (Value::Str(x), Value::Str(y)) => x.cmp(y),
+                            _ => std::cmp::Ordering::Equal,
+                        }
+                    });
+                    Ok(Value::Float(0.0)) // void — return dummy
+                } else if args.len() == 1 {
+                    // Sort with comparator closure
+                    let closure = args[0].clone();
+                    let mut items_vec = items_rc.borrow().clone();
+                    // Use a cell to propagate errors out of sort_by
+                    let mut sort_error: Option<RuntimeError> = None;
+                    items_vec.sort_by(|a, b| {
+                        if sort_error.is_some() {
+                            return std::cmp::Ordering::Equal;
+                        }
+                        match self.call_closure_value(&closure, &[a.clone(), b.clone()], line) {
+                            Ok(Value::Float(v)) => {
+                                if v < 0.0 { std::cmp::Ordering::Less }
+                                else if v > 0.0 { std::cmp::Ordering::Greater }
+                                else { std::cmp::Ordering::Equal }
+                            }
+                            Ok(_) => std::cmp::Ordering::Equal,
+                            Err(e) => { sort_error = Some(e); std::cmp::Ordering::Equal }
+                        }
+                    });
+                    if let Some(e) = sort_error {
+                        return Err(e);
+                    }
+                    *items_rc.borrow_mut() = items_vec;
+                    Ok(Value::Float(0.0))
+                } else {
+                    Err(self.err(ErrorCode::R008, line, format!("`sort` expects 0 or 1 arguments, got {}", args.len())))
+                }
+            }
+            "take" => {
+                if args.len() != 2 {
+                    return Err(self.err(ErrorCode::R008, line, format!("`take` expects 2 arguments, got {}", args.len())));
+                }
+                let start = match &args[0] { Value::Float(v) => *v as usize, _ => 0 };
+                let end = match &args[1] { Value::Float(v) => *v as usize, _ => 0 };
+                let items = items_rc.borrow();
+                let len = items.len();
+                let start = start.min(len);
+                let end = end.min(len);
+                let slice = items[start..end].to_vec();
+                Ok(Value::List(Rc::new(RefCell::new(slice))))
+            }
+            "drop" => {
+                if args.len() != 2 {
+                    return Err(self.err(ErrorCode::R008, line, format!("`drop` expects 2 arguments, got {}", args.len())));
+                }
+                let start = match &args[0] { Value::Float(v) => *v as usize, _ => 0 };
+                let end = match &args[1] { Value::Float(v) => *v as usize, _ => 0 };
+                let items = items_rc.borrow();
+                let len = items.len();
+                let start = start.min(len);
+                let end = end.min(len);
+                let mut result = items[..start].to_vec();
+                result.extend_from_slice(&items[end..]);
+                Ok(Value::List(Rc::new(RefCell::new(result))))
+            }
+            "cut" => {
+                if args.len() != 2 {
+                    return Err(self.err(ErrorCode::R008, line, format!("`cut` expects 2 arguments, got {}", args.len())));
+                }
+                let start = match &args[0] { Value::Float(v) => *v as usize, _ => 0 };
+                let end = match &args[1] { Value::Float(v) => *v as usize, _ => 0 };
+                let mut items = items_rc.borrow_mut();
+                let len = items.len();
+                let start = start.min(len);
+                let end = end.min(len);
+                let removed: Vec<Value> = items.drain(start..end).collect();
+                Ok(Value::List(Rc::new(RefCell::new(removed))))
+            }
+            "paste" => {
+                if args.len() != 2 {
+                    return Err(self.err(ErrorCode::R008, line, format!("`paste` expects 2 arguments, got {}", args.len())));
+                }
+                let index = match &args[0] { Value::Float(v) => *v as usize, _ => 0 };
+                match &args[1] {
+                    Value::List(other_rc) => {
+                        let other_items = other_rc.borrow().clone();
+                        let mut items = items_rc.borrow_mut();
+                        let idx = index.min(items.len());
+                        for (i, item) in other_items.into_iter().enumerate() {
+                            items.insert(idx + i, item);
+                        }
+                    }
+                    single_value => {
+                        let mut items = items_rc.borrow_mut();
+                        let idx = index.min(items.len());
+                        items.insert(idx, single_value.clone());
+                    }
+                }
+                Ok(Value::Float(0.0))
             }
             "any" => {
                 if args.len() != 1 {
