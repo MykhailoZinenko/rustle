@@ -130,7 +130,7 @@ pub fn draw_workspace(
                     .max_rect(right_rect)
                     .layout(egui::Layout::top_down(egui::Align::Min)),
                 |ui| {
-                    preview_event = crate::ui::preview_ui::draw_preview(
+                    let (ev, layout) = crate::ui::preview_ui::draw_preview(
                         ui,
                         PreviewPanelState {
                             has_active_tab: core.editor().active_index().is_some(),
@@ -141,6 +141,8 @@ pub fn draw_workspace(
                         },
                         theme,
                     );
+                    preview_event = ev;
+                    core.last_preview_canvas = layout;
                 },
             );
 

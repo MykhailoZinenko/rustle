@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use rustle_lang::{DrawCommand, Input};
 
+use crate::preview_input::{first_coord_meta, map_screen_to_script, PreviewCanvasInfo};
 use crate::terminal::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
 
 use crate::core::app_event_core::handle_app_event;
@@ -60,6 +61,8 @@ pub struct AppCore {
     pub pty_event_rx: Option<mpsc::Receiver<(u64, PtyEvent)>>,
     pub notifications: Vec<Notification>,
     terminal_initialized: bool,
+    /// Previous frame’s preview canvas; used to map pointer into script coords.
+    pub last_preview_canvas: Option<PreviewCanvasInfo>,
 }
 
 impl Default for AppCore {
@@ -78,6 +81,7 @@ impl Default for AppCore {
             pty_event_rx: None,
             notifications: Vec::new(),
             terminal_initialized: false,
+            last_preview_canvas: None,
         }
     }
 }
@@ -205,7 +209,8 @@ impl AppCore {
         let mut new_console = Vec::new();
         let mut runtime_error = None;
 
-        let input = build_input_from_egui(ctx);
+        let meta = first_coord_meta(self.preview_commands());
+        let input = build_input_from_egui(ctx, self.last_preview_canvas.as_ref(), meta.as_ref());
 
         let status = tick_runtime(
             &mut self.runner,
@@ -341,11 +346,16 @@ impl AppCore {
     }
 }
 
-fn build_input_from_egui(ctx: &egui::Context) -> Input {
+fn build_input_from_egui(
+    ctx: &egui::Context,
+    canvas: Option<&PreviewCanvasInfo>,
+    coord_meta: Option<&rustle_lang::CoordMeta>,
+) -> Input {
     ctx.input(|i| {
-        let (mouse_x, mouse_y) = i.pointer.interact_pos()
+        let (screen_mx, screen_my) = i.pointer.interact_pos()
             .map(|p| (p.x as f64, p.y as f64))
             .unwrap_or((0.0, 0.0));
+        let (mouse_x, mouse_y) = map_screen_to_script(canvas, screen_mx, screen_my, coord_meta);
 
         let mouse_down = i.pointer.primary_down();
         let mouse_pressed = i.pointer.primary_pressed();
@@ -353,15 +363,26 @@ fn build_input_from_egui(ctx: &egui::Context) -> Input {
 
         let mut key_pressed = String::new();
         let mut key_released = String::new();
+        let mut text_input = String::new();
         for event in &i.events {
-            if let egui::Event::Key { key, pressed, .. } = event {
-                let name = format!("{key:?}").to_lowercase();
-                if *pressed {
-                    key_pressed = name;
-                } else {
-                    key_released = name;
+            match event {
+                egui::Event::Key { key, pressed, .. } => {
+                    let name = format!("{key:?}").to_lowercase();
+                    if *pressed {
+                        key_pressed = name;
+                    } else {
+                        key_released = name;
+                    }
                 }
+                egui::Event::Text(s) => {
+                    text_input = s.clone();
+                }
+                _ => {}
             }
+        }
+        // Prefer text input for printable characters (gives actual typed char)
+        if !text_input.is_empty() {
+            key_pressed = text_input;
         }
 
         let key_down = i.keys_down.iter().next()

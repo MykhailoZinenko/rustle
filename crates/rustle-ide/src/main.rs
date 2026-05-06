@@ -2,6 +2,7 @@
 mod terminal;
 mod app;
 mod app_core;
+mod preview_input;
 mod core;
 mod events;
 mod renderer;

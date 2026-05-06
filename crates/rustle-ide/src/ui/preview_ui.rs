@@ -2,6 +2,7 @@ use eframe::egui::{self, Frame, Margin, RichText, Stroke, Ui};
 use rustle_lang::DrawCommand;
 
 use crate::events::app_events::AppEvent;
+use crate::preview_input::PreviewCanvasInfo;
 use crate::renderer::egui_renderer::EguiPreviewRenderer;
 use crate::renderer::wgpu_renderer::RustlePaintCallback;
 use crate::theme::ThemePalette;
@@ -18,8 +19,9 @@ pub fn draw_preview(
     ui: &mut Ui,
     state: PreviewPanelState<'_>,
     theme: &ThemePalette,
-) -> Option<AppEvent> {
+) -> (Option<AppEvent>, Option<PreviewCanvasInfo>) {
     let mut event = None;
+    let mut canvas_layout = None;
 
     Frame::new()
         .fill(theme.editor_bg)
@@ -94,6 +96,11 @@ pub fn draw_preview(
             let native_size = state.native_size.unwrap_or(canvas_size);
 
             let (rect, _) = ui.allocate_exact_size(canvas_size, egui::Sense::hover());
+            canvas_layout = Some(PreviewCanvasInfo {
+                rect,
+                native: native_size,
+                fitted: canvas_size,
+            });
             ui.painter().rect_filled(rect, 0.0, egui::Color32::BLACK);
             let callback = egui_wgpu::Callback::new_paint_callback(
                 rect,
@@ -106,5 +113,5 @@ pub fn draw_preview(
             ui.painter().add(callback);
         });
 
-    event
+    (event, canvas_layout)
 }
