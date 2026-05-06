@@ -96,12 +96,12 @@ pub fn draw_top_bar(
                 }
             });
 
-            ui.menu_button("Terminal", |ui| {
+            ui.menu_button("View", |ui| {
                 if ui
                     .button(if console_visible {
-                        "Hide Console"
+                        "Hide Terminal"
                     } else {
-                        "Show Console"
+                        "Show Terminal"
                     })
                     .clicked()
                 {

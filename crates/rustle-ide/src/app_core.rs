@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -10,12 +9,11 @@ use crate::terminal::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend
 use crate::core::app_event_core::handle_app_event;
 use crate::events::app_events::AppEvent;
 use crate::runner::{
-    ConsoleEntry, ConsoleLevel, PreviewRunnerState, PreviewSnapshot, TickStatus,
+    ConsoleLevel, PreviewRunnerState, PreviewSnapshot, TickStatus,
     render_static_preview, spawn_runtime, stop_runtime, tick_runtime,
 };
 use crate::state::app_state::AppState;
 
-const MAX_CONSOLE_ENTRIES: usize = 1000;
 const NOTIFICATION_DURATION: Duration = Duration::from_secs(3);
 
 pub struct LayoutState {
@@ -45,7 +43,6 @@ pub struct AppCore {
     pub static_preview_error: Option<String>,
     pub runtime_preview_commands: Vec<DrawCommand>,
     pub runtime_preview_error: Option<String>,
-    pub console: VecDeque<ConsoleEntry>,
     pub last_static_preview: Option<PreviewSnapshot>,
     pub layout: LayoutState,
     pub terminal: Option<TerminalBackend>,
@@ -64,7 +61,6 @@ impl Default for AppCore {
             static_preview_error: None,
             runtime_preview_commands: Vec::new(),
             runtime_preview_error: None,
-            console: VecDeque::new(),
             last_static_preview: None,
             layout: LayoutState::default(),
             terminal: None,
@@ -167,7 +163,6 @@ impl AppCore {
         self.stop_preview();
         self.runtime_preview_commands = self.static_preview_commands.clone();
         self.runtime_preview_error = None;
-        self.console.clear();
 
         let Some(snapshot) = self.active_preview_snapshot() else {
             self.runtime_preview_error = Some("No file opened".to_string());
@@ -188,6 +183,9 @@ impl AppCore {
 
     pub fn stop_preview(&mut self) {
         stop_runtime(&mut self.runner);
+        if let Some(terminal) = self.terminal.as_mut() {
+            terminal.process_command(BackendCommand::Write(b"\n".to_vec()));
+        }
     }
 
     pub fn tick_preview(&mut self, ctx: &egui::Context) {
@@ -217,19 +215,23 @@ impl AppCore {
             self.runtime_preview_error = None;
         }
 
-        for entry in new_console {
-            push_console(&mut self.console, entry);
+        for entry in &new_console {
+            if let Some(terminal) = self.terminal.as_mut() {
+                let line = match entry.level {
+                    ConsoleLevel::Log => format!("{}\r\n", entry.message),
+                    ConsoleLevel::Warn => format!("\x1b[33m[warn] {}\x1b[0m\r\n", entry.message),
+                    ConsoleLevel::Error => format!("\x1b[31m[error] {}\x1b[0m\r\n", entry.message),
+                };
+                terminal.write_to_screen(line.as_bytes());
+            }
         }
 
         if let Some(message) = runtime_error {
             self.runtime_preview_error = Some(message.clone());
-            push_console(
-                &mut self.console,
-                ConsoleEntry {
-                    level: ConsoleLevel::Error,
-                    message,
-                },
-            );
+            if let Some(terminal) = self.terminal.as_mut() {
+                let line = format!("\x1b[31m[error] {}\x1b[0m\r\n", message);
+                terminal.write_to_screen(line.as_bytes());
+            }
         }
 
         if matches!(status, TickStatus::Running) {
@@ -288,7 +290,6 @@ impl AppCore {
         let Some(active_index) = self.state.editor.active_index() else {
             self.static_preview_commands.clear();
             self.static_preview_error = None;
-            self.console.clear();
             self.last_static_preview = None;
             return;
         };
@@ -309,12 +310,10 @@ impl AppCore {
             Ok(frame) => {
                 self.static_preview_commands = frame.draw_commands;
                 self.static_preview_error = None;
-                self.console = frame.console_entries.into_iter().collect();
             }
             Err(error) => {
                 self.static_preview_commands.clear();
                 self.static_preview_error = Some(error);
-                self.console.clear();
             }
         }
 
@@ -329,13 +328,6 @@ impl AppCore {
             source: tab.buffer.clone(),
         })
     }
-}
-
-fn push_console(console: &mut VecDeque<ConsoleEntry>, entry: ConsoleEntry) {
-    if console.len() >= MAX_CONSOLE_ENTRIES {
-        console.pop_front();
-    }
-    console.push_back(entry);
 }
 
 fn build_input_from_egui(ctx: &egui::Context) -> Input {

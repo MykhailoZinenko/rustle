@@ -154,7 +154,7 @@ pub fn draw_workspace(
                 .max_rect(bottom_rect)
                 .layout(egui::Layout::top_down(egui::Align::Min)),
             |ui| {
-                draw_terminal(ui, core, theme);
+                draw_bottom_panel(ui, core, theme);
             },
         );
     }
@@ -163,6 +163,14 @@ pub fn draw_workspace(
     if let Some(event) = preview_event {
         core.events.push(event);
     }
+}
+
+fn draw_bottom_panel(
+    ui: &mut egui::Ui,
+    core: &mut AppCore,
+    theme: &ThemePalette,
+) {
+    draw_terminal(ui, core, theme);
 }
 
 fn paint_splitter(
