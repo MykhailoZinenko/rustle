@@ -101,6 +101,10 @@ impl AppCore {
         let settings = BackendSettings {
             shell: if cfg!(target_os = "macos") {
                 "/bin/zsh".to_string()
+            } else if cfg!(target_os = "windows") {
+                std::env::var("COMSPEC").unwrap_or_else(|_| {
+                    "C:\\Windows\\System32\\cmd.exe".to_string()
+                })
             } else {
                 "/bin/bash".to_string()
             },
