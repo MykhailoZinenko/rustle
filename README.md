@@ -35,12 +35,12 @@ Rustle is designed for generative art and interactive 2D scenes. You get explici
 
 ### Phase 2 — Language Expressiveness
 
-- [ ] Structs (custom data types)
-- [ ] Enums + `match` with destructuring
-- [ ] Array operations: `map`, `find`, `filter`, `reduce`, `any`, `all`
-- [ ] Input handling (mouse, keyboard)
-- [ ] File I/O
-- [ ] Console input stream
+- [x] Structs (`+let`/`#let` fields, `+fn`/`#fn` methods, `this`, reference semantics, `.clone()`)
+- [x] Enums + `match` with type narrowing and field access in arms
+- [x] Array operations: `map`, `filter`, `search`, `bsearch`, `sort`, `take`, `drop`, `cut`, `paste`, `any`, `all`
+- [x] Input handling (mouse position, buttons, keyboard)
+- [x] File I/O (`file.read`, `file.read_lines`, `file.write`, `file.append`)
+- [ ] Console input stream (deferred to CLI phase)
 
 ### Phase 3 — wgpu Renderer
 
