@@ -67,8 +67,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
     let size_px = in.size_px;
 
-    // Anti-aliasing width in UV space
-    let aa = 1.5 / max(size_px.x, size_px.y);
+    // Anti-aliasing width in UV space — use the thinnest axis so AA is wide enough
+    let aa = 1.5 / max(min(size_px.x, size_px.y), 1.0);
 
     var d: f32;
 
@@ -84,13 +84,30 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             d = min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - cr;
         }
         case 2: {
-            // Line: distance to x-axis segment in local space
-            // UV is in [-1, 1], line runs along x-axis from -1 to 1
-            let aspect = size_px.x / max(size_px.y, 0.001);
-            let p = vec2<f32>(uv.x * aspect, uv.y);
-            // Clamp to segment
-            let cx = clamp(p.x, -aspect, aspect);
-            d = length(vec2<f32>(p.x - cx, p.y)) - 1.0;
+            // Line: SDF for an arbitrary-angle line segment.
+            // line_dir.xy = normalized direction (NDC), line_dir.z = half-length (NDC),
+            // line_dir.w = thickness (NDC).
+            let dir = in.line_dir.xy;
+            let half_len_ndc = in.line_dir.z;
+            let thickness_ndc = in.line_dir.w;
+
+            // Fragment position in NDC-offset from the quad center
+            // uv is [-1,1], size (half-extent in NDC) = size_px / (viewport * 0.5)
+            let size_ndc = size_px / (uniforms.viewport * 0.5);
+            let p_ndc = uv * size_ndc;
+
+            // Project onto line direction: along-line and perpendicular components
+            let along = dot(p_ndc, dir);
+            let perp = dot(p_ndc, vec2<f32>(-dir.y, dir.x));
+
+            // Signed distance to the line segment in NDC
+            let clamped_along = clamp(along, -half_len_ndc, half_len_ndc);
+            let dist_ndc = length(vec2<f32>(along - clamped_along, perp)) - thickness_ndc;
+
+            // Convert NDC distance to UV-space for consistent AA with other shapes.
+            // 1 UV unit spans size_ndc, so scale = 1 / min(size_ndc) to use thinnest axis.
+            let min_size = max(min(size_ndc.x, size_ndc.y), 0.0001);
+            d = dist_ndc / min_size;
         }
         default: {
             d = length(uv) - 1.0;
@@ -100,8 +117,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var alpha: f32;
 
     switch render_mode {
-        case 0: {
-            // Fill
+        case 0, 3: {
+            // Fill / SDF visualization
             alpha = 1.0 - smoothstep(-aa, aa, d);
         }
         case 1: {
@@ -114,10 +131,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             // Convert stroke_width from pixels to UV space
             let w = stroke_width / max(size_px.x, size_px.y);
             alpha = 1.0 - smoothstep(-aa, aa, abs(d) - w);
-        }
-        case 3: {
-            // SDF visualization (same as fill for now)
-            alpha = 1.0 - smoothstep(-aa, aa, d);
         }
         default: {
             alpha = 1.0 - smoothstep(-aa, aa, d);

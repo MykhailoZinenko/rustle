@@ -7,7 +7,7 @@
 
 mod instance;
 mod pipeline;
-pub mod prepare;
+pub(crate) mod prepare;
 
 use instance::{PolygonVertex, SdfInstance};
 use rustle_lang::DrawCommand;
@@ -42,7 +42,7 @@ impl Renderer {
                 label: Some("viewport_bind_group_layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -54,7 +54,7 @@ impl Renderer {
 
         let viewport_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("viewport_uniform"),
-            contents: bytemuck::cast_slice(&[800.0_f32, 600.0_f32]),
+            contents: bytemuck::cast_slice(&[1.0_f32, 1.0_f32]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 

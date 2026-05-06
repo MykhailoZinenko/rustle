@@ -4,9 +4,9 @@ use crate::instance::{PolygonVertex, SdfInstance};
 
 /// GPU-ready data for one frame.
 pub struct PreparedFrame {
-    pub sdf_instances: Vec<SdfInstance>,
-    pub polygon_vertices: Vec<PolygonVertex>,
-    pub polygon_indices: Vec<u32>,
+    pub(crate) sdf_instances: Vec<SdfInstance>,
+    pub(crate) polygon_vertices: Vec<PolygonVertex>,
+    pub(crate) polygon_indices: Vec<u32>,
 }
 
 /// Convert a slice of `DrawCommand`s into GPU instance/vertex data.
@@ -26,9 +26,14 @@ pub fn prepare(commands: &[DrawCommand]) -> PreparedFrame {
                     sdf_instances.push(inst);
                 }
             }
-            ShapeDesc::Polygon(pts) => {
-                build_polygon(data, pts, &mut polygon_vertices, &mut polygon_indices);
-            }
+            ShapeDesc::Polygon(pts) => match &data.render_mode {
+                RenderMode::Outline | RenderMode::Stroke(_) => {
+                    build_polygon_outline(data, pts, &mut sdf_instances);
+                }
+                _ => {
+                    build_polygon(data, pts, &mut polygon_vertices, &mut polygon_indices);
+                }
+            },
             _ => {}
         }
     }
@@ -68,6 +73,7 @@ fn color_f32(data: &ShapeData) -> [f32; 4] {
 }
 
 /// Accumulate translation (NDC) and scale from transforms.
+/// Note: rotation (TransformData::angle) is not yet implemented.
 fn accumulate_transforms(data: &ShapeData) -> (f64, f64, f64, f64) {
     let meta = &data.coord_meta;
     let mut tx = 0.0;
@@ -76,7 +82,7 @@ fn accumulate_transforms(data: &ShapeData) -> (f64, f64, f64, f64) {
     let mut sy = 1.0;
     for t in &data.transforms {
         tx += meta.w_to_ndc(t.tx);
-        ty += meta.h_to_ndc(t.ty);
+        ty += meta.dy_to_ndc(t.ty);
         sx *= t.sx;
         sy *= t.sy;
     }
@@ -108,18 +114,16 @@ fn build_sdf_instance(data: &ShapeData) -> Option<SdfInstance> {
             })
         }
         ShapeDesc::Rect { center, size, origin } => {
-            let hw_ndc = meta.w_to_ndc(size.0 / 2.0);
-            let hh_ndc = meta.h_to_ndc(size.1 / 2.0);
+            let hw_ndc = meta.w_to_ndc(size.0 / 2.0) * sx;
+            let hh_ndc = meta.h_to_ndc(size.1 / 2.0) * sy;
             let (off_x, off_y) = origin_offset(origin, hw_ndc, hh_ndc);
 
             let cx = meta.x_to_ndc(center.0) + off_x + tx;
             let cy = meta.y_to_ndc(center.1) + off_y + ty;
-            let w_ndc = hw_ndc * sx;
-            let h_ndc = hh_ndc * sy;
 
             Some(SdfInstance {
                 center: [cx as f32, cy as f32],
-                size: [w_ndc as f32, h_ndc as f32],
+                size: [hw_ndc as f32, hh_ndc as f32],
                 color: color_f32(data),
                 shape_params: [
                     1.0, // rect
@@ -141,27 +145,114 @@ fn build_sdf_instance(data: &ShapeData) -> Option<SdfInstance> {
             let dx = (x1 - x0) * sx;
             let dy = (y1 - y0) * sy;
             let half_len = (dx * dx + dy * dy).sqrt() / 2.0;
-            // Line thickness: use stroke width or a default thin line
-            let thickness = if let RenderMode::Stroke(w) = &data.render_mode {
+
+            // Line thickness in NDC: use stroke width or a default thin line
+            let thickness_ndc = if let RenderMode::Stroke(w) = &data.render_mode {
                 meta.h_to_ndc(*w) * sy
             } else {
                 meta.h_to_ndc(1.0) * sy
             };
 
+            // Normalized line direction
+            let len = (dx * dx + dy * dy).sqrt();
+            let (ndx, ndy) = if len > 1e-12 {
+                (dx / len, dy / len)
+            } else {
+                (1.0, 0.0)
+            };
+
+            // Axis-aligned bounding box that covers the diagonal line plus thickness
+            let half_w = dx.abs() / 2.0 + thickness_ndc;
+            let half_h = dy.abs() / 2.0 + thickness_ndc;
+
             Some(SdfInstance {
                 center: [mx as f32, my as f32],
-                size: [half_len as f32, thickness as f32],
+                size: [half_w as f32, half_h as f32],
                 color: color_f32(data),
                 shape_params: [
                     2.0, // line
                     render_mode_code(&data.render_mode),
-                    stroke_width(&data.render_mode),
+                    0.0, // stroke_width unused for lines — thickness is geometric
                     0.0,
                 ],
-                line_dir: [dx as f32, dy as f32, 0.0, 0.0],
+                line_dir: [
+                    ndx as f32,
+                    ndy as f32,
+                    half_len as f32,
+                    thickness_ndc as f32,
+                ],
             })
         }
         _ => None,
+    }
+}
+
+fn build_polygon_outline(
+    data: &ShapeData,
+    pts: &[(f64, f64)],
+    sdf_instances: &mut Vec<SdfInstance>,
+) {
+    if pts.len() < 2 {
+        return;
+    }
+
+    let meta = &data.coord_meta;
+    let (tx, ty, sx, sy) = accumulate_transforms(data);
+    let color = color_f32(data);
+
+    let centroid_x: f64 = pts.iter().map(|p| p.0).sum::<f64>() / pts.len() as f64;
+    let centroid_y: f64 = pts.iter().map(|p| p.1).sum::<f64>() / pts.len() as f64;
+    let cx_ndc = meta.x_to_ndc(centroid_x);
+    let cy_ndc = meta.y_to_ndc(centroid_y);
+
+    let thickness_ndc = if let RenderMode::Stroke(w) = &data.render_mode {
+        meta.h_to_ndc(*w) * sy
+    } else {
+        meta.h_to_ndc(1.0) * sy
+    };
+
+    let n = pts.len();
+    for i in 0..n {
+        let j = (i + 1) % n;
+
+        let mut x0 = meta.x_to_ndc(pts[i].0);
+        let mut y0 = meta.y_to_ndc(pts[i].1);
+        let mut x1 = meta.x_to_ndc(pts[j].0);
+        let mut y1 = meta.y_to_ndc(pts[j].1);
+
+        x0 = cx_ndc + (x0 - cx_ndc) * sx + tx;
+        y0 = cy_ndc + (y0 - cy_ndc) * sy + ty;
+        x1 = cx_ndc + (x1 - cx_ndc) * sx + tx;
+        y1 = cy_ndc + (y1 - cy_ndc) * sy + ty;
+
+        let mx = f64::midpoint(x0, x1);
+        let my = f64::midpoint(y0, y1);
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        let len = (dx * dx + dy * dy).sqrt();
+        let half_len = len / 2.0;
+
+        let (ndx, ndy) = if len > 1e-12 {
+            (dx / len, dy / len)
+        } else {
+            (1.0, 0.0)
+        };
+
+        let half_w = dx.abs() / 2.0 + thickness_ndc;
+        let half_h = dy.abs() / 2.0 + thickness_ndc;
+
+        sdf_instances.push(SdfInstance {
+            center: [mx as f32, my as f32],
+            size: [half_w as f32, half_h as f32],
+            color,
+            shape_params: [
+                2.0, // line shape type
+                render_mode_code(&data.render_mode),
+                0.0,
+                0.0,
+            ],
+            line_dir: [ndx as f32, ndy as f32, half_len as f32, thickness_ndc as f32],
+        });
     }
 }
 
@@ -203,7 +294,7 @@ fn build_polygon(
         });
     }
 
-    // Fan triangulation from first vertex
+    // Fan triangulation: correct for convex polygons only.
     let n = pts.len() as u32;
     for i in 1..n - 1 {
         indices.push(base);
