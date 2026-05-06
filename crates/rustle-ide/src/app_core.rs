@@ -16,6 +16,17 @@ use crate::state::app_state::AppState;
 
 const NOTIFICATION_DURATION: Duration = Duration::from_secs(3);
 
+/// Bytes to send after a full line of interactive input for the embedded PTY.
+/// Windows consoles (cmd via ConPTY) expect CRLF; LF-only often leaves the cursor
+/// column wrong so the next shell prompt renders incorrectly.
+fn pty_line_suffix() -> &'static [u8] {
+    if cfg!(target_os = "windows") {
+        b"\r\n"
+    } else {
+        b"\n"
+    }
+}
+
 pub struct LayoutState {
     pub editor_preview_ratio: f32,
     pub top_console_ratio: f32,
@@ -148,8 +159,10 @@ impl AppCore {
         self.notify(format!("Running: {file_name}"));
 
         if let Some(terminal) = self.terminal.as_mut() {
-            let cmd = format!("cargo run -q -p rustle-cli -- \"{}\"\n", path.display());
-            terminal.process_command(BackendCommand::Write(cmd.into_bytes()));
+            let mut cmd =
+                format!("cargo run -q -p rustle-cli -- \"{}\"", path.display()).into_bytes();
+            cmd.extend_from_slice(pty_line_suffix());
+            terminal.process_command(BackendCommand::Write(cmd));
             self.state.console_visible = true;
         } else {
             self.notify("Terminal not initialized".to_string());
@@ -188,7 +201,7 @@ impl AppCore {
     pub fn stop_preview(&mut self) {
         stop_runtime(&mut self.runner);
         if let Some(terminal) = self.terminal.as_mut() {
-            terminal.process_command(BackendCommand::Write(b"\n".to_vec()));
+            terminal.process_command(BackendCommand::Write(pty_line_suffix().to_vec()));
         }
     }
 
@@ -230,7 +243,7 @@ impl AppCore {
             }
         }
 
-        if let Some(message) = runtime_error {
+        if let Some(ref message) = runtime_error {
             self.runtime_preview_error = Some(message.clone());
             if let Some(terminal) = self.terminal.as_mut() {
                 let line = format!("\x1b[31m[error] {}\x1b[0m\r\n", message);
@@ -238,7 +251,9 @@ impl AppCore {
             }
         }
 
-        if matches!(status, TickStatus::Running) {
+        let terminal_paint_dirty =
+            !new_console.is_empty() || runtime_error.is_some();
+        if matches!(status, TickStatus::Running) || terminal_paint_dirty {
             ctx.request_repaint();
         }
     }
