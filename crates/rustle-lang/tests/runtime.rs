@@ -3691,3 +3691,69 @@ fn input_dt_still_works() {
     rt.tick(&Input { dt: 0.5, ..Default::default() }).unwrap();
     assert_eq!(f(&rt, "t"), 0.5);
 }
+
+// ─── File I/O namespace ─────────────────────────────────────────────────────
+
+#[test]
+fn file_write_and_read() {
+    let rt = run(r#"
+        import file
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            file.write("/tmp/rustle_test_io.txt", "hello rustle")
+            let r: res<string> = file.read("/tmp/rustle_test_io.txt")
+            s.v = r.value
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "hello rustle");
+    std::fs::remove_file("/tmp/rustle_test_io.txt").ok();
+}
+
+#[test]
+fn file_read_lines() {
+    std::fs::write("/tmp/rustle_test_lines.txt", "line1\nline2\nline3").unwrap();
+    let rt = run(r#"
+        import file
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let r: res<list[string]> = file.read_lines("/tmp/rustle_test_lines.txt")
+            let data: list[string] = r.value
+            s.v = data.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
+    std::fs::remove_file("/tmp/rustle_test_lines.txt").ok();
+}
+
+#[test]
+fn file_read_nonexistent() {
+    let rt = run(r#"
+        import file
+        state { let v: bool = false }
+        fn on_init(s: State) -> State {
+            let r: res<string> = file.read("/tmp/nonexistent_rustle_xyz.txt")
+            s.v = r.ok
+            return s
+        }
+    "#);
+    assert!(!b(&rt, "v"));
+}
+
+#[test]
+fn file_append() {
+    std::fs::write("/tmp/rustle_test_append.txt", "first").unwrap();
+    let rt = run(r#"
+        import file
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            file.append("/tmp/rustle_test_append.txt", " second")
+            let r: res<string> = file.read("/tmp/rustle_test_append.txt")
+            s.v = r.value
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "first second");
+    std::fs::remove_file("/tmp/rustle_test_append.txt").ok();
+}

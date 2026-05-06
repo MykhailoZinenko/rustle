@@ -1783,3 +1783,20 @@ fn enum_exhaustiveness_all_variants() {
         }
     "#);
 }
+
+// ─── File namespace ─────────────────────────────────────────────────────────
+
+#[test]
+fn file_namespace_resolves() {
+    ok(r#"
+        import file
+        let r: res<string> = file.read("test.txt")
+    "#);
+}
+
+#[test]
+fn file_namespace_selective_import() {
+    ok(r#"
+        import file { read, write, read_lines, append }
+    "#);
+}

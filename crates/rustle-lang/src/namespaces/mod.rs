@@ -20,6 +20,7 @@ pub mod core;
 pub mod shapes;
 pub mod render;
 pub mod coords;
+pub mod file;
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
@@ -117,6 +118,7 @@ impl NamespaceRegistry {
         r.register(Box::new(shapes::ShapesNamespace));
         r.register(Box::new(render::RenderNamespace));
         r.register(Box::new(coords::CoordsNamespace));
+        r.register(Box::new(file::FileNamespace));
         r
     }
 }
