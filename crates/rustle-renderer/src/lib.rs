@@ -55,6 +55,8 @@ pub struct Renderer {
     text_vertex_capacity: usize,
     text_index_buffer: wgpu::Buffer,
     text_index_capacity: usize,
+
+    shape_cache: prepare::ShapeCache,
 }
 
 impl Renderer {
@@ -172,6 +174,7 @@ impl Renderer {
             text_vertex_capacity: INITIAL_TEXT_VERTEX_CAPACITY,
             text_index_buffer,
             text_index_capacity: INITIAL_TEXT_INDEX_CAPACITY,
+            shape_cache: prepare::ShapeCache::new(),
         }
     }
 
@@ -214,6 +217,7 @@ impl Renderer {
     }
 
     /// Prepare GPU buffers from draw commands. Call before `render_to_pass`.
+    /// Uses per-shape caching: only re-prepares and re-uploads when shapes change.
     pub fn prepare(
         &mut self,
         commands: &[DrawCommand],
@@ -228,8 +232,16 @@ impl Renderer {
             bytemuck::cast_slice(&[width as f32, height as f32]),
         );
 
-        let frame = prepare::prepare(commands, &self.atlas.data);
+        let (frame, changed) = prepare::prepare_cached(
+            commands, &self.atlas.data, Some(&mut self.shape_cache),
+        );
+        if changed {
+            self.upload_frame(&frame, device, queue);
+        }
+        frame
+    }
 
+    fn upload_frame(&mut self, frame: &PreparedFrame, device: &wgpu::Device, queue: &wgpu::Queue) {
         if !frame.sdf_instances.is_empty() {
             grow_buffer(device, &mut self.sdf_instance_buffer, &mut self.sdf_instance_capacity,
                 frame.sdf_instances.len(), std::mem::size_of::<SdfInstance>(),
@@ -282,8 +294,6 @@ impl Renderer {
             queue.write_buffer(&self.text_index_buffer, 0,
                 bytemuck::cast_slice(&frame.text_indices));
         }
-
-        frame
     }
 
     /// Record draw calls into an existing render pass (for egui integration).

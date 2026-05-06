@@ -1,8 +1,12 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use rustle_lang::{DrawCommand, RenderMode, ShapeData, ShapeDesc, origin_offset};
 
 use crate::atlas::AtlasData;
 use crate::instance::{LineVertex, PolygonVertex, SdfInstance, TextVertex};
 
+#[derive(Clone)]
 pub struct PreparedFrame {
     pub(crate) sdf_instances: Vec<SdfInstance>,
     pub(crate) line_vertices: Vec<LineVertex>,
@@ -13,8 +17,300 @@ pub struct PreparedFrame {
     pub(crate) text_indices: Vec<u32>,
 }
 
+/// Per-shape cached GPU data, keyed by a content hash of the ShapeData.
+#[derive(Clone)]
+enum CachedShape {
+    Sdf(SdfInstance),
+    Line { verts: Vec<LineVertex>, indices: Vec<u32> },
+    PolyFill { verts: Vec<PolygonVertex>, indices: Vec<u32> },
+    PolyOutline { verts: Vec<LineVertex>, indices: Vec<u32> },
+    Text { verts: Vec<TextVertex>, indices: Vec<u32> },
+    None,
+}
+
+fn hash_shape(data: &ShapeData) -> u64 {
+    let mut h = DefaultHasher::new();
+    // Hash the raw bytes of all f64 fields via to_bits for determinism
+    // Desc
+    match &data.desc {
+        ShapeDesc::Circle { center, radius } => {
+            0u8.hash(&mut h);
+            center.0.to_bits().hash(&mut h);
+            center.1.to_bits().hash(&mut h);
+            radius.to_bits().hash(&mut h);
+        }
+        ShapeDesc::Rect { center, size, origin } => {
+            1u8.hash(&mut h);
+            center.0.to_bits().hash(&mut h);
+            center.1.to_bits().hash(&mut h);
+            size.0.to_bits().hash(&mut h);
+            size.1.to_bits().hash(&mut h);
+            (*origin as u8).hash(&mut h);
+        }
+        ShapeDesc::Line { from, to } => {
+            2u8.hash(&mut h);
+            from.0.to_bits().hash(&mut h);
+            from.1.to_bits().hash(&mut h);
+            to.0.to_bits().hash(&mut h);
+            to.1.to_bits().hash(&mut h);
+        }
+        ShapeDesc::Polygon(pts) => {
+            3u8.hash(&mut h);
+            pts.len().hash(&mut h);
+            for p in pts {
+                p.0.to_bits().hash(&mut h);
+                p.1.to_bits().hash(&mut h);
+            }
+        }
+        ShapeDesc::Text { pos, content, size } => {
+            4u8.hash(&mut h);
+            pos.0.to_bits().hash(&mut h);
+            pos.1.to_bits().hash(&mut h);
+            content.hash(&mut h);
+            size.to_bits().hash(&mut h);
+        }
+        _ => { 255u8.hash(&mut h); }
+    }
+    // Color
+    for c in &data.color {
+        c.to_bits().hash(&mut h);
+    }
+    // Render mode
+    match &data.render_mode {
+        RenderMode::Fill => 0u8.hash(&mut h),
+        RenderMode::Outline => 1u8.hash(&mut h),
+        RenderMode::Stroke(w) => { 2u8.hash(&mut h); w.to_bits().hash(&mut h); }
+        RenderMode::Sdf => 3u8.hash(&mut h),
+        _ => 255u8.hash(&mut h),
+    }
+    // Transforms
+    data.transforms.len().hash(&mut h);
+    for t in &data.transforms {
+        t.tx.to_bits().hash(&mut h);
+        t.ty.to_bits().hash(&mut h);
+        t.sx.to_bits().hash(&mut h);
+        t.sy.to_bits().hash(&mut h);
+        t.angle.to_bits().hash(&mut h);
+    }
+    // CoordMeta
+    data.coord_meta.px_width.to_bits().hash(&mut h);
+    data.coord_meta.px_height.to_bits().hash(&mut h);
+    (data.coord_meta.origin as u8).hash(&mut h);
+
+    h.finish()
+}
+
+/// Per-shape cache with per-buffer-type dirty tracking.
+/// Only reassembles buffer types that contain changed shapes.
+pub struct ShapeCache {
+    hashes: Vec<u64>,
+    shapes: Vec<CachedShape>,
+    last_frame: PreparedFrame,
+    sdf_dirty: bool,
+    line_dirty: bool,
+    poly_dirty: bool,
+    text_dirty: bool,
+}
+
+impl ShapeCache {
+    pub fn new() -> Self {
+        Self {
+            hashes: Vec::new(),
+            shapes: Vec::new(),
+            last_frame: PreparedFrame {
+                sdf_instances: Vec::new(),
+                line_vertices: Vec::new(),
+                line_indices: Vec::new(),
+                polygon_vertices: Vec::new(),
+                polygon_indices: Vec::new(),
+                text_vertices: Vec::new(),
+                text_indices: Vec::new(),
+            },
+            sdf_dirty: false,
+            line_dirty: false,
+            poly_dirty: false,
+            text_dirty: false,
+        }
+    }
+}
+
+fn shape_buffer_type(shape: &CachedShape) -> u8 {
+    match shape {
+        CachedShape::Sdf(_) => 0,
+        CachedShape::Line { .. } | CachedShape::PolyOutline { .. } => 1,
+        CachedShape::PolyFill { .. } => 2,
+        CachedShape::Text { .. } => 3,
+        CachedShape::None => 255,
+    }
+}
+
 #[must_use]
 pub fn prepare(commands: &[DrawCommand], atlas: &AtlasData) -> PreparedFrame {
+    prepare_cached(commands, atlas, None).0
+}
+
+/// Returns (frame, changed). If `changed` is false, the frame is identical to last call
+/// and GPU buffers don't need re-uploading.
+pub fn prepare_cached(
+    commands: &[DrawCommand],
+    atlas: &AtlasData,
+    cache: Option<&mut ShapeCache>,
+) -> (PreparedFrame, bool) {
+    let draw_shapes: Vec<&ShapeData> = commands.iter().filter_map(|cmd| {
+        if let DrawCommand::DrawShape(data) = cmd { Some(data) } else { None }
+    }).collect();
+
+    let Some(cache) = cache else {
+        let shapes: Vec<CachedShape> = draw_shapes.iter()
+            .map(|data| prepare_single(data, atlas))
+            .collect();
+        return (assemble_frame(&shapes), true);
+    };
+
+    let count = draw_shapes.len();
+    let size_changed = count != cache.hashes.len();
+
+    if size_changed {
+        // Mark all buffer types dirty when shape count changes
+        cache.sdf_dirty = true;
+        cache.line_dirty = true;
+        cache.poly_dirty = true;
+        cache.text_dirty = true;
+        cache.shapes.resize(count, CachedShape::None);
+        cache.hashes.resize(count, 0);
+    }
+
+    for (i, data) in draw_shapes.iter().enumerate() {
+        let h = hash_shape(data);
+        if cache.hashes[i] != h {
+            let old_buf = if i < cache.shapes.len() { shape_buffer_type(&cache.shapes[i]) } else { 255 };
+            cache.hashes[i] = h;
+            cache.shapes[i] = prepare_single(data, atlas);
+            let new_buf = shape_buffer_type(&cache.shapes[i]);
+            // Mark both old and new buffer types as dirty
+            mark_dirty(cache, old_buf);
+            mark_dirty(cache, new_buf);
+        }
+    }
+    cache.shapes.truncate(count);
+    cache.hashes.truncate(count);
+
+    let any_dirty = cache.sdf_dirty || cache.line_dirty || cache.poly_dirty || cache.text_dirty;
+    if !any_dirty {
+        return (cache.last_frame.clone(), false);
+    }
+
+    // Only reassemble dirty buffer types
+    if cache.sdf_dirty {
+        cache.last_frame.sdf_instances.clear();
+        for shape in &cache.shapes {
+            if let CachedShape::Sdf(inst) = shape {
+                cache.last_frame.sdf_instances.push(*inst);
+            }
+        }
+        cache.sdf_dirty = false;
+    }
+
+    if cache.line_dirty {
+        cache.last_frame.line_vertices.clear();
+        cache.last_frame.line_indices.clear();
+        for shape in &cache.shapes {
+            match shape {
+                CachedShape::Line { verts, indices } | CachedShape::PolyOutline { verts, indices } => {
+                    let base = cache.last_frame.line_vertices.len() as u32;
+                    cache.last_frame.line_vertices.extend_from_slice(verts);
+                    cache.last_frame.line_indices.extend(indices.iter().map(|i| i + base));
+                }
+                _ => {}
+            }
+        }
+        cache.line_dirty = false;
+    }
+
+    if cache.poly_dirty {
+        cache.last_frame.polygon_vertices.clear();
+        cache.last_frame.polygon_indices.clear();
+        for shape in &cache.shapes {
+            if let CachedShape::PolyFill { verts, indices } = shape {
+                let base = cache.last_frame.polygon_vertices.len() as u32;
+                cache.last_frame.polygon_vertices.extend_from_slice(verts);
+                cache.last_frame.polygon_indices.extend(indices.iter().map(|i| i + base));
+            }
+        }
+        cache.poly_dirty = false;
+    }
+
+    if cache.text_dirty {
+        cache.last_frame.text_vertices.clear();
+        cache.last_frame.text_indices.clear();
+        for shape in &cache.shapes {
+            if let CachedShape::Text { verts, indices } = shape {
+                let base = cache.last_frame.text_vertices.len() as u32;
+                cache.last_frame.text_vertices.extend_from_slice(verts);
+                cache.last_frame.text_indices.extend(indices.iter().map(|i| i + base));
+            }
+        }
+        cache.text_dirty = false;
+    }
+
+    (cache.last_frame.clone(), true)
+}
+
+fn mark_dirty(cache: &mut ShapeCache, buf_type: u8) {
+    match buf_type {
+        0 => cache.sdf_dirty = true,
+        1 => cache.line_dirty = true,
+        2 => cache.poly_dirty = true,
+        3 => cache.text_dirty = true,
+        _ => {}
+    }
+}
+
+fn prepare_single(data: &ShapeData, atlas: &AtlasData) -> CachedShape {
+    match &data.desc {
+        ShapeDesc::Circle { .. } => {
+            match build_circle(data) {
+                Some(inst) => CachedShape::Sdf(inst),
+                None => CachedShape::None,
+            }
+        }
+        ShapeDesc::Rect { .. } => {
+            match build_rect(data) {
+                Some(inst) => CachedShape::Sdf(inst),
+                None => CachedShape::None,
+            }
+        }
+        ShapeDesc::Line { .. } => {
+            let mut verts = Vec::new();
+            let mut indices = Vec::new();
+            build_line(data, &mut verts, &mut indices);
+            CachedShape::Line { verts, indices }
+        }
+        ShapeDesc::Polygon(pts) => match &data.render_mode {
+            RenderMode::Outline | RenderMode::Stroke(_) => {
+                let mut verts = Vec::new();
+                let mut indices = Vec::new();
+                build_polygon_outline(data, pts, &mut verts, &mut indices);
+                CachedShape::PolyOutline { verts, indices }
+            }
+            _ => {
+                let mut verts = Vec::new();
+                let mut indices = Vec::new();
+                build_polygon_fill(data, pts, &mut verts, &mut indices);
+                CachedShape::PolyFill { verts, indices }
+            }
+        },
+        ShapeDesc::Text { pos, content, size } => {
+            let mut verts = Vec::new();
+            let mut indices = Vec::new();
+            build_text(data, *pos, content, *size, atlas, &mut verts, &mut indices);
+            CachedShape::Text { verts, indices }
+        }
+        _ => CachedShape::None,
+    }
+}
+
+fn assemble_frame(shapes: &[CachedShape]) -> PreparedFrame {
     let mut sdf_instances = Vec::new();
     let mut line_vertices = Vec::new();
     let mut line_indices = Vec::new();
@@ -23,36 +319,32 @@ pub fn prepare(commands: &[DrawCommand], atlas: &AtlasData) -> PreparedFrame {
     let mut text_vertices = Vec::new();
     let mut text_indices = Vec::new();
 
-    for cmd in commands {
-        let DrawCommand::DrawShape(data) = cmd else {
-            continue;
-        };
-        match &data.desc {
-            ShapeDesc::Circle { .. } => {
-                if let Some(inst) = build_circle(data) {
-                    sdf_instances.push(inst);
-                }
+    for shape in shapes {
+        match shape {
+            CachedShape::Sdf(inst) => {
+                sdf_instances.push(*inst);
             }
-            ShapeDesc::Rect { .. } => {
-                if let Some(inst) = build_rect(data) {
-                    sdf_instances.push(inst);
-                }
+            CachedShape::Line { verts, indices } => {
+                let base = line_vertices.len() as u32;
+                line_vertices.extend_from_slice(verts);
+                line_indices.extend(indices.iter().map(|i| i + base));
             }
-            ShapeDesc::Line { .. } => {
-                build_line(data, &mut line_vertices, &mut line_indices);
+            CachedShape::PolyFill { verts, indices } => {
+                let base = polygon_vertices.len() as u32;
+                polygon_vertices.extend_from_slice(verts);
+                polygon_indices.extend(indices.iter().map(|i| i + base));
             }
-            ShapeDesc::Polygon(pts) => match &data.render_mode {
-                RenderMode::Outline | RenderMode::Stroke(_) => {
-                    build_polygon_outline(data, pts, &mut line_vertices, &mut line_indices);
-                }
-                _ => {
-                    build_polygon_fill(data, pts, &mut polygon_vertices, &mut polygon_indices);
-                }
-            },
-            ShapeDesc::Text { pos, content, size } => {
-                build_text(data, *pos, content, *size, atlas, &mut text_vertices, &mut text_indices);
+            CachedShape::PolyOutline { verts, indices } => {
+                let base = line_vertices.len() as u32;
+                line_vertices.extend_from_slice(verts);
+                line_indices.extend(indices.iter().map(|i| i + base));
             }
-            _ => {}
+            CachedShape::Text { verts, indices } => {
+                let base = text_vertices.len() as u32;
+                text_vertices.extend_from_slice(verts);
+                text_indices.extend(indices.iter().map(|i| i + base));
+            }
+            CachedShape::None => {}
         }
     }
 
