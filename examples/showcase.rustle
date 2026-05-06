@@ -1,0 +1,421 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// Rustle Showcase — Interactive Drawing Tool
+//
+// Brushes:
+//   [1] Pen     — freehand, click-drag to draw
+//   [2] Circle  — click-drag: center at click, radius to release
+//   [3] Rect    — click-drag: corner-to-corner
+//   [4] Line    — click to place anchor, click again to finish segment
+//
+// Controls:
+//   [Q/E]  cycle hue       [+/-]  brush size
+//   [C]    clear canvas    click toolbar buttons to switch
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import shapes { circle, rect, line, text, center, top_left }
+import render { fill, outline, stroke }
+import coords { resolution, origin }
+
+resolution(900, 700)
+origin(top_left)
+
+// ─── State ───────────────────────────────────────────────────────────────────
+
+state {
+    let t: float = 0.0
+    let brush: float = 0.0
+    let brush_size: float = 12.0
+    let hue: float = 0.0
+
+    // Finalized shapes: each vec4 = (x, y, param1, param2), color stored separately
+    // brush_type stored in types list
+    let shape_x: list[float] = []
+    let shape_y: list[float] = []
+    let shape_p1: list[float] = []
+    let shape_p2: list[float] = []
+    let shape_r: list[float] = []
+    let shape_g: list[float] = []
+    let shape_b: list[float] = []
+    let shape_type: list[float] = []
+
+    // Drag state
+    let drag_active: bool = false
+    let drag_start_x: float = 0.0
+    let drag_start_y: float = 0.0
+
+    // Line tool: anchor point
+    let line_anchored: bool = false
+    let line_ax: float = 0.0
+    let line_ay: float = 0.0
+
+    let clear_flash: float = 0.0
+}
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const TOOLBAR_H: float = 60.0
+const CANVAS_Y: float = 60.0
+
+// ─── Color from hue (pre-compute at creation, not per frame) ────────────────
+
+fn hsv(h: float, sat: float, v: float) -> color {
+    let hh: float = h - floor(h)
+    let i: float = floor(hh * 6.0)
+    let f: float = hh * 6.0 - i
+    let p: float = v * (1.0 - sat)
+    let q: float = v * (1.0 - sat * f)
+    let tt: float = v * (1.0 - sat * (1.0 - f))
+    let r: float = v
+    let g: float = v
+    let b: float = v
+    match i % 6.0 {
+        0.0 => { r = v   g = tt  b = p }
+        1.0 => { r = q   g = v   b = p }
+        2.0 => { r = p   g = v   b = tt }
+        3.0 => { r = p   g = q   b = v }
+        4.0 => { r = tt  g = p   b = v }
+        5.0 => { r = v   g = p   b = q }
+        else => {}
+    }
+    return color(r, g, b)
+}
+
+// ─── Add finalized shape to storage ─────────────────────────────────────────
+
+fn add_shape(s: State, typ: float, x: float, y: float, p1: float, p2: float) -> State {
+    let c: color = hsv(s.hue, 0.8, 0.95)
+    s.shape_x.push(x)
+    s.shape_y.push(y)
+    s.shape_p1.push(p1)
+    s.shape_p2.push(p2)
+    s.shape_r.push(c.r)
+    s.shape_g.push(c.g)
+    s.shape_b.push(c.b)
+    s.shape_type.push(typ)
+    return s
+}
+
+// ─── Draw all stored shapes (uses pre-computed colors, no hsv per frame) ────
+
+fn draw_shapes(s: State) {
+    let len: float = s.shape_x.len
+    for let i: float = 0.0; i < len; i++ {
+        let col: color = color(s.shape_r[i], s.shape_g[i], s.shape_b[i])
+        let typ: float = s.shape_type[i]
+        let x: float = s.shape_x[i]
+        let y: float = s.shape_y[i]
+        let p1: float = s.shape_p1[i]
+        let p2: float = s.shape_p2[i]
+
+        // 0 = pen dot, 1 = circle, 2 = rect, 3 = line
+        if typ == 0 {
+            out << circle(vec2(x, y), p1 / 2.0, render: fill, color: col)
+        }
+        if typ == 1 {
+            out << circle(vec2(x, y), p1, render: fill, color: col)
+        }
+        if typ == 2 {
+            out << rect(vec2(x, y), vec2(p1, p2), render: fill, color: col, origin: center)
+        }
+        if typ == 3 {
+            out << line(vec2(x, y), vec2(p1, p2), render: stroke(2.0), color: col)
+        }
+    }
+}
+
+// ─── Toolbar ─────────────────────────────────────────────────────────────────
+
+fn draw_toolbar(s: State) {
+    out << rect(vec2(450, 30), vec2(900, TOOLBAR_H), render: fill, color: #1a1e2e, origin: center)
+    out << line(vec2(0, TOOLBAR_H), vec2(900, TOOLBAR_H), color: #2a3040)
+
+    let brushes: list[string] = ["Pen", "Circle", "Rect", "Line"]
+    for let i = 0.0; i < 4; i++ {
+        let bx: float = 60.0 + i * 70.0
+        let bg: color = #252a3a
+        if s.brush == i { bg = #3a5070 }
+        out << rect(vec2(bx, 30), vec2(60, 36), render: fill, color: bg, origin: center)
+        out << rect(vec2(bx, 30), vec2(60, 36), render: outline, color: #4a5a70, origin: center)
+        out << text(vec2(bx - 18, 30), brushes[i], 13.0, color: #aabbcc)
+    }
+
+    // Size
+    out << text(vec2(340, 20), "size", 11.0, color: #667788)
+    out << circle(vec2(400, 30), min(s.brush_size, 20.0) / 2.0, render: fill, color: #667788)
+    out << text(vec2(420, 30), (round(s.brush_size) as string), 13.0, color: #88aacc)
+
+    // Color preview + spectrum
+    let current_col: color = hsv(s.hue, 0.8, 0.95)
+    out << text(vec2(490, 20), "color", 11.0, color: #667788)
+    out << circle(vec2(550, 30), 12, render: fill, color: current_col)
+    for let i = 0.0; i < 20; i++ {
+        let c: color = hsv(i / 20.0, 0.8, 0.9)
+        out << rect(vec2(575 + i * 6.0, 30), vec2(5, 16), render: fill, color: c, origin: center)
+    }
+
+    // Count
+    let count: float = s.shape_x.len
+    out << text(vec2(720, 20), "shapes", 11.0, color: #667788)
+    out << text(vec2(720, 36), (count as string), 16.0, color: #88aacc)
+
+    // Clear
+    out << rect(vec2(840, 30), vec2(60, 36), render: fill, color: #3a2020, origin: center)
+    out << rect(vec2(840, 30), vec2(60, 36), render: outline, color: #884444, origin: center)
+    out << text(vec2(822, 30), "Clear", 13.0, color: #cc6666)
+}
+
+// ─── Cursor / preview ────────────────────────────────────────────────────────
+
+fn draw_cursor(s: State, mx: float, my: float) {
+    if my < CANVAS_Y { return }
+    let col: color = hsv(s.hue, 0.8, 0.95)
+    let ghost: color = color(col.r, col.g, col.b).with_alpha(0.4)
+    let pulse: float = sin(s.t * 4.0) * 2.0
+
+    if s.brush == 0 {
+        out << circle(vec2(mx, my), s.brush_size / 2.0 + pulse, render: outline, color: ghost)
+    }
+    if s.brush == 1 {
+        if s.drag_active {
+            let dx: float = mx - s.drag_start_x
+            let dy: float = my - s.drag_start_y
+            let r: float = sqrt(dx * dx + dy * dy)
+            out << circle(vec2(s.drag_start_x, s.drag_start_y), r, render: stroke(1.0), color: ghost)
+        } else {
+            out << circle(vec2(mx, my), s.brush_size + pulse, render: stroke(1.0), color: ghost)
+        }
+    }
+    if s.brush == 2 {
+        if s.drag_active {
+            let cx: float = (s.drag_start_x + mx) / 2.0
+            let cy: float = (s.drag_start_y + my) / 2.0
+            let w: float = abs(mx - s.drag_start_x)
+            let h: float = abs(my - s.drag_start_y)
+            out << rect(vec2(cx, cy), vec2(w, h), render: stroke(1.0), color: ghost, origin: center)
+        } else {
+            let sz: float = s.brush_size * 2.0 + pulse
+            out << rect(vec2(mx, my), vec2(sz, sz), render: outline, color: ghost, origin: center)
+        }
+    }
+    if s.brush == 3 {
+        if s.line_anchored {
+            out << line(vec2(s.line_ax, s.line_ay), vec2(mx, my), render: stroke(2.0), color: ghost)
+            out << circle(vec2(s.line_ax, s.line_ay), 4, render: fill, color: ghost)
+        } else {
+            out << line(vec2(mx - 10, my), vec2(mx + 10, my), render: stroke(1.0), color: ghost)
+            out << line(vec2(mx, my - 10), vec2(mx, my + 10), render: stroke(1.0), color: ghost)
+        }
+    }
+}
+
+// ─── HUD ─────────────────────────────────────────────────────────────────────
+
+fn draw_hud(t_val: float) {
+    out << text(vec2(10, 685), "[1-4] brush  [Q/E] color  [+/-] size  [C] clear", 11.0, color: #445566)
+    let time_str: string = (round(t_val * 10.0) / 10.0) as string
+    out << text(vec2(800, 685), `t=${time_str}`, 11.0, color: #334455)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fn on_update(s: State, input: Input) -> State {
+    s.t = s.t + input.dt
+
+    // ── Keyboard ────────────────────────────────────────────────────────────
+    if input.key_pressed == "1" { s.brush = 0.0  s.line_anchored = false  s.drag_active = false }
+    if input.key_pressed == "2" { s.brush = 1.0  s.line_anchored = false  s.drag_active = false }
+    if input.key_pressed == "3" { s.brush = 2.0  s.line_anchored = false  s.drag_active = false }
+    if input.key_pressed == "4" { s.brush = 3.0  s.line_anchored = false  s.drag_active = false }
+
+    if input.key_pressed == "=" or input.key_pressed == "plus" {
+        s.brush_size = min(s.brush_size + 2.0, 60.0)
+    }
+    if input.key_pressed == "minus" {
+        s.brush_size = max(s.brush_size - 2.0, 2.0)
+    }
+
+    if input.key_pressed == "c" {
+        s.shape_x = []
+        s.shape_y = []
+        s.shape_p1 = []
+        s.shape_p2 = []
+        s.shape_r = []
+        s.shape_g = []
+        s.shape_b = []
+        s.shape_type = []
+        s.line_anchored = false
+        s.drag_active = false
+        s.clear_flash = 1.0
+    }
+
+    if input.key_pressed == "q" {
+        s.hue = s.hue - 0.05
+        if s.hue < 0.0 { s.hue = s.hue + 1.0 }
+    }
+    if input.key_pressed == "e" {
+        s.hue = s.hue + 0.05
+        if s.hue > 1.0 { s.hue = s.hue - 1.0 }
+    }
+
+    // ── Mouse ────────────────────────────────────────────────────────────────
+    let mx: float = input.mouse_x
+    let my: float = input.mouse_y
+    let on_canvas: bool = my > CANVAS_Y
+    let on_toolbar: bool = my <= TOOLBAR_H
+
+    // ── Toolbar clicks ──────────────────────────────────────────────────────
+    if input.mouse_pressed and on_toolbar {
+        for let i = 0.0; i < 4; i++ {
+            let bx: float = 60.0 + i * 70.0
+            if mx > bx - 30 and mx < bx + 30 and my > 12 and my < 48 {
+                s.brush = i
+                s.line_anchored = false
+                s.drag_active = false
+            }
+        }
+
+        // Color spectrum
+        let spec_start: float = 572.0
+        let spec_end: float = spec_start + 120.0
+        if mx > spec_start and mx < spec_end and my > 22 and my < 38 {
+            s.hue = (mx - spec_start) / (spec_end - spec_start)
+        }
+
+        // Clear
+        if mx > 810 and mx < 870 and my > 12 and my < 48 {
+            s.shape_x = []
+            s.shape_y = []
+            s.shape_p1 = []
+            s.shape_p2 = []
+            s.shape_r = []
+            s.shape_g = []
+            s.shape_b = []
+            s.shape_type = []
+            s.line_anchored = false
+            s.drag_active = false
+            s.clear_flash = 1.0
+        }
+    }
+
+    // ── Canvas interaction ───────────────────────────────────────────────────
+    if on_canvas {
+        // Pen brush: freehand
+        if s.brush == 0 {
+            if input.mouse_pressed {
+                s.drag_active = true
+                s.drag_start_x = mx
+                s.drag_start_y = my
+                s = add_shape(s, 0, mx, my, s.brush_size, 0)
+            }
+            if s.drag_active and input.mouse_down {
+                let dx: float = mx - s.drag_start_x
+                let dy: float = my - s.drag_start_y
+                let dist: float = sqrt(dx * dx + dy * dy)
+                let spacing: float = max(s.brush_size * 0.4, 3.0)
+                if dist > spacing {
+                    let steps: float = floor(dist / spacing)
+                    for let i = 0.0; i < steps; i++ {
+                        let frac: float = (i + 1.0) / steps
+                        let px: float = s.drag_start_x + dx * frac
+                        let py: float = s.drag_start_y + dy * frac
+                        s = add_shape(s, 0, px, py, s.brush_size, 0)
+                    }
+                    s.drag_start_x = mx
+                    s.drag_start_y = my
+                }
+            }
+            if input.mouse_released { s.drag_active = false }
+        }
+
+        // Circle brush: click-drag, center at start, radius to cursor
+        if s.brush == 1 {
+            if input.mouse_pressed {
+                s.drag_active = true
+                s.drag_start_x = mx
+                s.drag_start_y = my
+            }
+            if input.mouse_released and s.drag_active {
+                let dx: float = mx - s.drag_start_x
+                let dy: float = my - s.drag_start_y
+                let r: float = sqrt(dx * dx + dy * dy)
+                if r > 2 {
+                    s = add_shape(s, 1, s.drag_start_x, s.drag_start_y, r, 0)
+                }
+                s.drag_active = false
+            }
+        }
+
+        // Rect brush: click-drag, corner to corner
+        if s.brush == 2 {
+            if input.mouse_pressed {
+                s.drag_active = true
+                s.drag_start_x = mx
+                s.drag_start_y = my
+            }
+            if input.mouse_released and s.drag_active {
+                let cx: float = (s.drag_start_x + mx) / 2.0
+                let cy: float = (s.drag_start_y + my) / 2.0
+                let w: float = abs(mx - s.drag_start_x)
+                let h: float = abs(my - s.drag_start_y)
+                if w > 2 and h > 2 {
+                    s = add_shape(s, 2, cx, cy, w, h)
+                }
+                s.drag_active = false
+            }
+        }
+
+        // Line brush: click to anchor, click again to place, right-click cancels
+        if s.brush == 3 {
+            if input.mouse_pressed {
+                if s.line_anchored {
+                    // Place segment
+                    s = add_shape(s, 3, s.line_ax, s.line_ay, mx, my)
+                    // New anchor at endpoint for polyline
+                    s.line_ax = mx
+                    s.line_ay = my
+                } else {
+                    // Set anchor
+                    s.line_anchored = true
+                    s.line_ax = mx
+                    s.line_ay = my
+                }
+            }
+            // Escape or right-click to cancel anchor
+            if input.key_pressed == "escape" {
+                s.line_anchored = false
+            }
+        }
+    }
+
+    // Release drag if mouse goes off canvas
+    if input.mouse_released {
+        if s.brush != 3 { s.drag_active = false }
+    }
+
+    // ── Clear flash decay ────────────────────────────────────────────────────
+    if s.clear_flash > 0.0 {
+        s.clear_flash = s.clear_flash - input.dt * 3.0
+        if s.clear_flash < 0.0 { s.clear_flash = 0.0 }
+    }
+
+    // ═══ RENDER ══════════════════════════════════════════════════════════════
+
+    // Canvas background
+    let bg_col: color = #0f1219
+    if s.clear_flash > 0.0 { bg_col = #1a2030 }
+    out << rect(vec2(450, 370), vec2(900, 640), render: fill, color: bg_col, origin: center)
+
+    // Stored shapes (colors pre-computed, no hsv per frame)
+    draw_shapes(s)
+
+    // Live preview / cursor
+    draw_cursor(s, mx, my)
+
+    // Toolbar on top
+    draw_toolbar(s)
+
+    // HUD
+    draw_hud(s.t)
+
+    return s
+}

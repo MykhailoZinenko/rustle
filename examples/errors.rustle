@@ -1,0 +1,464 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// Error Handling Showcase
+// Demonstrates Rustle's multi-layered error handling: try/res for runtime safety,
+// optional types with ?? coalescing and if-let unwrapping, file I/O with result
+// propagation, and graceful degradation patterns.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import shapes { circle, rect, line, text, center }
+import render { fill, sdf, outline, stroke }
+import coords { resolution, origin }
+import file { read, write }
+
+resolution(1000, 700)
+origin(center)
+
+state {
+    let t: float = 0.0
+    let opt_val: float? = none
+    let opt_str: string? = none
+    let opt_cycle: float? = none
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+fn hash(n: float) -> float {
+    let x: float = sin(n) * 43758.5453
+    return x - floor(x)
+}
+
+fn draw_panel(x: float, y: float, w: float, h: float) {
+    out << rect(vec2(x, y), vec2(w, h), render: fill, color: #151520, origin: center)
+    out << rect(vec2(x, y), vec2(w, h), render: outline, color: #2a3a4a, origin: center)
+}
+
+fn draw_status_dot(x: float, y: float, ok: bool) {
+    if ok {
+        out << circle(vec2(x, y), 5, render: fill, color: #44cc66)
+    } else {
+        out << circle(vec2(x, y), 5, render: fill, color: #cc4444)
+    }
+}
+
+fn draw_label(x: float, y: float, label: string, col: color) {
+    out << text(vec2(x, y), label, 13.0, color: col)
+}
+
+// ─── Demo 1: try/res — Safe arithmetic ───────────────────────────────────────
+
+fn demo_safe_math(t_val: float) -> float {
+    let x: float = -350.0
+    let y: float = 180.0
+    let errors: float = 0.0
+
+    draw_panel(x, y, 280.0, 220.0)
+    out << text(vec2(x - 120, y + 90), "try / res<T>", 18.0, color: #6699cc)
+    out << text(vec2(x - 120, y + 68), "safe arithmetic & error capture", 11.0, color: #445566)
+
+    // Safe division — succeeds
+    let r1: res<float> = try 100.0 / 3.0
+    draw_status_dot(x - 120, y + 42, r1.ok)
+    if r1.ok {
+        let val: string = (round(r1.value * 100.0) / 100.0) as string
+        draw_label(x - 108, y + 42, `100 / 3 = ${val}`, #88ccaa)
+    }
+
+    // Division by zero — caught by try
+    let divisor: float = sin(t_val) * 0.5 + 0.5
+    if divisor < 0.01 { divisor = 0.0 }
+    let r2: res<float> = try 42.0 / divisor
+    draw_status_dot(x - 120, y + 18, r2.ok)
+    if r2.ok {
+        let val: string = (round(r2.value * 10.0) / 10.0) as string
+        draw_label(x - 108, y + 18, `42 / ${(round(divisor * 100.0) / 100.0) as string} = ${val}`, #88ccaa)
+    } else {
+        draw_label(x - 108, y + 18, `42 / 0 -> ${r2.error}`, #cc8866)
+        errors++
+    }
+
+    // Chained try — sqrt of negative
+    let input: float = sin(t_val * 0.7) * 20.0 - 5.0
+    let r3: res<float> = try sqrt(abs(input))
+    draw_status_dot(x - 120, y - 6, r3.ok)
+    if r3.ok {
+        let val: string = (round(r3.value * 100.0) / 100.0) as string
+        draw_label(x - 108, y - 6, `sqrt(|${(round(input * 10.0) / 10.0) as string}|) = ${val}`, #88ccaa)
+    } else {
+        draw_label(x - 108, y - 6, `sqrt err: ${r3.error}`, #cc8866)
+        errors++
+    }
+
+    // Index safety
+    let data: list[float] = [10, 20, 30]
+    let idx: float = floor(abs(sin(t_val)) * 5.0)
+    let r4: res<float> = try data[idx]
+    draw_status_dot(x - 120, y - 30, r4.ok)
+    if r4.ok {
+        draw_label(x - 108, y - 30, `list[${idx as string}] = ${r4.value as string}`, #88ccaa)
+    } else {
+        draw_label(x - 108, y - 30, `list[${idx as string}] -> out of bounds`, #cc8866)
+        errors++
+    }
+
+    // Summary bar
+    let bar_y: float = y - 60.0
+    let err_frac: float = errors / 4.0
+    let ok_w: float = (1.0 - err_frac) * 240.0
+    let err_w: float = err_frac * 240.0
+    if ok_w > 0.0 {
+        out << rect(vec2(x - 120 + ok_w / 2, bar_y), vec2(ok_w, 10), render: fill, color: #336644, origin: center)
+    }
+    if err_w > 0.0 {
+        out << rect(vec2(x - 120 + ok_w + err_w / 2, bar_y), vec2(err_w, 10), render: fill, color: #663333, origin: center)
+    }
+    draw_label(x - 120, y - 80, `${(4.0 - errors) as string}/4 ok`, #667788)
+
+    return errors
+}
+
+// ─── Demo 2: Optional types ─────────────────────────────────────────────────
+
+fn demo_optionals(s: State, t_val: float) -> float {
+    let x: float = 0.0
+    let y: float = 180.0
+    let errors: float = 0.0
+
+    draw_panel(x, y, 280.0, 220.0)
+    out << text(vec2(x - 120, y + 90), "optional / T?", 18.0, color: #cc9944)
+    out << text(vec2(x - 120, y + 68), "null safety with ?? and if-let", 11.0, color: #445566)
+
+    // ?? coalesce with none (state field is none)
+    let fallback: float = s.opt_val ?? 99.0
+    draw_status_dot(x - 120, y + 42, true)
+    draw_label(x - 108, y + 42, `none ?? 99 = ${fallback as string}`, #ccaa88)
+
+    // ?? coalesce — cycle alternates between some and none via state
+    let resolved: float = s.opt_cycle ?? -1.0
+    let has_val: bool = resolved != -1.0
+    draw_status_dot(x - 120, y + 18, has_val)
+    if has_val {
+        let val: string = (round(resolved * 10.0) / 10.0) as string
+        draw_label(x - 108, y + 18, `dynamic: some(${val})`, #ccaa88)
+    } else {
+        draw_label(x - 108, y + 18, `dynamic: none -> -1`, #887766)
+        errors++
+    }
+
+    // if-let unwrapping on state optional
+    if let val = s.opt_str {
+        draw_status_dot(x - 120, y - 6, true)
+        draw_label(x - 108, y - 6, `if-let unwrapped: "${val}"`, #ccaa88)
+    } else {
+        draw_status_dot(x - 120, y - 6, false)
+        draw_label(x - 108, y - 6, `if-let: none (waiting...)`, #887766)
+        errors++
+    }
+
+    // Boolean logic with optionals
+    let a_present: bool = (s.opt_val ?? -1.0) != -1.0
+    let b_present: bool = (s.opt_cycle ?? -1.0) != -1.0
+    let both: bool = a_present and b_present
+    let either: bool = a_present or b_present
+    draw_status_dot(x - 120, y - 30, either)
+    draw_label(x - 108, y - 30, `a and b: ${both as string}  a or b: ${either as string}`, #ccaa88)
+
+    // Visual indicator
+    out << circle(vec2(x, y - 65), 12, render: sdf, color: #ffaa44)
+    draw_label(x - 120, y - 80, "null-safe by design", #556677)
+
+    return errors
+}
+
+// ─── Demo 3: File I/O with res ───────────────────────────────────────────────
+
+fn demo_file_io(t_val: float) -> float {
+    let x: float = 350.0
+    let y: float = 180.0
+    let errors: float = 0.0
+
+    draw_panel(x, y, 280.0, 220.0)
+    out << text(vec2(x - 120, y + 90), "file I/O + res", 18.0, color: #66aa99)
+    out << text(vec2(x - 120, y + 68), "result-based error propagation", 11.0, color: #445566)
+
+    // Read non-existent file — produces res<err>
+    let r1: res<string> = read("does_not_exist.txt")
+    draw_status_dot(x - 120, y + 42, r1.ok)
+    if r1.ok {
+        draw_label(x - 108, y + 42, "read: unexpected success", #88ccaa)
+    } else {
+        draw_label(x - 108, y + 42, "read missing -> err", #cc8866)
+        errors++
+    }
+
+    // Read a real file (this example itself)
+    let r2: res<string> = read("examples/errors.rustle")
+    draw_status_dot(x - 120, y + 18, r2.ok)
+    if r2.ok {
+        let preview: string = r2.value.slice(0, 20)
+        draw_label(x - 108, y + 18, `read self: "${preview}..."`, #88ccaa)
+    } else {
+        draw_label(x - 108, y + 18, `read self: ${r2.error}`, #cc8866)
+        errors++
+    }
+
+    // Write to temp — may fail based on permissions
+    let r3: res<bool> = write("/tmp/rustle_test.txt", "hello from rustle!")
+    draw_status_dot(x - 120, y - 6, r3.ok)
+    if r3.ok {
+        draw_label(x - 108, y - 6, "write /tmp/... -> ok", #88ccaa)
+    } else {
+        draw_label(x - 108, y - 6, `write err: ${r3.error}`, #cc8866)
+        errors++
+    }
+
+    // Read back what we wrote
+    let r4: res<string> = read("/tmp/rustle_test.txt")
+    draw_status_dot(x - 120, y - 30, r4.ok)
+    if r4.ok {
+        draw_label(x - 108, y - 30, `readback: "${r4.value}"`, #88ccaa)
+    } else {
+        draw_label(x - 108, y - 30, "readback failed", #cc8866)
+        errors++
+    }
+
+    // Summary
+    let ok_count: float = 4.0 - errors
+    draw_label(x - 120, y - 80, `I/O: ${ok_count as string}/4 operations ok`, #667788)
+
+    return errors
+}
+
+// ─── Demo 4: Graceful degradation patterns ───────────────────────────────────
+
+fn demo_graceful(t_val: float) -> float {
+    let x: float = -350.0
+    let y: float = -100.0
+    let errors: float = 0.0
+
+    draw_panel(x, y, 280.0, 200.0)
+    out << text(vec2(x - 120, y + 80), "graceful fallback", 18.0, color: #aa77cc)
+    out << text(vec2(x - 120, y + 58), "patterns for resilient scripts", 11.0, color: #445566)
+
+    // Pattern 1: Default on error
+    let risky: res<float> = try 1.0 / 0.0
+    let safe_val: float = 0.0
+    if risky.ok { safe_val = risky.value } else { safe_val = -1.0 }
+    draw_status_dot(x - 120, y + 32, not risky.ok)
+    draw_label(x - 108, y + 32, `fallback: ${safe_val as string}`, #bb99dd)
+
+    // Pattern 2: Retry with different input
+    let attempts: float = 0.0
+    let succeeded: bool = false
+    let final_val: float = 0.0
+    while not succeeded and attempts < 5.0 {
+        let divisor: float = attempts - 2.0
+        let attempt: res<float> = try 10.0 / divisor
+        if attempt.ok {
+            succeeded = true
+            final_val = attempt.value
+        }
+        attempts++
+    }
+    draw_status_dot(x - 120, y + 8, succeeded)
+    draw_label(x - 108, y + 8, `retry after ${attempts as string} tries: ${(round(final_val * 10.0) / 10.0) as string}`, #bb99dd)
+
+    // Pattern 3: Error accumulation
+    let err_msgs: list[string] = []
+    for let i = 0.0; i < 5; i++ {
+        let denom: float = i - 2.0
+        let r: res<float> = try 1.0 / denom
+        if not r.ok {
+            err_msgs.push(`op${i as string}`)
+            errors++
+        }
+    }
+    let fail_count: string = err_msgs.len() as string
+    draw_status_dot(x - 120, y - 16, err_msgs.len() == 0)
+    draw_label(x - 108, y - 16, `batch: ${fail_count} of 5 failed`, #bb99dd)
+
+    // Pattern 4: Config file with fallback
+    let config: res<string> = read("config.toml")
+    let theme: string = "default"
+    if config.ok {
+        theme = "custom"
+    }
+    draw_status_dot(x - 120, y - 40, true)
+    draw_label(x - 108, y - 40, `config: using "${theme}" theme`, #bb99dd)
+
+    draw_label(x - 120, y - 75, "errors as control flow", #556677)
+    return errors
+}
+
+// ─── Demo 5: Type casting safety ─────────────────────────────────────────────
+
+fn demo_casting(t_val: float) -> float {
+    let x: float = 0.0
+    let y: float = -100.0
+    let errors: float = 0.0
+
+    draw_panel(x, y, 280.0, 200.0)
+    out << text(vec2(x - 120, y + 80), "type casting", 18.0, color: #cccc44)
+    out << text(vec2(x - 120, y + 58), "as operator for safe conversion", 11.0, color: #445566)
+
+    // float -> string
+    let pi: float = PI
+    let pi_str: string = pi as string
+    draw_status_dot(x - 120, y + 32, true)
+    draw_label(x - 108, y + 32, `PI as string: "${pi_str}"`, #dddd88)
+
+    // bool -> string
+    let flag: bool = true
+    let flag_str: string = flag as string
+    draw_status_dot(x - 120, y + 8, true)
+    draw_label(x - 108, y + 8, `true as string: "${flag_str}"`, #dddd88)
+
+    // float -> bool (0 = false, nonzero = true)
+    let zero: float = 0.0
+    let nonzero: float = 42.0
+    let b1: bool = zero as bool
+    let b2: bool = nonzero as bool
+    draw_status_dot(x - 120, y - 16, true)
+    draw_label(x - 108, y - 16, `0 as bool: ${b1 as string}`, #dddd88)
+    draw_status_dot(x - 120, y - 40, true)
+    draw_label(x - 108, y - 40, `42 as bool: ${b2 as string}`, #dddd88)
+
+    // Dynamic value display
+    let dynamic: float = sin(t_val) * 100.0
+    let display: string = (round(dynamic * 10.0) / 10.0) as string
+    draw_label(x - 120, y - 70, `live: ${display}`, #999966)
+
+    return errors
+}
+
+// ─── Demo 6: String validation ───────────────────────────────────────────────
+
+fn demo_string_validation(t_val: float) -> float {
+    let x: float = 350.0
+    let y: float = -100.0
+    let errors: float = 0.0
+
+    draw_panel(x, y, 280.0, 200.0)
+    out << text(vec2(x - 120, y + 80), "string guards", 18.0, color: #55bbaa)
+    out << text(vec2(x - 120, y + 58), "validation via string methods", 11.0, color: #445566)
+
+    let samples: list[string] = ["hello@mail.com", "", "admin", "test 123", "OK"]
+
+    let idx: float = floor(t_val * 0.5) % 5.0
+    if idx < 0.0 { idx = idx + 5.0 }
+    let current: string = samples[idx]
+
+    // Length check
+    let has_len: bool = current.len() > 0
+    draw_status_dot(x - 120, y + 32, has_len)
+    let len_msg: string = `"${current}" len=${current.len() as string}`
+    draw_label(x - 108, y + 32, len_msg, #88ddcc)
+
+    // Contains check
+    let has_at: bool = current.contains("@")
+    draw_status_dot(x - 120, y + 8, has_at)
+    draw_label(x - 108, y + 8, `contains '@': ${has_at as string}`, #88ddcc)
+
+    // starts_with check
+    let is_admin: bool = current.starts_with("admin")
+    draw_status_dot(x - 120, y - 16, not is_admin)
+    if is_admin {
+        draw_label(x - 108, y - 16, "WARN: admin detected!", #cc8844)
+        errors++
+    } else {
+        draw_label(x - 108, y - 16, "not admin: ok", #88ddcc)
+    }
+
+    // trim + upper
+    let trimmed: string = current.trim()
+    let upper: string = trimmed.to_upper()
+    draw_status_dot(x - 120, y - 40, true)
+    let preview: string = upper
+    if upper.len() > 14 {
+        preview = upper.slice(0, 14)
+    }
+    draw_label(x - 108, y - 40, `upper: "${preview}"`, #88ddcc)
+
+    draw_label(x - 120, y - 75, `cycling sample ${(idx + 1.0) as string}/5`, #556677)
+    return errors
+}
+
+// ─── Dashboard summary ──────────────────────────────────────────────────────
+
+fn draw_summary(success: float, errors: float, t_val: float) {
+    let y: float = -260.0
+
+    out << line(vec2(-480, y + 20), vec2(480, y + 20), color: #222233)
+
+    let total: float = success + errors
+    let pct: string = "0"
+    if total > 0.0 {
+        pct = (round(success / total * 100.0)) as string
+    }
+
+    out << text(vec2(-200, y - 10), `Error Resilience: ${pct}% operations safe`, 20.0, color: #667788)
+
+    // Visual bar
+    let bar_w: float = 400.0
+    let bar_y: float = y - 45.0
+    out << rect(vec2(0, bar_y), vec2(bar_w, 12), render: fill, color: #1a1a2e, origin: center)
+    if total > 0.0 {
+        let ok_w: float = success / total * bar_w
+        if ok_w > 0.0 {
+            out << rect(vec2(-bar_w / 2 + ok_w / 2, bar_y), vec2(ok_w, 12), render: fill, color: #338855, origin: center)
+        }
+    }
+    out << rect(vec2(0, bar_y), vec2(bar_w, 12), render: outline, color: #334455, origin: center)
+
+    let ok_str: string = success as string
+    let err_str: string = errors as string
+    out << text(vec2(-200, bar_y - 20), `${ok_str} ok`, 12.0, color: #44aa66)
+    out << text(vec2(-100, bar_y - 20), `${err_str} caught`, 12.0, color: #cc6644)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fn on_update(s: State, input: Input) -> State {
+    s.t = s.t + input.dt
+
+    // Update cycling optionals in state
+    if sin(s.t * 2.0) > 0.0 {
+        s.opt_cycle = sin(s.t * 3.0) * 100.0
+    } else {
+        s.opt_cycle = none
+    }
+    if sin(s.t) > 0.5 {
+        s.opt_str = "hello"
+    } else {
+        s.opt_str = none
+    }
+
+    // Background
+    out << rect(vec2(0, 0), vec2(1020, 720), render: fill, color: #0d1117, origin: center)
+
+    // Title
+    out << text(vec2(-200, 320), "Error Handling in Rustle", 30.0, color: #8899aa)
+    out << text(vec2(-200, 290), "try/res, optionals, file I/O, type casting, validation", 13.0, color: #445566)
+    out << line(vec2(-480, 275), vec2(480, 275), color: #222233)
+
+    // Run all demos and collect error counts
+    let e1: float = demo_safe_math(s.t)
+    let e2: float = demo_optionals(s, s.t)
+    let e3: float = demo_file_io(s.t)
+    let e4: float = demo_graceful(s.t)
+    let e5: float = demo_casting(s.t)
+    let e6: float = demo_string_validation(s.t)
+
+    // Total: 4 + 4 + 4 + ~3 + 4 + ~2 operations per frame
+    let total_ops: float = 22.0
+    let total_errors: float = e1 + e2 + e3 + e4 + e5 + e6
+    let total_ok: float = total_ops - total_errors
+
+    draw_summary(total_ok, total_errors, s.t)
+
+    // Console logging every 5 seconds
+    if floor(s.t) % 5.0 == 0.0 and floor(s.t) != floor(s.t - input.dt) {
+        console << `[errors] t=${(round(s.t) as string)}s ok=${total_ok as string} caught=${total_errors as string}`
+    }
+
+    return s
+}
