@@ -16,7 +16,8 @@ use crate::runtime::value::Value;
 // ─── Function pointer aliases ─────────────────────────────────────────────────
 
 /// Read a field from a value. Caller guarantees `v` is the right variant.
-pub type FieldGetter = fn(&Value) -> Value;
+/// Returns `Err` if the access is invalid at runtime (e.g. `.value` on a failed `res`).
+pub type FieldGetter = fn(&Value) -> Result<Value, RuntimeError>;
 
 /// Return a new value with the named field replaced. `obj` is consumed.
 pub type FieldSetter = fn(Value, Value) -> Value;
@@ -59,7 +60,7 @@ pub struct TypeRegistry {
 }
 
 impl TypeRegistry {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self { types: HashMap::new() }
     }
@@ -71,7 +72,7 @@ impl TypeRegistry {
     // ── Resolver API — by name (used internally) ──────────────────────────────
 
     /// Return the type of `field` on a concrete type named `type_name`.
-    #[must_use] 
+    #[must_use]
     pub fn field_type(&self, type_name: &str, field: &str) -> Option<Type> {
         self.types.get(type_name)?
             .fields.iter()
@@ -80,7 +81,7 @@ impl TypeRegistry {
     }
 
     /// Return (`param_types`, `return_type`) for `method` on a concrete type named `type_name`.
-    #[must_use] 
+    #[must_use]
     pub fn method_signature(&self, type_name: &str, method: &str)
         -> Option<(Vec<Type>, Option<Type>)>
     {
@@ -91,7 +92,7 @@ impl TypeRegistry {
     }
 
     /// Return all field names for a concrete type named `type_name`.
-    #[must_use] 
+    #[must_use]
     pub fn field_names_by_name(&self, type_name: &str) -> Vec<&'static str> {
         self.types.get(type_name)
             .map(|d| d.fields.iter().map(|f| f.name).collect())
@@ -99,7 +100,7 @@ impl TypeRegistry {
     }
 
     /// Return all method names for a concrete type named `type_name`.
-    #[must_use] 
+    #[must_use]
     pub fn method_names_by_name(&self, type_name: &str) -> Vec<&'static str> {
         self.types.get(type_name)
             .map(|d| d.methods.iter().map(|m| m.name).collect())
@@ -107,7 +108,7 @@ impl TypeRegistry {
     }
 
     /// Return all field names available on any `Type` (including generics).
-    #[must_use] 
+    #[must_use]
     pub fn field_names_for_type(&self, ty: &Type) -> Vec<&str> {
         match ty {
             Type::Res(_) => vec!["ok", "value", "error"],
@@ -136,7 +137,7 @@ impl TypeRegistry {
 
     /// Resolve the type of `field` on any `Type`, including generic types like
     /// `res<T>` (where `.value` returns `T`) and `list<T>` (where `.len` returns float).
-    #[must_use] 
+    #[must_use]
     pub fn resolve_field_type(&self, ty: &Type, field: &str) -> Option<Type> {
         match ty {
             Type::Res(inner) => match field {
@@ -156,7 +157,7 @@ impl TypeRegistry {
 
     /// Resolve (`param_types`, `return_type`) for `method` on any `Type`.
     /// For generic types like `list<T>`, `pop()` correctly returns `T`.
-    #[must_use] 
+    #[must_use]
     pub fn resolve_method_signature(&self, ty: &Type, method: &str)
         -> Option<(Vec<Type>, Option<Type>)>
     {
@@ -205,9 +206,10 @@ impl TypeRegistry {
     // ── Interpreter API ───────────────────────────────────────────────────────
 
     /// Get the value of `field` from `v`.
-    /// Returns None if the type or field isn't registered.
-    #[must_use] 
-    pub fn get_field(&self, v: &Value, field: &str) -> Option<Value> {
+    /// Returns `None` if the type or field isn't registered.
+    /// Returns `Some(Err(...))` if the field exists but the access is invalid at runtime.
+    #[must_use]
+    pub fn get_field(&self, v: &Value, field: &str) -> Option<Result<Value, RuntimeError>> {
         let key = value_type_key(v);
         self.types.get(key)?
             .fields.iter()
@@ -217,7 +219,7 @@ impl TypeRegistry {
 
     /// Return a new Value with `field` set to `new_val`.
     /// Returns None if the type/field isn't registered or the field is read-only.
-    #[must_use] 
+    #[must_use]
     pub fn set_field(&self, v: Value, field: &str, new_val: Value) -> Option<Value> {
         let key = value_type_key(&v);
         let setter = self.types.get(key)?
@@ -229,7 +231,7 @@ impl TypeRegistry {
 
     /// Call `method` on `recv` with pre-evaluated `args`.
     /// Returns None if the type or method isn't registered.
-    #[must_use] 
+    #[must_use]
     pub fn call_method(
         &self,
         recv:   &Value,
@@ -287,7 +289,7 @@ impl Default for TypeRegistry {
 /// Map a Value to its type registry key. Returns "" for types not in the registry
 /// (Namespace, `NativeFn`, Closure, State — these are internal/dynamic and
 /// don't have statically-known field/method descriptors).
-#[must_use] 
+#[must_use]
 pub fn value_type_key(v: &Value) -> &'static str {
     match v {
         Value::Float(_)             => "float",
@@ -320,7 +322,7 @@ pub fn value_type_key(v: &Value) -> &'static str {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-fn type_to_registry_key(ty: &Type) -> &'static str {
+pub(crate) fn type_to_registry_key(ty: &Type) -> &'static str {
     match ty {
         Type::Float     => "float",
         Type::Bool      => "bool",
@@ -376,7 +378,7 @@ fn string_desc() -> TypeDesc {
                 call: |v, _args, _line| {
                     let Value::Str(s) = v else { unreachable!() };
                     #[allow(clippy::cast_precision_loss)]
-                    Ok(Value::Float(s.len() as f64))
+                    Ok(Value::Float(s.chars().count() as f64))
                 },
             },
             MethodDesc {
@@ -473,55 +475,55 @@ fn input_desc() -> TypeDesc {
             FieldDesc {
                 name: "dt",
                 ty:   float(),
-                get:  |v| { let Value::Input { dt, .. } = v else { unreachable!() }; Value::Float(*dt) },
+                get:  |v| { let Value::Input { dt, .. } = v else { unreachable!() }; Ok(Value::Float(*dt)) },
                 set:  None,
             },
             FieldDesc {
                 name: "mouse_x",
                 ty:   float(),
-                get:  |v| { let Value::Input { mouse_x, .. } = v else { unreachable!() }; Value::Float(*mouse_x) },
+                get:  |v| { let Value::Input { mouse_x, .. } = v else { unreachable!() }; Ok(Value::Float(*mouse_x)) },
                 set:  None,
             },
             FieldDesc {
                 name: "mouse_y",
                 ty:   float(),
-                get:  |v| { let Value::Input { mouse_y, .. } = v else { unreachable!() }; Value::Float(*mouse_y) },
+                get:  |v| { let Value::Input { mouse_y, .. } = v else { unreachable!() }; Ok(Value::Float(*mouse_y)) },
                 set:  None,
             },
             FieldDesc {
                 name: "mouse_down",
                 ty:   Type::Bool,
-                get:  |v| { let Value::Input { mouse_down, .. } = v else { unreachable!() }; Value::Bool(*mouse_down) },
+                get:  |v| { let Value::Input { mouse_down, .. } = v else { unreachable!() }; Ok(Value::Bool(*mouse_down)) },
                 set:  None,
             },
             FieldDesc {
                 name: "mouse_pressed",
                 ty:   Type::Bool,
-                get:  |v| { let Value::Input { mouse_pressed, .. } = v else { unreachable!() }; Value::Bool(*mouse_pressed) },
+                get:  |v| { let Value::Input { mouse_pressed, .. } = v else { unreachable!() }; Ok(Value::Bool(*mouse_pressed)) },
                 set:  None,
             },
             FieldDesc {
                 name: "mouse_released",
                 ty:   Type::Bool,
-                get:  |v| { let Value::Input { mouse_released, .. } = v else { unreachable!() }; Value::Bool(*mouse_released) },
+                get:  |v| { let Value::Input { mouse_released, .. } = v else { unreachable!() }; Ok(Value::Bool(*mouse_released)) },
                 set:  None,
             },
             FieldDesc {
                 name: "key_pressed",
                 ty:   Type::String,
-                get:  |v| { let Value::Input { key_pressed, .. } = v else { unreachable!() }; Value::Str(key_pressed.clone()) },
+                get:  |v| { let Value::Input { key_pressed, .. } = v else { unreachable!() }; Ok(Value::Str(key_pressed.clone())) },
                 set:  None,
             },
             FieldDesc {
                 name: "key_down",
                 ty:   Type::String,
-                get:  |v| { let Value::Input { key_down, .. } = v else { unreachable!() }; Value::Str(key_down.clone()) },
+                get:  |v| { let Value::Input { key_down, .. } = v else { unreachable!() }; Ok(Value::Str(key_down.clone())) },
                 set:  None,
             },
             FieldDesc {
                 name: "key_released",
                 ty:   Type::String,
-                get:  |v| { let Value::Input { key_released, .. } = v else { unreachable!() }; Value::Str(key_released.clone()) },
+                get:  |v| { let Value::Input { key_released, .. } = v else { unreachable!() }; Ok(Value::Str(key_released.clone())) },
                 set:  None,
             },
         ],
@@ -539,13 +541,13 @@ fn vec2_desc() -> TypeDesc {
             FieldDesc {
                 name: "x",
                 ty:   float(),
-                get:  |v| { let Value::Vec2(x, _) = v else { unreachable!() }; Value::Float(*x) },
+                get:  |v| { let Value::Vec2(x, _) = v else { unreachable!() }; Ok(Value::Float(*x)) },
                 set:  Some(|v, n| { let Value::Vec2(_, y) = v else { unreachable!() }; let Value::Float(x) = n else { return v }; Value::Vec2(x, y) }),
             },
             FieldDesc {
                 name: "y",
                 ty:   float(),
-                get:  |v| { let Value::Vec2(_, y) = v else { unreachable!() }; Value::Float(*y) },
+                get:  |v| { let Value::Vec2(_, y) = v else { unreachable!() }; Ok(Value::Float(*y)) },
                 set:  Some(|v, n| { let Value::Vec2(x, _) = v else { unreachable!() }; let Value::Float(y) = n else { return v }; Value::Vec2(x, y) }),
             },
         ],
@@ -680,17 +682,17 @@ fn vec3_desc() -> TypeDesc {
         fields: vec![
             FieldDesc {
                 name: "x", ty: float(),
-                get: |v| { let Value::Vec3(x,_,_) = v else { unreachable!() }; Value::Float(*x) },
+                get: |v| { let Value::Vec3(x,_,_) = v else { unreachable!() }; Ok(Value::Float(*x)) },
                 set: Some(|v, n| { let Value::Vec3(_,y,z) = v else { unreachable!() }; let Value::Float(x) = n else { return v }; Value::Vec3(x,y,z) }),
             },
             FieldDesc {
                 name: "y", ty: float(),
-                get: |v| { let Value::Vec3(_,y,_) = v else { unreachable!() }; Value::Float(*y) },
+                get: |v| { let Value::Vec3(_,y,_) = v else { unreachable!() }; Ok(Value::Float(*y)) },
                 set: Some(|v, n| { let Value::Vec3(x,_,z) = v else { unreachable!() }; let Value::Float(y) = n else { return v }; Value::Vec3(x,y,z) }),
             },
             FieldDesc {
                 name: "z", ty: float(),
-                get: |v| { let Value::Vec3(_,_,z) = v else { unreachable!() }; Value::Float(*z) },
+                get: |v| { let Value::Vec3(_,_,z) = v else { unreachable!() }; Ok(Value::Float(*z)) },
                 set: Some(|v, n| { let Value::Vec3(x,y,_) = v else { unreachable!() }; let Value::Float(z) = n else { return v }; Value::Vec3(x,y,z) }),
             },
         ],
@@ -796,22 +798,22 @@ fn vec4_desc() -> TypeDesc {
         fields: vec![
             FieldDesc {
                 name: "x", ty: float(),
-                get: |v| { let Value::Vec4(x,_,_,_) = v else { unreachable!() }; Value::Float(*x) },
+                get: |v| { let Value::Vec4(x,_,_,_) = v else { unreachable!() }; Ok(Value::Float(*x)) },
                 set: Some(|v, n| { let Value::Vec4(_,y,z,w) = v else { unreachable!() }; let Value::Float(x) = n else { return v }; Value::Vec4(x,y,z,w) }),
             },
             FieldDesc {
                 name: "y", ty: float(),
-                get: |v| { let Value::Vec4(_,y,_,_) = v else { unreachable!() }; Value::Float(*y) },
+                get: |v| { let Value::Vec4(_,y,_,_) = v else { unreachable!() }; Ok(Value::Float(*y)) },
                 set: Some(|v, n| { let Value::Vec4(x,_,z,w) = v else { unreachable!() }; let Value::Float(y) = n else { return v }; Value::Vec4(x,y,z,w) }),
             },
             FieldDesc {
                 name: "z", ty: float(),
-                get: |v| { let Value::Vec4(_,_,z,_) = v else { unreachable!() }; Value::Float(*z) },
+                get: |v| { let Value::Vec4(_,_,z,_) = v else { unreachable!() }; Ok(Value::Float(*z)) },
                 set: Some(|v, n| { let Value::Vec4(x,y,_,w) = v else { unreachable!() }; let Value::Float(z) = n else { return v }; Value::Vec4(x,y,z,w) }),
             },
             FieldDesc {
                 name: "w", ty: float(),
-                get: |v| { let Value::Vec4(_,_,_,w) = v else { unreachable!() }; Value::Float(*w) },
+                get: |v| { let Value::Vec4(_,_,_,w) = v else { unreachable!() }; Ok(Value::Float(*w)) },
                 set: Some(|v, n| { let Value::Vec4(x,y,z,_) = v else { unreachable!() }; let Value::Float(w) = n else { return v }; Value::Vec4(x,y,z,w) }),
             },
         ],
@@ -892,22 +894,22 @@ fn color_desc() -> TypeDesc {
         fields: vec![
             FieldDesc {
                 name: "r", ty: float(),
-                get: |v| { let Value::Color { r, .. } = v else { unreachable!() }; Value::Float(*r) },
+                get: |v| { let Value::Color { r, .. } = v else { unreachable!() }; Ok(Value::Float(*r)) },
                 set: Some(|v, n| { let Value::Color { g, b, a, .. } = v else { unreachable!() }; let Value::Float(r) = n else { return v }; Value::Color { r, g, b, a } }),
             },
             FieldDesc {
                 name: "g", ty: float(),
-                get: |v| { let Value::Color { g, .. } = v else { unreachable!() }; Value::Float(*g) },
+                get: |v| { let Value::Color { g, .. } = v else { unreachable!() }; Ok(Value::Float(*g)) },
                 set: Some(|v, n| { let Value::Color { r, b, a, .. } = v else { unreachable!() }; let Value::Float(g) = n else { return v }; Value::Color { r, g, b, a } }),
             },
             FieldDesc {
                 name: "b", ty: float(),
-                get: |v| { let Value::Color { b, .. } = v else { unreachable!() }; Value::Float(*b) },
+                get: |v| { let Value::Color { b, .. } = v else { unreachable!() }; Ok(Value::Float(*b)) },
                 set: Some(|v, n| { let Value::Color { r, g, a, .. } = v else { unreachable!() }; let Value::Float(b) = n else { return v }; Value::Color { r, g, b, a } }),
             },
             FieldDesc {
                 name: "a", ty: float(),
-                get: |v| { let Value::Color { a, .. } = v else { unreachable!() }; Value::Float(*a) },
+                get: |v| { let Value::Color { a, .. } = v else { unreachable!() }; Ok(Value::Float(*a)) },
                 set: Some(|v, n| { let Value::Color { r, g, b, .. } = v else { unreachable!() }; let Value::Float(a) = n else { return v }; Value::Color { r, g, b, a } }),
             },
         ],
@@ -1035,7 +1037,7 @@ fn circle_desc() -> TypeDesc {
                 get: |v| {
                     let Value::Shape(s) = v else { unreachable!() };
                     let crate::types::draw::ShapeDesc::Circle { center, .. } = s.desc else { unreachable!() };
-                    Value::Vec2(center.0, center.1)
+                    Ok(Value::Vec2(center.0, center.1))
                 },
                 set: None,
             },
@@ -1044,7 +1046,7 @@ fn circle_desc() -> TypeDesc {
                 get: |v| {
                     let Value::Shape(s) = v else { unreachable!() };
                     let crate::types::draw::ShapeDesc::Circle { radius, .. } = s.desc else { unreachable!() };
-                    Value::Float(radius)
+                    Ok(Value::Float(radius))
                 },
                 set: None,
             },
@@ -1075,7 +1077,7 @@ fn rect_desc() -> TypeDesc {
                 get: |v| {
                     let Value::Shape(s) = v else { unreachable!() };
                     let crate::types::draw::ShapeDesc::Rect { center, .. } = s.desc else { unreachable!() };
-                    Value::Vec2(center.0, center.1)
+                    Ok(Value::Vec2(center.0, center.1))
                 },
                 set: None,
             },
@@ -1084,7 +1086,7 @@ fn rect_desc() -> TypeDesc {
                 get: |v| {
                     let Value::Shape(s) = v else { unreachable!() };
                     let crate::types::draw::ShapeDesc::Rect { size, .. } = s.desc else { unreachable!() };
-                    Value::Vec2(size.0, size.1)
+                    Ok(Value::Vec2(size.0, size.1))
                 },
                 set: None,
             },
@@ -1115,7 +1117,7 @@ fn line_desc() -> TypeDesc {
                 get: |v| {
                     let Value::Shape(s) = v else { unreachable!() };
                     let crate::types::draw::ShapeDesc::Line { from, .. } = s.desc else { unreachable!() };
-                    Value::Vec2(from.0, from.1)
+                    Ok(Value::Vec2(from.0, from.1))
                 },
                 set: None,
             },
@@ -1124,7 +1126,7 @@ fn line_desc() -> TypeDesc {
                 get: |v| {
                     let Value::Shape(s) = v else { unreachable!() };
                     let crate::types::draw::ShapeDesc::Line { to, .. } = s.desc else { unreachable!() };
-                    Value::Vec2(to.0, to.1)
+                    Ok(Value::Vec2(to.0, to.1))
                 },
                 set: None,
             },
@@ -1173,7 +1175,7 @@ fn list_desc() -> TypeDesc {
         fields: vec![
             FieldDesc {
                 name: "len", ty: float(),
-                get: |v| { let Value::List(items) = v else { unreachable!() }; #[allow(clippy::cast_precision_loss)] let n = items.borrow().len() as f64; Value::Float(n) },
+                get: |v| { let Value::List(items) = v else { unreachable!() }; #[allow(clippy::cast_precision_loss)] let n = items.borrow().len() as f64; Ok(Value::Float(n)) },
                 set: None,
             },
         ],
@@ -1228,25 +1230,33 @@ fn res_desc() -> TypeDesc {
             FieldDesc {
                 name: "ok", ty: Type::Bool,
                 get: |v| match v {
-                    Value::ResOk(_)  => Value::Bool(true),
-                    Value::ResErr(_) => Value::Bool(false),
+                    Value::ResOk(_)  => Ok(Value::Bool(true)),
+                    Value::ResErr(_) => Ok(Value::Bool(false)),
                     _ => unreachable!(),
                 },
                 set: None,
             },
             FieldDesc {
                 name: "value", ty: Type::Float, // placeholder — inner type unknown at registry level
-                get: |v| {
-                    let Value::ResOk(inner) = v else { unreachable!() };
-                    *inner.clone()
+                get: |v| match v {
+                    Value::ResOk(inner) => Ok(*inner.clone()),
+                    Value::ResErr(_) => Err(RuntimeError::new(
+                        ErrorCode::R003, 0, 0,
+                        "cannot access .value on a failed result (res<err>)"
+                    )),
+                    _ => unreachable!(),
                 },
                 set: None,
             },
             FieldDesc {
                 name: "error", ty: named("string"),
-                get: |v| {
-                    let Value::ResErr(s) = v else { unreachable!() };
-                    Value::Str(s.clone())
+                get: |v| match v {
+                    Value::ResErr(s) => Ok(Value::Str(s.clone())),
+                    Value::ResOk(_) => Err(RuntimeError::new(
+                        ErrorCode::R003, 0, 0,
+                        "cannot access .error on a successful result (res<ok>)"
+                    )),
+                    _ => unreachable!(),
                 },
                 set: None,
             },
@@ -1398,4 +1408,3 @@ fn mat4_desc() -> TypeDesc {
         ],
     }
 }
-

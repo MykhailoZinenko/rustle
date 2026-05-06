@@ -20,7 +20,6 @@ impl NamespaceInfo for RenderNamespace {
                 kind: ExportKind::Function,
                 ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::from_name("render_mode")))),
             },
-            Export { name: "gl", kind: ExportKind::Constant, ty: Type::from_name("gl") },
         ]
     }
 }

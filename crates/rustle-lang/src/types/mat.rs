@@ -9,10 +9,7 @@ use crate::error::{ErrorCode, RuntimeError};
 
 pub type M3 = [f64; 9];
 
-#[inline] #[must_use] 
-pub fn m3_at(m: &M3, row: usize, col: usize) -> f64 { m[row * 3 + col] }
-
-#[must_use] 
+#[must_use]
 pub fn m3_identity() -> M3 {
     [1., 0., 0.,
      0., 1., 0.,
@@ -81,10 +78,7 @@ pub fn m3_inverse(m: &M3, line: usize) -> Result<M3, RuntimeError> {
 
 pub type M4 = [f64; 16];
 
-#[inline] #[must_use] 
-pub fn m4_at(m: &M4, row: usize, col: usize) -> f64 { m[row * 4 + col] }
-
-#[must_use] 
+#[must_use]
 pub fn m4_identity() -> M4 {
     [1., 0., 0., 0.,
      0., 1., 0., 0.,

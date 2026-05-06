@@ -85,7 +85,7 @@ impl RustleObject for StructInstance {
     }
 }
 
-/// Deep-clone a Value, recursively cloning Object and List internals.
+/// Deep-clone a Value, recursively cloning all reference types and containers.
 pub fn deep_clone_value(v: &Value) -> Value {
     match v {
         Value::Object(rc) => {
@@ -95,6 +95,32 @@ pub fn deep_clone_value(v: &Value) -> Value {
         Value::List(rc) => {
             let cloned_items: Vec<Value> = rc.borrow().iter().map(deep_clone_value).collect();
             Value::List(Rc::new(RefCell::new(cloned_items)))
+        }
+        Value::State(rc) => {
+            let cloned_map: HashMap<String, Value> = rc.borrow().iter()
+                .map(|(k, v)| (k.clone(), deep_clone_value(v)))
+                .collect();
+            Value::State(Rc::new(RefCell::new(cloned_map)))
+        }
+        Value::EnumVariant { enum_name, variant, fields } => {
+            let cloned_fields: HashMap<String, Value> = fields.iter()
+                .map(|(k, v)| (k.clone(), deep_clone_value(v)))
+                .collect();
+            Value::EnumVariant {
+                enum_name: enum_name.clone(),
+                variant: variant.clone(),
+                fields: cloned_fields,
+            }
+        }
+        Value::Closure(cd) => {
+            let cloned_captured: HashMap<String, Value> = cd.captured.iter()
+                .map(|(k, v)| (k.clone(), deep_clone_value(v)))
+                .collect();
+            Value::Closure(Box::new(crate::runtime::value::ClosureData {
+                params: cd.params.clone(),
+                body: cd.body.clone(),
+                captured: cloned_captured,
+            }))
         }
         other => other.clone(),
     }

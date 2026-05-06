@@ -442,7 +442,7 @@ impl Expr {
 
 // ─── Operators ───────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinOp {
     Add, Sub, Mul, Div, Mod,
     Eq, NotEq,
@@ -473,7 +473,7 @@ impl std::fmt::Display for BinOp {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UnOp {
     Neg,
     Not,

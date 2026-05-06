@@ -32,9 +32,12 @@ impl BinopRegistry {
 
     /// Return the result type key for `lhs op rhs`, or `None` if not registered.
     /// Used by the type checker at compile time.
-    #[must_use] 
+    #[must_use]
     pub fn result_type(&self, op: &BinOp, lhs: &'static str, rhs: &'static str) -> Option<&'static str> {
-        self.ops.get(&(op.clone(), lhs, rhs)).map(|(ret, _)| *ret)
+        if matches!(op, BinOp::Eq | BinOp::NotEq) && lhs == rhs {
+            return Some("bool");
+        }
+        self.ops.get(&(*op, lhs, rhs)).map(|(ret, _)| *ret)
     }
 
     /// Evaluate `l op r`. Returns `None` if no handler is registered for this
@@ -49,7 +52,7 @@ impl BinopRegistry {
     ) -> Option<Result<Value, RuntimeError>> {
         let lkey = value_type_key(&l);
         let rkey = value_type_key(&r);
-        self.ops.get(&(op.clone(), lkey, rkey)).map(|(_, f)| f(l, r, line))
+        self.ops.get(&(*op, lkey, rkey)).map(|(_, f)| f(l, r, line))
     }
 }
 
@@ -60,20 +63,8 @@ use crate::syntax::ast::Type;
 /// Map a `Type` to its `BinopRegistry` key. Returns `None` for generic/compound types.
 #[must_use] 
 pub fn type_to_key(ty: &Type) -> Option<&'static str> {
-    match ty {
-        Type::String    => Some("string"),
-        Type::Float     => Some("float"),
-        Type::Bool      => Some("bool"),
-        Type::Vec2      => Some("vec2"),
-        Type::Vec3      => Some("vec3"),
-        Type::Vec4      => Some("vec4"),
-        Type::Color     => Some("color"),
-        Type::Mat3      => Some("mat3"),
-        Type::Mat4      => Some("mat4"),
-        Type::Transform => Some("transform"),
-        Type::Shape     => Some("shape"),
-        _ => None,
-    }
+    let key = super::registry::type_to_registry_key(ty);
+    if key.is_empty() { None } else { Some(key) }
 }
 
 /// Map a `BinopRegistry` return-type key back to a `Type`.
@@ -116,7 +107,7 @@ impl Default for BinopRegistry {
 // Language equality uses exact float comparison — this is intentional Rustle semantics.
 #[allow(clippy::float_cmp, clippy::many_single_char_names)]
 fn register_float(r: &mut BinopRegistry) {
-    use BinOp::{Add, Sub, Mul, Div, Mod, Lt, LtEq, Gt, GtEq, Eq, NotEq};
+    use BinOp::{Add, Sub, Mul, Div, Mod, Lt, LtEq, Gt, GtEq};
     r.register(Add, "float", "float", "float", |l, r, _| {
         let (Value::Float(a), Value::Float(b)) = (l, r) else { unreachable!() };
         Ok(Value::Float(a + b))
@@ -143,15 +134,15 @@ fn register_float(r: &mut BinopRegistry) {
     r.register(LtEq, "float", "float", "bool", |l, r, _| { let (Value::Float(a), Value::Float(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a <= b)) });
     r.register(Gt,   "float", "float", "bool", |l, r, _| { let (Value::Float(a), Value::Float(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a >  b)) });
     r.register(GtEq, "float", "float", "bool", |l, r, _| { let (Value::Float(a), Value::Float(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a >= b)) });
-    r.register(Eq,   "float", "float", "bool", |l, r, _| { let (Value::Float(a), Value::Float(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a == b)) });
-    r.register(NotEq,"float", "float", "bool", |l, r, _| { let (Value::Float(a), Value::Float(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a != b)) });
+    // Eq/NotEq for floats handled by interpreter via values_equal() (bitwise comparison).
+    // Compile-time type resolution handled by result_type() directly.
 }
 
 // ─── vec2 ─────────────────────────────────────────────────────────────────────
 
 #[allow(clippy::float_cmp, clippy::many_single_char_names)]
 fn register_vec2(r: &mut BinopRegistry) {
-    use BinOp::{Add, Sub, Mul, Div, Eq, NotEq};
+    use BinOp::{Add, Sub, Mul, Div};
     r.register(Add, "vec2", "vec2", "vec2", |l, r, _| {
         let (Value::Vec2(ax, ay), Value::Vec2(bx, by)) = (l, r) else { unreachable!() };
         Ok(Value::Vec2(ax + bx, ay + by))
@@ -173,15 +164,14 @@ fn register_vec2(r: &mut BinopRegistry) {
         if s == 0.0 { Err(RuntimeError::new(ErrorCode::R007, line, 0, "division by zero")) }
         else { Ok(Value::Vec2(x / s, y / s)) }
     });
-    r.register(Eq,    "vec2", "vec2", "bool", |l, r, _| { let (Value::Vec2(ax,ay), Value::Vec2(bx,by)) = (l,r) else { unreachable!() }; Ok(Value::Bool(ax==bx && ay==by)) });
-    r.register(NotEq, "vec2", "vec2", "bool", |l, r, _| { let (Value::Vec2(ax,ay), Value::Vec2(bx,by)) = (l,r) else { unreachable!() }; Ok(Value::Bool(ax!=bx || ay!=by)) });
+    // Eq/NotEq handled by interpreter via values_equal().
 }
 
 // ─── vec3 ─────────────────────────────────────────────────────────────────────
 
 #[allow(clippy::float_cmp, clippy::many_single_char_names)]
 fn register_vec3(r: &mut BinopRegistry) {
-    use BinOp::{Add, Sub, Mul, Div, Eq, NotEq};
+    use BinOp::{Add, Sub, Mul, Div};
     r.register(Add, "vec3", "vec3", "vec3", |l, r, _| {
         let (Value::Vec3(ax,ay,az), Value::Vec3(bx,by,bz)) = (l, r) else { unreachable!() };
         Ok(Value::Vec3(ax+bx, ay+by, az+bz))
@@ -203,15 +193,14 @@ fn register_vec3(r: &mut BinopRegistry) {
         if s == 0.0 { Err(RuntimeError::new(ErrorCode::R007, line, 0, "division by zero")) }
         else { Ok(Value::Vec3(x/s, y/s, z/s)) }
     });
-    r.register(Eq,    "vec3", "vec3", "bool", |l, r, _| { let (Value::Vec3(ax,ay,az), Value::Vec3(bx,by,bz)) = (l,r) else { unreachable!() }; Ok(Value::Bool(ax==bx && ay==by && az==bz)) });
-    r.register(NotEq, "vec3", "vec3", "bool", |l, r, _| { let (Value::Vec3(ax,ay,az), Value::Vec3(bx,by,bz)) = (l,r) else { unreachable!() }; Ok(Value::Bool(ax!=bx || ay!=by || az!=bz)) });
+    // Eq/NotEq handled by interpreter via values_equal().
 }
 
 // ─── vec4 ─────────────────────────────────────────────────────────────────────
 
 #[allow(clippy::float_cmp, clippy::many_single_char_names)]
 fn register_vec4(r: &mut BinopRegistry) {
-    use BinOp::{Add, Sub, Mul, Div, Eq, NotEq};
+    use BinOp::{Add, Sub, Mul, Div};
     r.register(Add, "vec4", "vec4", "vec4", |l, r, _| {
         let (Value::Vec4(ax,ay,az,aw), Value::Vec4(bx,by,bz,bw)) = (l, r) else { unreachable!() };
         Ok(Value::Vec4(ax+bx, ay+by, az+bz, aw+bw))
@@ -233,15 +222,14 @@ fn register_vec4(r: &mut BinopRegistry) {
         if s == 0.0 { Err(RuntimeError::new(ErrorCode::R007, line, 0, "division by zero")) }
         else { Ok(Value::Vec4(x/s, y/s, z/s, w/s)) }
     });
-    r.register(Eq,    "vec4", "vec4", "bool", |l, r, _| { let (Value::Vec4(ax,ay,az,aw), Value::Vec4(bx,by,bz,bw)) = (l,r) else { unreachable!() }; Ok(Value::Bool(ax==bx && ay==by && az==bz && aw==bw)) });
-    r.register(NotEq, "vec4", "vec4", "bool", |l, r, _| { let (Value::Vec4(ax,ay,az,aw), Value::Vec4(bx,by,bz,bw)) = (l,r) else { unreachable!() }; Ok(Value::Bool(ax!=bx || ay!=by || az!=bz || aw!=bw)) });
+    // Eq/NotEq handled by interpreter via values_equal().
 }
 
 // ─── color ────────────────────────────────────────────────────────────────────
 
 #[allow(clippy::float_cmp)]
 fn register_color(r: &mut BinopRegistry) {
-    use BinOp::{Add, Mul, Eq, NotEq};
+    use BinOp::{Add, Mul};
     r.register(Add, "color", "color", "color", |l, r, _| {
         let (Value::Color { r: ar, g: ag, b: ab, a: aa }, Value::Color { r: br, g: bg, b: bb, a: ba }) = (l, r) else { unreachable!() };
         Ok(Value::Color { r: (ar+br).min(1.0), g: (ag+bg).min(1.0), b: (ab+bb).min(1.0), a: (aa+ba).min(1.0) })
@@ -250,23 +238,15 @@ fn register_color(r: &mut BinopRegistry) {
         let (Value::Color { r: cr, g: cg, b: cb, a: ca }, Value::Float(s)) = (l, r) else { unreachable!() };
         Ok(Value::Color { r: (cr*s).min(1.0), g: (cg*s).min(1.0), b: (cb*s).min(1.0), a: (ca*s).min(1.0) })
     });
-    r.register(Eq, "color", "color", "bool", |l, r, _| {
-        let (Value::Color { r: ar, g: ag, b: ab, a: aa }, Value::Color { r: br, g: bg, b: bb, a: ba }) = (l, r) else { unreachable!() };
-        Ok(Value::Bool(ar==br && ag==bg && ab==bb && aa==ba))
-    });
-    r.register(NotEq, "color", "color", "bool", |l, r, _| {
-        let (Value::Color { r: ar, g: ag, b: ab, a: aa }, Value::Color { r: br, g: bg, b: bb, a: ba }) = (l, r) else { unreachable!() };
-        Ok(Value::Bool(ar!=br || ag!=bg || ab!=bb || aa!=ba))
-    });
+    // Eq/NotEq handled by interpreter via values_equal().
 }
 
 // ─── bool ─────────────────────────────────────────────────────────────────────
 
 fn register_bool(r: &mut BinopRegistry) {
-    use BinOp::{Eq, NotEq, Add, Sub, Mul, Div, Mod};
+    use BinOp::{Add, Sub, Mul, Div, Mod};
     // And/Or are handled as special cases in checker + interpreter (truthy short-circuit).
-    r.register(Eq,    "bool", "bool", "bool", |l, r, _| { let (Value::Bool(a), Value::Bool(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a == b)) });
-    r.register(NotEq, "bool", "bool", "bool", |l, r, _| { let (Value::Bool(a), Value::Bool(b)) = (l, r) else { unreachable!() }; Ok(Value::Bool(a != b)) });
+    // Eq/NotEq handled by interpreter via values_equal().
 
     // Bool arithmetic: bool coerces to float (true=1.0, false=0.0).
     macro_rules! bool_arith {
@@ -352,22 +332,13 @@ fn register_mat4(r: &mut BinopRegistry) {
 // ─── string ──────────────────────────────────────────────────────────────────
 
 fn register_string(r: &mut BinopRegistry) {
-    use BinOp::{Add, Eq, NotEq, Lt, LtEq, Gt, GtEq};
+    use BinOp::{Add, Lt, LtEq, Gt, GtEq};
     // string + string → string (concatenation)
     r.register(Add, "string", "string", "string", |l, r, _| {
         let (Value::Str(a), Value::Str(b)) = (l, r) else { unreachable!() };
         Ok(Value::Str(format!("{a}{b}")))
     });
-    // Equality — runtime uses values_equal() directly, but the checker
-    // needs these entries so type_to_key → result_type succeeds.
-    r.register(Eq, "string", "string", "bool", |l, r, _| {
-        let (Value::Str(a), Value::Str(b)) = (l, r) else { unreachable!() };
-        Ok(Value::Bool(a == b))
-    });
-    r.register(NotEq, "string", "string", "bool", |l, r, _| {
-        let (Value::Str(a), Value::Str(b)) = (l, r) else { unreachable!() };
-        Ok(Value::Bool(a != b))
-    });
+    // Eq/NotEq handled by interpreter via values_equal().
     // Lexicographic comparisons
     r.register(Lt, "string", "string", "bool", |l, r, _| {
         let (Value::Str(a), Value::Str(b)) = (l, r) else { unreachable!() };

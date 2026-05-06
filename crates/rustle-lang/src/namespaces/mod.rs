@@ -81,14 +81,21 @@ pub trait NamespaceProvider: NamespaceInfo {
 /// future plugin/extension namespaces. The fixed set of built-in namespaces
 /// (core, shapes, render, coords) is registered via [`Self::standard()`].
 pub struct NamespaceRegistry {
-    providers: Vec<Box<dyn NamespaceProvider>>,
+    pub(crate) providers: Vec<Box<dyn NamespaceProvider>>,
+    export_cache: HashMap<String, usize>,
 }
 
 impl NamespaceRegistry {
-    #[must_use] 
-    pub fn new() -> Self { Self { providers: Vec::new() } }
+    #[must_use]
+    pub fn new() -> Self { Self { providers: Vec::new(), export_cache: HashMap::new() } }
 
-    pub fn register(&mut self, p: Box<dyn NamespaceProvider>) { self.providers.push(p); }
+    pub fn register(&mut self, p: Box<dyn NamespaceProvider>) {
+        let idx = self.providers.len();
+        for export in p.exports() {
+            self.export_cache.insert(export.name.to_string(), idx);
+        }
+        self.providers.push(p);
+    }
 
     #[must_use] 
     pub fn get(&self, name: &str) -> Option<&dyn NamespaceProvider> {
@@ -105,6 +112,9 @@ impl NamespaceRegistry {
         state: &mut RuntimeState,
         line: usize,
     ) -> Result<Option<Value>, RuntimeError> {
+        if let Some(&idx) = self.export_cache.get(name) {
+            return self.providers[idx].call(name, args, named, state, line);
+        }
         for p in &self.providers {
             if let Some(v) = p.call(name, args, named, state, line)? {
                 return Ok(Some(v));
@@ -113,8 +123,11 @@ impl NamespaceRegistry {
         Ok(None)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_constant(&self, name: &str) -> Option<Value> {
+        if let Some(&idx) = self.export_cache.get(name) {
+            return self.providers[idx].get_constant(name);
+        }
         self.providers.iter().find_map(|p| p.get_constant(name))
     }
 
@@ -173,34 +186,18 @@ pub(crate) fn render_mode_from_named(named: &HashMap<String, Value>, line: usize
     }
 }
 
-pub(crate) fn value_type_name(v: &Value) -> &'static str {
+pub fn value_type_name(v: &Value) -> &'static str {
     match v {
-        Value::Float(_)      => "float",
-        Value::Bool(_)       => "bool",
-        Value::Str(_)        => "string",
-        Value::Vec2(..)      => "vec2",
-        Value::Vec3(..)      => "vec3",
-        Value::Vec4(..)      => "vec4",
-        Value::Color { .. }  => "color",
-        Value::Mat3(_)       => "mat3",
-        Value::Mat4(_)       => "mat4",
-        Value::List(_)       => "list",
-        Value::Shape(_)      => "shape",
-        Value::Transform(_)  => "transform",
-        Value::RenderMode(_) => "render_mode",
-        Value::ResOk(_)      => "res<ok>",
-        Value::ResErr(_)     => "res<err>",
-        Value::Namespace(_)  => "namespace",
+        Value::ResOk(_) => "res<ok>",
+        Value::ResErr(_) => "res<err>",
+        Value::Namespace(_) => "namespace",
         Value::NativeFn(_) | Value::Closure(_) => "fn",
-        Value::State(_)      => "State",
-        Value::Object(_)     => "object",
-        Value::EnumVariant { enum_name, .. } => {
-            // Leak a &'static str from the enum name — acceptable since type names are few
-            // Actually just return a generic label for now
-            let _ = enum_name;
-            "enum"
+        Value::RenderMode(_) => "render_mode",
+        Value::EnumVariant { .. } => "enum",
+        Value::Object(_) => "object",
+        _ => {
+            let key = crate::types::registry::value_type_key(v);
+            if key.is_empty() { "unknown" } else { key }
         }
-        Value::Input {..}    => "Input",
-        Value::None          => "none",
     }
 }

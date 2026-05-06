@@ -194,10 +194,11 @@ impl SymbolTable {
     /// Results are sorted for deterministic output.
     #[must_use]
     pub fn all_visible_names(&self) -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
         let mut names = Vec::new();
         for scope in &self.scopes {
             for name in scope.symbols.keys() {
-                if !name.starts_with("__state__") && !names.contains(name) {
+                if !name.starts_with("__state__") && seen.insert(name.clone()) {
                     names.push(name.clone());
                 }
             }

@@ -1,5 +1,5 @@
 use crate::syntax::ast::Type;
-use crate::error::{ErrorCode, RuntimeError};
+use crate::error::RuntimeError;
 use crate::Value;
 use std::collections::HashMap;
 use super::{Export, ExportKind, NamespaceInfo, NamespaceProvider, RuntimeState, check_argc};

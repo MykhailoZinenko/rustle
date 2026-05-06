@@ -30,7 +30,25 @@ use analysis::resolve;
 
 /// Persistent script state between frames. Defined by the `state {}` block.
 #[derive(Debug, Clone, Default)]
-pub struct State(pub HashMap<String, Value>);
+pub struct State(pub(crate) HashMap<String, Value>);
+
+impl State {
+    pub fn get(&self, key: &str) -> Option<&Value> {
+        self.0.get(key)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &Value)> {
+        self.0.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
 
 /// Per-frame input passed into `on_update`.
 #[derive(Debug, Clone)]
@@ -184,7 +202,7 @@ impl Runtime {
             if let Some(ref env) = self.base_env {
                 interp = interp.with_env(env.clone());
             }
-            self.state = interp.run_update(self.state.clone(), input)?;
+            self.state = interp.run_update(std::mem::take(&mut self.state), input)?;
         } else {
             // Static scripts (no on_update): must re-run top-level each frame to emit shapes
             interp.run_top_level()?;
@@ -210,7 +228,7 @@ impl Runtime {
         if let Some(ref c) = self.cancel {
             interp = interp.with_cancel(c.clone());
         }
-        self.state = interp.run_on_exit(self.state.clone())?;
+        self.state = interp.run_on_exit(std::mem::take(&mut self.state))?;
         Ok(())
     }
 }

@@ -80,8 +80,24 @@ pub struct Interpreter<'a> {
     cancel: Option<Arc<AtomicBool>>,
 }
 
+/// Extract a non-negative float as usize, with proper error reporting.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn float_to_index(v: &Value, name: &str, line: usize) -> Result<usize, RuntimeError> {
+    match v {
+        Value::Float(f) if *f < 0.0 => Err(RuntimeError::new(
+            ErrorCode::R011, line, 0,
+            format!("`{name}` index must be non-negative, got {f}"),
+        )),
+        Value::Float(f) => Ok(*f as usize),
+        _ => Err(RuntimeError::new(
+            ErrorCode::R001, line, 0,
+            format!("`{name}` expects float index"),
+        )),
+    }
+}
+
 impl<'a> Interpreter<'a> {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         program: &'a ast::Program,
         registry: &'a NamespaceRegistry,
@@ -539,7 +555,8 @@ impl<'a> Interpreter<'a> {
                         .ok_or_else(|| self.err(ErrorCode::R004, span.line, format!("unknown native fn: `{n}`")));
                 }
                 Value::Closure(data) => {
-                    return self.call_body(callee, &data.params, &data.body, &data.captured, &arg_vals, span.line);
+                    let pre: Vec<(&str, Value)> = data.captured.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+                    return self.call_body(callee, &data.params, &data.body, &pre, &arg_vals, span.line);
                 }
                 _ => {} // fall through — may be a user fn with same name
             }
@@ -552,7 +569,7 @@ impl<'a> Interpreter<'a> {
 
         // 3. User-defined functions (FnDef items)
         if let Some(f) = self.fn_table.get(callee).copied() {
-            return self.call_body(&f.name, &f.params, &f.body, &HashMap::new(), &arg_vals, span.line);
+            return self.call_body(&f.name, &f.params, &f.body, &[], &arg_vals, span.line);
         }
 
         Err(self.err(ErrorCode::R002, span.line, format!("undefined function: `{callee}`")))
@@ -563,7 +580,7 @@ impl<'a> Interpreter<'a> {
         name: &str,
         params: &[Param],
         body: &[Stmt],
-        captured: &HashMap<String, Value>,
+        pre_bindings: &[(&str, Value)],
         arg_vals: &[Value],
         call_line: usize,
     ) -> Result<Value, RuntimeError> {
@@ -579,7 +596,7 @@ impl<'a> Interpreter<'a> {
         }
         self.call_depth += 1;
         self.env.push_scope();
-        for (k, v) in captured { self.env.declare(k, v.clone()); }
+        for (k, v) in pre_bindings { self.env.declare(k, v.clone()); }
         for (p, v) in params.iter().zip(arg_vals) { self.env.declare(&p.name, v.clone()); }
         let saved = self.return_value.take();
         let mut err_result = None;
@@ -660,46 +677,15 @@ impl<'a> Interpreter<'a> {
                 let arg_vals: Vec<Value> = args.iter()
                     .map(|a| self.eval_expr(a))
                     .collect::<Result<_, _>>()?;
-                if mdef.params.len() != arg_vals.len() {
-                    return Err(self.err(ErrorCode::R008, span.line, format!(
-                        "`{type_name}.{method}` expects {} args, got {}", mdef.params.len(), arg_vals.len()
-                    )));
-                }
-                self.check_cancel(span.line)?;
-                if self.call_depth >= MAX_CALL_DEPTH {
-                    return Err(self.err(ErrorCode::R011, span.line,
-                        format!("maximum call depth ({MAX_CALL_DEPTH}) exceeded — possible infinite recursion")));
-                }
-                self.call_depth += 1;
-                self.env.push_scope();
-                // Bind `this` to the same Rc — mutations go through to original
-                self.env.declare("this", Value::Object(rc.clone()));
-                for (p, v) in mdef.params.iter().zip(&arg_vals) {
-                    self.env.declare(&p.name, v.clone());
-                }
-                let saved = self.return_value.take();
-                let mut err_result = None;
-                for stmt in mdef.body.iter() {
-                    match self.exec_stmt(stmt) {
-                        Ok(()) => {}
-                        Err(mut e) => {
-                            e.push_frame(method, span.line);
-                            err_result = Some(e);
-                            break;
-                        }
-                    }
-                    if self.should_stop_block() { break; }
-                }
-                self.call_depth -= 1;
-                if let Some(e) = err_result {
-                    self.return_value = saved;
-                    self.env.pop_scope();
-                    return Err(e);
-                }
-                let result = self.return_value.take().unwrap_or(Value::Float(0.0));
-                self.return_value = saved;
-                self.env.pop_scope();
-                return Ok(result);
+                let caller = format!("{type_name}.{method}");
+                return self.call_body(
+                    &caller,
+                    &mdef.params,
+                    &mdef.body,
+                    &[("this", Value::Object(rc.clone()))],
+                    &arg_vals,
+                    span.line,
+                );
             }
             return Err(self.err(ErrorCode::R004, span.line, format!(
                 "`{type_name}` has no method `{method}`"
@@ -740,7 +726,8 @@ impl<'a> Interpreter<'a> {
     ) -> Result<Value, RuntimeError> {
         match closure {
             Value::Closure(data) => {
-                self.call_body("<closure>", &data.params, &data.body, &data.captured, args, line)
+                let pre: Vec<(&str, Value)> = data.captured.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+                self.call_body("<closure>", &data.params, &data.body, &pre, args, line)
             }
             _ => Err(self.err(ErrorCode::R001, line, "expected a function/closure argument".to_string())),
         }
@@ -759,6 +746,8 @@ impl<'a> Interpreter<'a> {
                     return Err(self.err(ErrorCode::R008, line, format!("`map` expects 1 argument, got {}", args.len())));
                 }
                 let closure = args[0].clone();
+                // Clone is necessary: the closure may mutate this list during iteration,
+                // so we can't hold a borrow across closure calls.
                 let items = items_rc.borrow().clone();
                 let mut result = Vec::with_capacity(items.len());
                 for item in items {
@@ -772,6 +761,8 @@ impl<'a> Interpreter<'a> {
                     return Err(self.err(ErrorCode::R008, line, format!("`filter` expects 1 argument, got {}", args.len())));
                 }
                 let closure = args[0].clone();
+                // Clone is necessary: the closure may mutate this list during iteration,
+                // so we can't hold a borrow across closure calls.
                 let items = items_rc.borrow().clone();
                 let mut result = Vec::new();
                 for item in items {
@@ -831,6 +822,10 @@ impl<'a> Interpreter<'a> {
                     let mut items_vec = items_rc.borrow().clone();
                     // Use a cell to propagate errors out of sort_by
                     let mut sort_error: Option<RuntimeError> = None;
+                    // Safety: Rust's sort_by is memory-safe even with non-transitive comparators.
+                    // A side-effectful closure may produce inconsistent ordering, but this only
+                    // affects sort output correctness, not memory safety. Errors are captured
+                    // in sort_error and propagated after sort completes.
                     items_vec.sort_by(|a, b| {
                         if sort_error.is_some() {
                             return std::cmp::Ordering::Equal;
@@ -858,8 +853,8 @@ impl<'a> Interpreter<'a> {
                 if args.len() != 2 {
                     return Err(self.err(ErrorCode::R008, line, format!("`take` expects 2 arguments, got {}", args.len())));
                 }
-                let start = match &args[0] { Value::Float(v) => *v as usize, _ => 0 };
-                let end = match &args[1] { Value::Float(v) => *v as usize, _ => 0 };
+                let start = float_to_index(&args[0], "take", line)?;
+                let end = float_to_index(&args[1], "take", line)?;
                 let items = items_rc.borrow();
                 let len = items.len();
                 let start = start.min(len);
@@ -871,8 +866,8 @@ impl<'a> Interpreter<'a> {
                 if args.len() != 2 {
                     return Err(self.err(ErrorCode::R008, line, format!("`drop` expects 2 arguments, got {}", args.len())));
                 }
-                let start = match &args[0] { Value::Float(v) => *v as usize, _ => 0 };
-                let end = match &args[1] { Value::Float(v) => *v as usize, _ => 0 };
+                let start = float_to_index(&args[0], "drop", line)?;
+                let end = float_to_index(&args[1], "drop", line)?;
                 let items = items_rc.borrow();
                 let len = items.len();
                 let start = start.min(len);
@@ -885,8 +880,8 @@ impl<'a> Interpreter<'a> {
                 if args.len() != 2 {
                     return Err(self.err(ErrorCode::R008, line, format!("`cut` expects 2 arguments, got {}", args.len())));
                 }
-                let start = match &args[0] { Value::Float(v) => *v as usize, _ => 0 };
-                let end = match &args[1] { Value::Float(v) => *v as usize, _ => 0 };
+                let start = float_to_index(&args[0], "cut", line)?;
+                let end = float_to_index(&args[1], "cut", line)?;
                 let mut items = items_rc.borrow_mut();
                 let len = items.len();
                 let start = start.min(len);
@@ -898,7 +893,7 @@ impl<'a> Interpreter<'a> {
                 if args.len() != 2 {
                     return Err(self.err(ErrorCode::R008, line, format!("`paste` expects 2 arguments, got {}", args.len())));
                 }
-                let index = match &args[0] { Value::Float(v) => *v as usize, _ => 0 };
+                let index = float_to_index(&args[0], "paste", line)?;
                 match &args[1] {
                     Value::List(other_rc) => {
                         let other_items = other_rc.borrow().clone();
@@ -921,6 +916,8 @@ impl<'a> Interpreter<'a> {
                     return Err(self.err(ErrorCode::R008, line, format!("`any` expects 1 argument, got {}", args.len())));
                 }
                 let closure = args[0].clone();
+                // Clone is necessary: the closure may mutate this list during iteration,
+                // so we can't hold a borrow across closure calls.
                 let items = items_rc.borrow().clone();
                 for item in items {
                     let val = self.call_closure_value(&closure, &[item], line)?;
@@ -935,6 +932,8 @@ impl<'a> Interpreter<'a> {
                     return Err(self.err(ErrorCode::R008, line, format!("`all` expects 1 argument, got {}", args.len())));
                 }
                 let closure = args[0].clone();
+                // Clone is necessary: the closure may mutate this list during iteration,
+                // so we can't hold a borrow across closure calls.
                 let items = items_rc.borrow().clone();
                 for item in items {
                     let val = self.call_closure_value(&closure, &[item], line)?;
@@ -1375,10 +1374,12 @@ fn eval_field(types: &TypeRegistry, obj: &Value, field: &str, line: usize) -> Re
                 format!("'{}' has no field `{field}` (available: {})", guard.type_name(), names.join(", ")))
         });
     }
-    types.get_field(obj, field)
-        .ok_or_else(|| RuntimeError::new(ErrorCode::R003, line, 0, format!(
+    match types.get_field(obj, field) {
+        Some(result) => result,
+        None => Err(RuntimeError::new(ErrorCode::R003, line, 0, format!(
             "`{}` has no field `{field}`", value_type_name(obj)
-        )))
+        ))),
+    }
 }
 
 // ─── Dotted-path assignment ───────────────────────────────────────────────────
@@ -1458,10 +1459,12 @@ fn set_field_path(types: &TypeRegistry, obj: Value, path: &[String], val: Value,
     let field = path[0].as_str();
     let new_val = if path.len() > 1 {
         // Nested: get the sub-value, recurse, then write it back.
-        let sub = types.get_field(&obj, field)
-            .ok_or_else(|| RuntimeError::new(ErrorCode::R003, line, 0, format!(
+        let sub = match types.get_field(&obj, field) {
+            Some(result) => result?,
+            None => return Err(RuntimeError::new(ErrorCode::R003, line, 0, format!(
                 "`{}` has no field `{field}`", value_type_name(&obj)
-            )))?;
+            ))),
+        };
         set_field_path(types, sub, &path[1..], val, line)?
     } else {
         val

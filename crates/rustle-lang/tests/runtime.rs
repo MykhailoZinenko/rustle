@@ -41,35 +41,35 @@ fn tick_err(rt: &mut Runtime) -> rustle_lang::RuntimeError {
 }
 
 fn f(rt: &Runtime, key: &str) -> f64 {
-    match rt.state().0.get(key) {
+    match rt.state().get(key) {
         Some(Value::Float(x)) => *x,
         other => panic!("expected Float for '{key}', got: {other:?}"),
     }
 }
 
 fn b(rt: &Runtime, key: &str) -> bool {
-    match rt.state().0.get(key) {
+    match rt.state().get(key) {
         Some(Value::Bool(x)) => *x,
         other => panic!("expected Bool for '{key}', got: {other:?}"),
     }
 }
 
 fn s(rt: &Runtime, key: &str) -> String {
-    match rt.state().0.get(key) {
+    match rt.state().get(key) {
         Some(Value::Str(x)) => x.clone(),
         other => panic!("expected Str for '{key}', got: {other:?}"),
     }
 }
 
 fn v2(rt: &Runtime, key: &str) -> (f64, f64) {
-    match rt.state().0.get(key) {
+    match rt.state().get(key) {
         Some(Value::Vec2(x, y)) => (*x, *y),
         other => panic!("expected Vec2 for '{key}', got: {other:?}"),
     }
 }
 
 fn list_floats(rt: &Runtime, key: &str) -> Vec<f64> {
-    match rt.state().0.get(key) {
+    match rt.state().get(key) {
         Some(Value::List(rc)) => rc.borrow().iter().map(|v| {
             match v { Value::Float(x) => *x, other => panic!("list element not Float: {other:?}") }
         }).collect(),
@@ -1441,7 +1441,7 @@ fn string_in_state() {
     let rt = run(r#"
         state { let name: string = "hello" }
     "#);
-    match rt.state().0.get("name") {
+    match rt.state().get("name") {
         Some(Value::Str(s)) => assert_eq!(s, "hello"),
         other => panic!("expected Str, got {other:?}"),
     }
@@ -1528,7 +1528,7 @@ fn index_valid_access() {
 #[test]
 fn optional_none_init() {
     let rt = run("state { let x: float? = none }");
-    match rt.state().0.get("x") {
+    match rt.state().get("x") {
         Some(Value::None) => {}
         other => panic!("expected None, got {other:?}"),
     }
@@ -1537,7 +1537,7 @@ fn optional_none_init() {
 #[test]
 fn optional_value_init() {
     let rt = run("state { let x: float? = 5.0 }");
-    match rt.state().0.get("x") {
+    match rt.state().get("x") {
         Some(Value::Float(v)) => assert_eq!(*v, 5.0),
         other => panic!("expected Float(5.0), got {other:?}"),
     }
@@ -1622,7 +1622,7 @@ fn optional_reassign_none_to_value() {
         }
     ");
     tick(&mut rt);
-    match rt.state().0.get("x") {
+    match rt.state().get("x") {
         Some(Value::Float(v)) => assert_eq!(*v, 42.0),
         other => panic!("expected Float(42.0), got {other:?}"),
     }
@@ -1638,7 +1638,7 @@ fn optional_reassign_value_to_none() {
         }
     ");
     tick(&mut rt);
-    match rt.state().0.get("x") {
+    match rt.state().get("x") {
         Some(Value::None) => {}
         other => panic!("expected None, got {other:?}"),
     }
@@ -2170,7 +2170,7 @@ fn cast_same_type_noop() {
 #[test]
 fn string_concatenation() {
     let rt = run(r#"state { let v: string = "hello" + " " + "world" }"#);
-    match rt.state().0.get("v") {
+    match rt.state().get("v") {
         Some(Value::Str(sv)) => assert_eq!(sv, "hello world"),
         other => panic!("expected string, got {other:?}"),
     }
@@ -2191,7 +2191,7 @@ fn string_contains() {
 #[test]
 fn string_trim() {
     let rt = run(r#"state { let v: string = "  hello  ".trim() }"#);
-    match rt.state().0.get("v") {
+    match rt.state().get("v") {
         Some(Value::Str(sv)) => assert_eq!(sv, "hello"),
         other => panic!("expected string, got {other:?}"),
     }
@@ -2200,7 +2200,7 @@ fn string_trim() {
 #[test]
 fn string_to_upper() {
     let rt = run(r#"state { let v: string = "hello".to_upper() }"#);
-    match rt.state().0.get("v") {
+    match rt.state().get("v") {
         Some(Value::Str(sv)) => assert_eq!(sv, "HELLO"),
         other => panic!("expected string, got {other:?}"),
     }
@@ -2209,7 +2209,7 @@ fn string_to_upper() {
 #[test]
 fn string_to_lower() {
     let rt = run(r#"state { let v: string = "HELLO".to_lower() }"#);
-    match rt.state().0.get("v") {
+    match rt.state().get("v") {
         Some(Value::Str(sv)) => assert_eq!(sv, "hello"),
         other => panic!("expected string, got {other:?}"),
     }
@@ -2236,7 +2236,7 @@ fn string_ends_with() {
 #[test]
 fn string_replace() {
     let rt = run(r#"state { let v: string = "hello world".replace("world", "rustle") }"#);
-    match rt.state().0.get("v") {
+    match rt.state().get("v") {
         Some(Value::Str(sv)) => assert_eq!(sv, "hello rustle"),
         other => panic!("expected string, got {other:?}"),
     }
@@ -2591,7 +2591,7 @@ fn struct_as_state_field() {
             return s
         }
     "#);
-    match rt.state().0.get("p") {
+    match rt.state().get("p") {
         Some(Value::Object(rc)) => {
             let obj = rc.borrow();
             let val = obj.get_field("x").unwrap();
@@ -3097,7 +3097,7 @@ fn struct_persists_in_state() {
     tick(&mut rt);
     tick(&mut rt);
     tick(&mut rt);
-    match rt.state().0.get("c") {
+    match rt.state().get("c") {
         Some(Value::Object(rc)) => {
             let val = rc.borrow().get_field("n").unwrap().clone();
             match val { Value::Float(x) => assert_eq!(x, 3.0), other => panic!("got {other:?}") }
@@ -4189,7 +4189,7 @@ fn input_multiple_keys_in_sequence() {
     rt.tick(&Input { dt: 0.016, key_pressed: "a".to_string(), ..Default::default() }).unwrap();
     rt.tick(&Input { dt: 0.016, key_pressed: "b".to_string(), ..Default::default() }).unwrap();
     rt.tick(&Input { dt: 0.016, key_pressed: "c".to_string(), ..Default::default() }).unwrap();
-    match rt.state().0.get("keys") {
+    match rt.state().get("keys") {
         Some(Value::List(rc)) => assert_eq!(rc.borrow().len(), 3),
         other => panic!("expected List, got {other:?}"),
     }
