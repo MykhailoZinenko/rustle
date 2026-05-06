@@ -1800,3 +1800,166 @@ fn file_namespace_selective_import() {
         import file { read, write, read_lines, append }
     "#);
 }
+
+// ─── Enum: additional resolver tests ────────────────────────────────────────
+
+#[test]
+fn enum_in_function_return_type() {
+    ok(r#"
+        enum Color { Red; Green; Blue }
+        fn pick() -> Color {
+            return Color.Green
+        }
+    "#);
+}
+
+#[test]
+fn enum_in_list_type() {
+    ok(r#"
+        enum Dir { Up; Down }
+        let dirs: list[Dir] = [Dir.Up, Dir.Down, Dir.Up]
+    "#);
+}
+
+#[test]
+fn enum_in_state_field() {
+    ok(r#"
+        enum Status { Active; Inactive }
+        state { let st: Status = Status.Active }
+    "#);
+}
+
+#[test]
+fn enum_multiple_enums_same_script() {
+    ok(r#"
+        enum Color { Red; Green; Blue }
+        enum Shape { Circle; Square }
+        let c: Color = Color.Red
+        let s: Shape = Shape.Circle
+    "#);
+}
+
+#[test]
+fn enum_with_data_type_check() {
+    ok(r#"
+        enum Expr {
+            Num { val: float }
+            Add { a: float, b: float }
+        }
+        let e: Expr = Expr.Add { a: 1.0, b: 2.0 }
+    "#);
+}
+
+#[test]
+fn enum_construction_with_data_resolves() {
+    ok(r#"
+        enum Shape {
+            Circle { radius: float }
+        }
+        let s: Shape = Shape.Circle { radius: 5.0 }
+    "#);
+}
+
+#[test]
+fn enum_field_access_inside_match_arm() {
+    ok(r#"
+        enum Shape {
+            Circle { radius: float }
+            Empty
+        }
+        fn test(sh: Shape) -> float {
+            match sh {
+                Shape.Circle => { return sh.radius }
+                Shape.Empty => { return 0.0 }
+            }
+        }
+    "#);
+}
+
+#[test]
+fn enum_in_struct_field() {
+    ok(r#"
+        enum Direction { Up; Down; Left; Right }
+        struct Player {
+            +let facing: Direction = Direction.Up
+        }
+        let p: Player = Player {}
+    "#);
+}
+
+#[test]
+fn enum_used_in_match_different_arms() {
+    ok(r#"
+        enum Color { Red; Green; Blue }
+        fn describe(c: Color) -> string {
+            match c {
+                Color.Red => { return "warm" }
+                Color.Green => { return "cool" }
+                Color.Blue => { return "cool" }
+            }
+        }
+    "#);
+}
+
+// ─── Array operations: resolver tests ───────────────────────────────────────
+
+#[test]
+fn list_map_type_resolves() {
+    ok(r#"
+        let nums: list[float] = [1.0, 2.0]
+        let strs: list[float] = nums.map((x: float) -> float { return x * 2.0 })
+    "#);
+}
+
+#[test]
+fn list_filter_type_resolves() {
+    ok(r#"
+        let nums: list[float] = [1.0, 2.0]
+        let big: list[float] = nums.filter((x: float) -> bool { return x > 1.0 })
+    "#);
+}
+
+#[test]
+fn list_any_all_type_resolves() {
+    ok(r#"
+        let nums: list[float] = [1.0, 2.0]
+        let a: bool = nums.any((x: float) -> bool { return x > 1.0 })
+        let b: bool = nums.all((x: float) -> bool { return x > 0.0 })
+    "#);
+}
+
+#[test]
+fn list_sort_no_args_resolves() {
+    ok(r#"
+        let nums: list[float] = [3.0, 1.0, 2.0]
+        nums.sort()
+    "#);
+}
+
+#[test]
+fn list_sort_with_comparator_resolves() {
+    ok(r#"
+        let nums: list[float] = [3.0, 1.0, 2.0]
+        nums.sort((a: float, b: float) -> float { return a - b })
+    "#);
+}
+
+#[test]
+fn list_take_drop_cut_paste_resolve() {
+    ok(r#"
+        let nums: list[float] = [1.0, 2.0, 3.0, 4.0, 5.0]
+        let t: list[float] = nums.take(0, 3)
+        let d: list[float] = nums.drop(1, 2)
+        let c: list[float] = nums.cut(0, 2)
+        nums.paste(0, 99.0)
+    "#);
+}
+
+#[test]
+fn list_search_bsearch_resolve() {
+    ok(r#"
+        let nums: list[float] = [1.0, 2.0, 3.0]
+        let a: float = nums.search(2.0)
+        let b: float = nums.bsearch(2.0)
+    "#);
+}

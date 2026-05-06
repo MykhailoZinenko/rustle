@@ -3757,3 +3757,590 @@ fn file_append() {
     assert_eq!(s(&rt, "v"), "first second");
     std::fs::remove_file("/tmp/rustle_test_append.txt").ok();
 }
+
+// ─── Enums: additional runtime tests ────────────────────────────────────────
+
+#[test]
+fn enum_in_list() {
+    let rt = run(r#"
+        enum Color { Red; Green; Blue }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let colors: list[Color] = [Color.Red, Color.Green, Color.Blue]
+            s.v = colors.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
+}
+
+#[test]
+fn enum_in_state() {
+    let rt = run(r#"
+        enum Dir { Up; Down; Left; Right }
+        state { let facing: Dir = Dir.Up }
+        fn on_init(s: State) -> State {
+            s.facing = Dir.Right
+            return s
+        }
+    "#);
+    // Just verify no crash — state stores the enum
+    let _ = &rt;
+}
+
+#[test]
+fn enum_function_returns_enum() {
+    let rt = run(r#"
+        enum Dir { Up; Down; Left; Right }
+        fn opposite(d: Dir) -> Dir {
+            match d {
+                Dir.Up => { return Dir.Down }
+                Dir.Down => { return Dir.Up }
+                Dir.Left => { return Dir.Right }
+                Dir.Right => { return Dir.Left }
+            }
+        }
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            let r: Dir = opposite(Dir.Up)
+            match r {
+                Dir.Down => { s.v = "correct" }
+                else => { s.v = "wrong" }
+            }
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "correct");
+}
+
+#[test]
+fn enum_nested_match() {
+    let rt = run(r#"
+        enum Outer { A; B; C }
+        enum Inner { X; Y }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let o: Outer = Outer.B
+            let i: Inner = Inner.Y
+            match o {
+                Outer.A => { s.v = 1.0 }
+                Outer.B => {
+                    match i {
+                        Inner.X => { s.v = 2.0 }
+                        Inner.Y => { s.v = 3.0 }
+                    }
+                }
+                Outer.C => { s.v = 4.0 }
+            }
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
+}
+
+#[test]
+fn enum_equality_data_variants() {
+    let rt = run(r#"
+        enum Shape {
+            Circle { radius: float }
+            Rect { w: float, h: float }
+        }
+        state {
+            let eq: bool = false
+            let neq: bool = false
+        }
+        fn on_init(s: State) -> State {
+            let a: Shape = Shape.Circle { radius: 5.0 }
+            let b: Shape = Shape.Circle { radius: 5.0 }
+            let c: Shape = Shape.Circle { radius: 3.0 }
+            s.eq = a == b
+            s.neq = a != c
+            return s
+        }
+    "#);
+    assert!(b(&rt, "eq"));
+    assert!(b(&rt, "neq"));
+}
+
+#[test]
+fn enum_multiple_enums_interact() {
+    let rt = run(r#"
+        enum Color { Red; Green; Blue }
+        enum Size { Small; Medium; Large }
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            let c: Color = Color.Green
+            let sz: Size = Size.Large
+            match c {
+                Color.Green => {
+                    match sz {
+                        Size.Large => { s.v = "big green" }
+                        else => { s.v = "small green" }
+                    }
+                }
+                else => { s.v = "other" }
+            }
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "big green");
+}
+
+#[test]
+fn enum_in_struct_field() {
+    let rt = run(r#"
+        enum Dir { Up; Down; Left; Right }
+        struct Entity {
+            +let facing: Dir = Dir.Up
+            +let speed: float = 1.0
+        }
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            let e: Entity = Entity { facing: Dir.Left }
+            match e.facing {
+                Dir.Left => { s.v = "left" }
+                else => { s.v = "other" }
+            }
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "left");
+}
+
+// ─── Array operations: additional runtime tests ─────────────────────────────
+
+#[test]
+fn list_map_chained() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0]
+            let result: list[float] = nums.map((x: float) -> float { return x + 1.0 })
+                                          .map((x: float) -> float { return x * 10.0 })
+            s.v = result.pop()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 40.0);
+}
+
+#[test]
+fn list_filter_then_map() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+            let result: list[float] = nums.filter((x: float) -> bool { return x > 3.0 })
+                                          .map((x: float) -> float { return x * 2.0 })
+            s.v = result.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
+}
+
+#[test]
+fn list_any_empty_list() {
+    let rt = run(r#"
+        state { let v: bool = true }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = []
+            s.v = nums.any((x: float) -> bool { return x > 0.0 })
+            return s
+        }
+    "#);
+    assert!(!b(&rt, "v"));
+}
+
+#[test]
+fn list_all_empty_list() {
+    let rt = run(r#"
+        state { let v: bool = false }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = []
+            s.v = nums.all((x: float) -> bool { return x > 0.0 })
+            return s
+        }
+    "#);
+    assert!(b(&rt, "v"));
+}
+
+#[test]
+fn list_search_string_list() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let words: list[string] = ["hello", "world", "foo"]
+            s.v = words.search("world")
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 1.0);
+}
+
+#[test]
+fn list_bsearch_first_element() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0, 4.0, 5.0]
+            s.v = nums.bsearch(1.0)
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 0.0);
+}
+
+#[test]
+fn list_bsearch_last_element() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0, 4.0, 5.0]
+            s.v = nums.bsearch(5.0)
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 4.0);
+}
+
+#[test]
+fn list_sort_strings() {
+    let rt = run(r#"
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            let words: list[string] = ["cherry", "apple", "banana"]
+            words.sort()
+            s.v = words.pop()
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "cherry");
+}
+
+#[test]
+fn list_take_out_of_bounds() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0]
+            let result: list[float] = nums.take(0, 100)
+            s.v = result.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 3.0);
+}
+
+#[test]
+fn list_drop_full() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0]
+            let result: list[float] = nums.drop(0, 3)
+            s.v = result.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 0.0);
+}
+
+#[test]
+fn list_cut_empty_after() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0]
+            let removed: list[float] = nums.cut(0, 3)
+            s.v = nums.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 0.0);
+}
+
+#[test]
+fn list_paste_at_start() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [2.0, 3.0, 4.0]
+            nums.paste(0, 1.0)
+            s.v = nums.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 4.0);
+}
+
+#[test]
+fn list_paste_at_end() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [1.0, 2.0, 3.0]
+            nums.paste(3, 4.0)
+            s.v = nums.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 4.0);
+}
+
+#[test]
+fn list_filter_map_sort_chain() {
+    let rt = run(r#"
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let nums: list[float] = [5.0, 3.0, 8.0, 1.0, 4.0, 9.0, 2.0]
+            let result: list[float] = nums.filter((x: float) -> bool { return x > 3.0 })
+                                          .map((x: float) -> float { return x * 2.0 })
+            result.sort()
+            s.v = result.pop()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 18.0);
+}
+
+// ─── Input handling: additional runtime tests ───────────────────────────────
+
+#[test]
+fn input_mouse_y() {
+    let mut rt = run(r#"
+        state { let my: float = 0.0 }
+        fn on_update(s: State, input: Input) -> State {
+            s.my = input.mouse_y
+            return s
+        }
+    "#);
+    rt.tick(&Input { dt: 0.016, mouse_y: 100.5, ..Default::default() }).unwrap();
+    assert_eq!(f(&rt, "my"), 100.5);
+}
+
+#[test]
+fn input_mouse_released() {
+    let mut rt = run(r#"
+        state { let released: bool = false }
+        fn on_update(s: State, input: Input) -> State {
+            if input.mouse_released {
+                s.released = true
+            }
+            return s
+        }
+    "#);
+    rt.tick(&Input { dt: 0.016, mouse_released: true, ..Default::default() }).unwrap();
+    assert!(b(&rt, "released"));
+}
+
+#[test]
+fn input_mouse_down_held() {
+    let mut rt = run(r#"
+        state { let held: bool = false }
+        fn on_update(s: State, input: Input) -> State {
+            if input.mouse_down {
+                s.held = true
+            }
+            return s
+        }
+    "#);
+    rt.tick(&Input { dt: 0.016, mouse_down: true, ..Default::default() }).unwrap();
+    assert!(b(&rt, "held"));
+}
+
+#[test]
+fn input_key_down() {
+    let mut rt = run(r#"
+        state { let k: string = "" }
+        fn on_update(s: State, input: Input) -> State {
+            s.k = input.key_down
+            return s
+        }
+    "#);
+    rt.tick(&Input { dt: 0.016, key_down: "w".to_string(), ..Default::default() }).unwrap();
+    assert_eq!(s(&rt, "k"), "w");
+}
+
+#[test]
+fn input_key_released() {
+    let mut rt = run(r#"
+        state { let k: string = "" }
+        fn on_update(s: State, input: Input) -> State {
+            s.k = input.key_released
+            return s
+        }
+    "#);
+    rt.tick(&Input { dt: 0.016, key_released: "escape".to_string(), ..Default::default() }).unwrap();
+    assert_eq!(s(&rt, "k"), "escape");
+}
+
+#[test]
+fn input_multiple_keys_in_sequence() {
+    let mut rt = run(r#"
+        state { let keys: list[string] = [] }
+        fn on_update(s: State, input: Input) -> State {
+            if input.key_pressed != "" {
+                s.keys.push(input.key_pressed)
+            }
+            return s
+        }
+    "#);
+    rt.tick(&Input { dt: 0.016, key_pressed: "a".to_string(), ..Default::default() }).unwrap();
+    rt.tick(&Input { dt: 0.016, key_pressed: "b".to_string(), ..Default::default() }).unwrap();
+    rt.tick(&Input { dt: 0.016, key_pressed: "c".to_string(), ..Default::default() }).unwrap();
+    match rt.state().0.get("keys") {
+        Some(Value::List(rc)) => assert_eq!(rc.borrow().len(), 3),
+        other => panic!("expected List, got {other:?}"),
+    }
+}
+
+#[test]
+fn input_mouse_position_changes_between_ticks() {
+    let mut rt = run(r#"
+        state {
+            let mx: float = 0.0
+            let my: float = 0.0
+        }
+        fn on_update(s: State, input: Input) -> State {
+            s.mx = input.mouse_x
+            s.my = input.mouse_y
+            return s
+        }
+    "#);
+    rt.tick(&Input { dt: 0.016, mouse_x: 10.0, mouse_y: 20.0, ..Default::default() }).unwrap();
+    assert_eq!(f(&rt, "mx"), 10.0);
+    assert_eq!(f(&rt, "my"), 20.0);
+    rt.tick(&Input { dt: 0.016, mouse_x: 50.0, mouse_y: 75.0, ..Default::default() }).unwrap();
+    assert_eq!(f(&rt, "mx"), 50.0);
+    assert_eq!(f(&rt, "my"), 75.0);
+}
+
+#[test]
+fn input_boolean_states_default_false() {
+    let mut rt = run(r#"
+        state {
+            let pressed: bool = true
+            let down: bool = true
+            let released: bool = true
+        }
+        fn on_update(s: State, input: Input) -> State {
+            s.pressed = input.mouse_pressed
+            s.down = input.mouse_down
+            s.released = input.mouse_released
+            return s
+        }
+    "#);
+    rt.tick(&Input { dt: 0.016, ..Default::default() }).unwrap();
+    assert!(!b(&rt, "pressed"));
+    assert!(!b(&rt, "down"));
+    assert!(!b(&rt, "released"));
+}
+
+// ─── File I/O: additional runtime tests ─────────────────────────────────────
+
+#[test]
+fn file_append_multiple_times() {
+    std::fs::remove_file("/tmp/rustle_test_multi_append.txt").ok();
+    let rt = run(r#"
+        import file
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            file.write("/tmp/rustle_test_multi_append.txt", "a")
+            file.append("/tmp/rustle_test_multi_append.txt", "b")
+            file.append("/tmp/rustle_test_multi_append.txt", "c")
+            let r: res<string> = file.read("/tmp/rustle_test_multi_append.txt")
+            s.v = r.value
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "abc");
+    std::fs::remove_file("/tmp/rustle_test_multi_append.txt").ok();
+}
+
+#[test]
+fn file_write_empty_string() {
+    std::fs::remove_file("/tmp/rustle_test_empty.txt").ok();
+    let rt = run(r#"
+        import file
+        state { let v: string = "initial" }
+        fn on_init(s: State) -> State {
+            file.write("/tmp/rustle_test_empty.txt", "")
+            let r: res<string> = file.read("/tmp/rustle_test_empty.txt")
+            s.v = r.value
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "");
+    std::fs::remove_file("/tmp/rustle_test_empty.txt").ok();
+}
+
+#[test]
+fn file_read_lines_with_empty_lines() {
+    std::fs::write("/tmp/rustle_test_empty_lines.txt", "a\n\nb\n\nc").unwrap();
+    let rt = run(r#"
+        import file
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let r: res<list[string]> = file.read_lines("/tmp/rustle_test_empty_lines.txt")
+            let data: list[string] = r.value
+            s.v = data.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 5.0);
+    std::fs::remove_file("/tmp/rustle_test_empty_lines.txt").ok();
+}
+
+#[test]
+fn file_write_then_overwrite() {
+    std::fs::remove_file("/tmp/rustle_test_overwrite.txt").ok();
+    let rt = run(r#"
+        import file
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            file.write("/tmp/rustle_test_overwrite.txt", "first content")
+            file.write("/tmp/rustle_test_overwrite.txt", "second")
+            let r: res<string> = file.read("/tmp/rustle_test_overwrite.txt")
+            s.v = r.value
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "second");
+    std::fs::remove_file("/tmp/rustle_test_overwrite.txt").ok();
+}
+
+#[test]
+fn file_read_nonexistent_res_err() {
+    let rt = run(r#"
+        import file
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            let r: res<string> = file.read("/tmp/no_such_file_xyz_abc_123.txt")
+            s.v = r.error
+            return s
+        }
+    "#);
+    let msg = s(&rt, "v");
+    assert!(!msg.is_empty());
+}
+
+#[test]
+fn file_large_content() {
+    std::fs::remove_file("/tmp/rustle_test_large.txt").ok();
+    // Write a string that's reasonably large
+    let rt = run(r#"
+        import file
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let content: string = "abcdefghijklmnopqrstuvwxyz0123456789"
+            file.write("/tmp/rustle_test_large.txt", content)
+            let r: res<string> = file.read("/tmp/rustle_test_large.txt")
+            let data: string = r.value
+            s.v = data.len()
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 36.0);
+    std::fs::remove_file("/tmp/rustle_test_large.txt").ok();
+}
