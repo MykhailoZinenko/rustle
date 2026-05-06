@@ -2752,7 +2752,10 @@ name = "rustle-renderer"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "image",
  "rustle-lang",
+ "serde",
+ "serde_json",
  "wgpu",
 ]
 

@@ -1,6 +1,7 @@
 use rustle_lang::{DrawCommand, RenderMode, ShapeData, ShapeDesc, origin_offset};
 
-use crate::instance::{LineVertex, PolygonVertex, SdfInstance};
+use crate::atlas::AtlasData;
+use crate::instance::{LineVertex, PolygonVertex, SdfInstance, TextVertex};
 
 pub struct PreparedFrame {
     pub(crate) sdf_instances: Vec<SdfInstance>,
@@ -8,15 +9,19 @@ pub struct PreparedFrame {
     pub(crate) line_indices: Vec<u32>,
     pub(crate) polygon_vertices: Vec<PolygonVertex>,
     pub(crate) polygon_indices: Vec<u32>,
+    pub(crate) text_vertices: Vec<TextVertex>,
+    pub(crate) text_indices: Vec<u32>,
 }
 
 #[must_use]
-pub fn prepare(commands: &[DrawCommand]) -> PreparedFrame {
+pub fn prepare(commands: &[DrawCommand], atlas: &AtlasData) -> PreparedFrame {
     let mut sdf_instances = Vec::new();
     let mut line_vertices = Vec::new();
     let mut line_indices = Vec::new();
     let mut polygon_vertices = Vec::new();
     let mut polygon_indices = Vec::new();
+    let mut text_vertices = Vec::new();
+    let mut text_indices = Vec::new();
 
     for cmd in commands {
         let DrawCommand::DrawShape(data) = cmd else {
@@ -44,6 +49,9 @@ pub fn prepare(commands: &[DrawCommand]) -> PreparedFrame {
                     build_polygon_fill(data, pts, &mut polygon_vertices, &mut polygon_indices);
                 }
             },
+            ShapeDesc::Text { pos, content, size } => {
+                build_text(data, *pos, content, *size, atlas, &mut text_vertices, &mut text_indices);
+            }
             _ => {}
         }
     }
@@ -54,6 +62,8 @@ pub fn prepare(commands: &[DrawCommand]) -> PreparedFrame {
         line_indices,
         polygon_vertices,
         polygon_indices,
+        text_vertices,
+        text_indices,
     }
 }
 
@@ -322,18 +332,104 @@ fn build_polygon_outline(
     }
 }
 
+// ─── Text (MSDF) ─────────────────────────────────────────────────────────────
+
+fn build_text(
+    data: &ShapeData,
+    pos: (f64, f64),
+    content: &str,
+    font_size: f64,
+    atlas: &AtlasData,
+    vertices: &mut Vec<TextVertex>,
+    indices: &mut Vec<u32>,
+) {
+    let (tx, ty, _sx, _sy) = accumulate_transforms(data);
+    let color = color_f32(data);
+    let atlas_w = atlas.width as f32;
+    let atlas_h = atlas.height as f32;
+
+    // px_range: how many screen pixels the distance field covers.
+    // distanceRange is the range in atlas pixels; scale by (rendered size / atlas glyph size).
+    // Atlas glyphs are ~1em tall; em = advance height. With distance_range=16 on a 2048 atlas,
+    // typical glyph is ~40-60px tall in atlas. A simple heuristic:
+    // px_range = distance_range * (font_size / atlas_glyph_size)
+    // We approximate atlas_glyph_size from a reference glyph's atlas bounds height.
+    let reference_atlas_height = atlas.glyphs.values()
+        .find_map(|g| g.atlas_bounds.as_ref().map(|b| (b.top - b.bottom).abs()))
+        .unwrap_or(40.0);
+    let px_range = atlas.distance_range * (font_size as f32 / reference_atlas_height);
+
+    let y_sign = if data.coord_meta.origin.is_y_down() { -1.0 } else { 1.0 };
+
+    // Vertically center text around pos.y (like rects/circles use center).
+    // Compute mid-point of a reference glyph in em-space and offset the baseline.
+    let line_mid_em = atlas.glyphs.get(&'A')
+        .or_else(|| atlas.glyphs.get(&'H'))
+        .and_then(|g| g.plane_bounds.as_ref())
+        .map(|b| f64::from((b.top + b.bottom) / 2.0))
+        .unwrap_or(0.35);
+
+    let mut cursor_x = pos.0 + tx;
+    let cursor_y = pos.1 + ty - y_sign * line_mid_em * font_size;
+
+    for ch in content.chars() {
+        let Some(glyph) = atlas.glyphs.get(&ch) else {
+            cursor_x += 0.6 * font_size;
+            continue;
+        };
+
+        if let (Some(plane), Some(ab)) = (&glyph.plane_bounds, &glyph.atlas_bounds) {
+            let x0 = cursor_x + plane.left as f64 * font_size;
+            let x1 = cursor_x + plane.right as f64 * font_size;
+            let y0 = cursor_y + y_sign * plane.top as f64 * font_size;
+            let y1 = cursor_y + y_sign * plane.bottom as f64 * font_size;
+
+            // UV coordinates from atlas bounds (pixel coords → [0,1])
+            let u0 = ab.left / atlas_w;
+            let u1 = ab.right / atlas_w;
+            // Atlas yOrigin is "bottom": bottom of atlas texture is y=0 in atlas coords.
+            // In texture UV space, v=0 is top, v=1 is bottom, so we flip.
+            let v0 = 1.0 - ab.top / atlas_h;    // top of glyph in atlas → lower v
+            let v1 = 1.0 - ab.bottom / atlas_h; // bottom of glyph in atlas → higher v
+
+            let (ndc_x0, ndc_y0) = to_ndc(data, x0, y0);
+            let (ndc_x1, ndc_y1) = to_ndc(data, x1, y1);
+
+            let base = vertices.len() as u32;
+            vertices.push(TextVertex { position: [ndc_x0 as f32, ndc_y0 as f32], uv: [u0, v0], color, px_range });
+            vertices.push(TextVertex { position: [ndc_x1 as f32, ndc_y0 as f32], uv: [u1, v0], color, px_range });
+            vertices.push(TextVertex { position: [ndc_x0 as f32, ndc_y1 as f32], uv: [u0, v1], color, px_range });
+            vertices.push(TextVertex { position: [ndc_x1 as f32, ndc_y1 as f32], uv: [u1, v1], color, px_range });
+
+            indices.extend_from_slice(&[base, base + 1, base + 2, base + 2, base + 1, base + 3]);
+        }
+
+        cursor_x += glyph.advance as f64 * font_size;
+    }
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use rustle_lang::{CoordMeta, Origin};
+    use std::collections::HashMap;
 
     fn meta_800x600() -> CoordMeta {
         CoordMeta {
             px_width: 800.0,
             px_height: 600.0,
             origin: Origin::Center,
+        }
+    }
+
+    fn dummy_atlas() -> AtlasData {
+        AtlasData {
+            width: 1,
+            height: 1,
+            distance_range: 16.0,
+            glyphs: HashMap::new(),
         }
     }
 
@@ -350,7 +446,8 @@ mod tests {
             color: [1.0, 0.0, 0.0, 1.0],
         };
         let cmds = vec![DrawCommand::DrawShape(data)];
-        let frame = prepare(&cmds);
+        let atlas = dummy_atlas();
+        let frame = prepare(&cmds, &atlas);
 
         assert_eq!(frame.sdf_instances.len(), 1);
         let inst = &frame.sdf_instances[0];
@@ -373,7 +470,8 @@ mod tests {
             color: [0.0, 1.0, 0.0, 1.0],
         };
         let cmds = vec![DrawCommand::DrawShape(data)];
-        let frame = prepare(&cmds);
+        let atlas = dummy_atlas();
+        let frame = prepare(&cmds, &atlas);
 
         assert_eq!(frame.polygon_vertices.len(), 4);
         assert_eq!(frame.polygon_indices.len(), 6);
@@ -391,7 +489,8 @@ mod tests {
             color: [1.0, 1.0, 1.0, 1.0],
         };
         let cmds = vec![DrawCommand::DrawShape(data)];
-        let frame = prepare(&cmds);
+        let atlas = dummy_atlas();
+        let frame = prepare(&cmds, &atlas);
 
         assert!(frame.polygon_vertices.is_empty());
         // 3 edges × 4 vertices = 12
@@ -413,10 +512,255 @@ mod tests {
             color: [1.0, 1.0, 1.0, 1.0],
         };
         let cmds = vec![DrawCommand::DrawShape(data)];
-        let frame = prepare(&cmds);
+        let atlas = dummy_atlas();
+        let frame = prepare(&cmds, &atlas);
 
         assert_eq!(frame.line_vertices.len(), 4);
         assert_eq!(frame.line_indices.len(), 6);
         assert!(frame.sdf_instances.is_empty());
+    }
+
+    // ─── Text (MSDF) tests ───────────────────────────────────────────────────
+
+    fn atlas_with_glyphs() -> AtlasData {
+        use crate::atlas::{GlyphInfo, Bounds};
+        let mut glyphs = HashMap::new();
+        glyphs.insert('A', GlyphInfo {
+            advance: 0.6,
+            plane_bounds: Some(Bounds { left: -0.25, bottom: -0.29, right: 0.85, top: 0.82 }),
+            atlas_bounds: Some(Bounds { left: 1.5, bottom: 1793.5, right: 126.5, top: 1918.5 }),
+        });
+        glyphs.insert('B', GlyphInfo {
+            advance: 0.6,
+            plane_bounds: Some(Bounds { left: -0.25, bottom: -0.29, right: 0.85, top: 0.82 }),
+            atlas_bounds: Some(Bounds { left: 129.5, bottom: 1793.5, right: 254.5, top: 1918.5 }),
+        });
+        glyphs.insert(' ', GlyphInfo {
+            advance: 0.6,
+            plane_bounds: None,
+            atlas_bounds: None,
+        });
+        AtlasData {
+            width: 2048,
+            height: 2048,
+            distance_range: 16.0,
+            glyphs,
+        }
+    }
+
+    fn text_shape(content: &str, pos: (f64, f64), size: f64) -> ShapeData {
+        ShapeData {
+            desc: ShapeDesc::Text { pos, content: content.to_string(), size },
+            render_mode: RenderMode::Fill,
+            coord_meta: meta_800x600(),
+            transforms: Vec::new(),
+            color: [1.0, 1.0, 1.0, 1.0],
+        }
+    }
+
+    #[test]
+    fn text_empty_string_produces_no_geometry() {
+        let data = text_shape("", (0.0, 0.0), 24.0);
+        let cmds = vec![DrawCommand::DrawShape(data)];
+        let atlas = atlas_with_glyphs();
+        let frame = prepare(&cmds, &atlas);
+
+        assert!(frame.text_vertices.is_empty());
+        assert!(frame.text_indices.is_empty());
+    }
+
+    #[test]
+    fn text_single_char_produces_one_quad() {
+        let data = text_shape("A", (0.0, 0.0), 24.0);
+        let cmds = vec![DrawCommand::DrawShape(data)];
+        let atlas = atlas_with_glyphs();
+        let frame = prepare(&cmds, &atlas);
+
+        assert_eq!(frame.text_vertices.len(), 4);
+        assert_eq!(frame.text_indices.len(), 6);
+    }
+
+    #[test]
+    fn text_two_chars_produce_two_quads() {
+        let data = text_shape("AB", (0.0, 0.0), 24.0);
+        let cmds = vec![DrawCommand::DrawShape(data)];
+        let atlas = atlas_with_glyphs();
+        let frame = prepare(&cmds, &atlas);
+
+        assert_eq!(frame.text_vertices.len(), 8);
+        assert_eq!(frame.text_indices.len(), 12);
+    }
+
+    #[test]
+    fn text_space_produces_no_quad_but_advances() {
+        let data = text_shape("A A", (0.0, 0.0), 24.0);
+        let cmds = vec![DrawCommand::DrawShape(data)];
+        let atlas = atlas_with_glyphs();
+        let frame = prepare(&cmds, &atlas);
+
+        // Space has no bounds → no quad, only 2 visible chars
+        assert_eq!(frame.text_vertices.len(), 8);
+        assert_eq!(frame.text_indices.len(), 12);
+
+        // Second 'A' should be further right than first 'A' due to space advance
+        let first_a_x = frame.text_vertices[0].position[0];
+        let second_a_x = frame.text_vertices[4].position[0];
+        assert!(second_a_x > first_a_x, "second A should be to the right of first A");
+    }
+
+    #[test]
+    fn text_unknown_char_skipped_with_default_advance() {
+        let data = text_shape("A🦀A", (0.0, 0.0), 24.0);
+        let cmds = vec![DrawCommand::DrawShape(data)];
+        let atlas = atlas_with_glyphs();
+        let frame = prepare(&cmds, &atlas);
+
+        // Only two 'A' chars have quads; the emoji is skipped
+        assert_eq!(frame.text_vertices.len(), 8);
+        assert_eq!(frame.text_indices.len(), 12);
+    }
+
+    #[test]
+    fn text_indices_are_valid() {
+        let data = text_shape("AB", (0.0, 0.0), 24.0);
+        let cmds = vec![DrawCommand::DrawShape(data)];
+        let atlas = atlas_with_glyphs();
+        let frame = prepare(&cmds, &atlas);
+
+        let max_vertex = frame.text_vertices.len() as u32;
+        for &idx in &frame.text_indices {
+            assert!(idx < max_vertex, "index {idx} out of bounds (max {max_vertex})");
+        }
+        // First quad: 0,1,2,2,1,3  Second quad: 4,5,6,6,5,7
+        assert_eq!(&frame.text_indices[..6], &[0, 1, 2, 2, 1, 3]);
+        assert_eq!(&frame.text_indices[6..], &[4, 5, 6, 6, 5, 7]);
+    }
+
+    #[test]
+    fn text_uvs_are_in_unit_range() {
+        let data = text_shape("A", (0.0, 0.0), 24.0);
+        let cmds = vec![DrawCommand::DrawShape(data)];
+        let atlas = atlas_with_glyphs();
+        let frame = prepare(&cmds, &atlas);
+
+        for v in &frame.text_vertices {
+            assert!(v.uv[0] >= 0.0 && v.uv[0] <= 1.0, "u={} out of [0,1]", v.uv[0]);
+            assert!(v.uv[1] >= 0.0 && v.uv[1] <= 1.0, "v={} out of [0,1]", v.uv[1]);
+        }
+    }
+
+    #[test]
+    fn text_color_propagated() {
+        let mut data = text_shape("A", (0.0, 0.0), 24.0);
+        data.color = [1.0, 0.0, 0.5, 0.8];
+        let cmds = vec![DrawCommand::DrawShape(data)];
+        let atlas = atlas_with_glyphs();
+        let frame = prepare(&cmds, &atlas);
+
+        for v in &frame.text_vertices {
+            assert_eq!(v.color, [1.0, 0.0, 0.5, 0.8]);
+        }
+    }
+
+    #[test]
+    fn text_px_range_positive() {
+        let data = text_shape("A", (0.0, 0.0), 24.0);
+        let cmds = vec![DrawCommand::DrawShape(data)];
+        let atlas = atlas_with_glyphs();
+        let frame = prepare(&cmds, &atlas);
+
+        for v in &frame.text_vertices {
+            assert!(v.px_range > 0.0, "px_range should be positive, got {}", v.px_range);
+        }
+    }
+
+    #[test]
+    fn text_larger_size_produces_larger_quads() {
+        let small = text_shape("A", (0.0, 0.0), 12.0);
+        let big = text_shape("A", (0.0, 0.0), 48.0);
+
+        let atlas = atlas_with_glyphs();
+        let frame_small = prepare(&[DrawCommand::DrawShape(small)], &atlas);
+        let frame_big = prepare(&[DrawCommand::DrawShape(big)], &atlas);
+
+        let small_width = (frame_small.text_vertices[1].position[0]
+            - frame_small.text_vertices[0].position[0]).abs();
+        let big_width = (frame_big.text_vertices[1].position[0]
+            - frame_big.text_vertices[0].position[0]).abs();
+
+        assert!(big_width > small_width, "bigger font should produce wider quad");
+    }
+
+    #[test]
+    fn text_position_offset_affects_ndc() {
+        let at_origin = text_shape("A", (0.0, 0.0), 24.0);
+        let at_offset = text_shape("A", (100.0, 50.0), 24.0);
+
+        let atlas = atlas_with_glyphs();
+        let f1 = prepare(&[DrawCommand::DrawShape(at_origin)], &atlas);
+        let f2 = prepare(&[DrawCommand::DrawShape(at_offset)], &atlas);
+
+        // Offset text should have different NDC positions
+        assert!((f2.text_vertices[0].position[0] - f1.text_vertices[0].position[0]).abs() > 0.01);
+    }
+
+    #[test]
+    fn text_does_not_affect_other_buffers() {
+        let data = text_shape("AB", (0.0, 0.0), 24.0);
+        let cmds = vec![DrawCommand::DrawShape(data)];
+        let atlas = atlas_with_glyphs();
+        let frame = prepare(&cmds, &atlas);
+
+        assert!(frame.sdf_instances.is_empty());
+        assert!(frame.line_vertices.is_empty());
+        assert!(frame.line_indices.is_empty());
+        assert!(frame.polygon_vertices.is_empty());
+        assert!(frame.polygon_indices.is_empty());
+    }
+
+    #[test]
+    fn text_mixed_with_shapes() {
+        let circle = ShapeData {
+            desc: ShapeDesc::Circle { center: (0.0, 0.0), radius: 50.0 },
+            render_mode: RenderMode::Fill,
+            coord_meta: meta_800x600(),
+            transforms: Vec::new(),
+            color: [1.0, 0.0, 0.0, 1.0],
+        };
+        let text = text_shape("A", (100.0, 100.0), 24.0);
+        let cmds = vec![
+            DrawCommand::DrawShape(circle),
+            DrawCommand::DrawShape(text),
+        ];
+        let atlas = atlas_with_glyphs();
+        let frame = prepare(&cmds, &atlas);
+
+        assert_eq!(frame.sdf_instances.len(), 1);
+        assert_eq!(frame.text_vertices.len(), 4);
+        assert_eq!(frame.text_indices.len(), 6);
+    }
+
+    #[test]
+    fn text_top_left_origin_positions_correctly() {
+        let data = ShapeData {
+            desc: ShapeDesc::Text { pos: (10.0, 20.0), content: "A".to_string(), size: 24.0 },
+            render_mode: RenderMode::Fill,
+            coord_meta: CoordMeta {
+                px_width: 800.0,
+                px_height: 600.0,
+                origin: Origin::TopLeft,
+            },
+            transforms: Vec::new(),
+            color: [1.0, 1.0, 1.0, 1.0],
+        };
+        let cmds = vec![DrawCommand::DrawShape(data)];
+        let atlas = atlas_with_glyphs();
+        let frame = prepare(&cmds, &atlas);
+
+        // With top-left origin, x=10 should map to near NDC -1,
+        // and all x values should be negative (left side of screen)
+        for v in &frame.text_vertices {
+            assert!(v.position[0] < 0.0, "x should be negative for top-left origin near left edge");
+        }
     }
 }

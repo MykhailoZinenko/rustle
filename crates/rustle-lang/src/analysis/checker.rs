@@ -1327,7 +1327,7 @@ pub fn is_matchable(ty: &Type) -> bool {
 /// True for any type that can be pushed to `out <<` or used with `@`.
 #[must_use] 
 pub fn is_drawable(ty: &Type) -> bool {
-    matches!(ty, Type::Shape | Type::Circle | Type::Rect | Type::Line | Type::Polygon)
+    matches!(ty, Type::Shape | Type::Circle | Type::Rect | Type::Line | Type::Polygon | Type::TextShape)
 }
 
 /// True if `actual` is compatible where `expected` is required.
@@ -1398,6 +1398,7 @@ pub fn type_name(ty: &Type) -> String {
         Type::Rect            => "rect".into(),
         Type::Line            => "line".into(),
         Type::Polygon         => "polygon".into(),
+        Type::TextShape       => "text_shape".into(),
         Type::State           => "State".into(),
         Type::Input           => "Input".into(),
         Type::Array(t, n)     => format!("array[{}, {n}]", type_name(t)),

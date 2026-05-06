@@ -27,6 +27,7 @@ fn main() -> eframe::Result<()> {
             if let Some(render_state) = cc.wgpu_render_state.as_ref() {
                 let renderer = rustle_renderer::Renderer::new(
                     &render_state.device,
+                    &render_state.queue,
                     render_state.target_format,
                 );
                 render_state

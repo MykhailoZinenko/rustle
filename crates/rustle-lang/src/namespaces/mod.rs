@@ -156,6 +156,13 @@ pub(crate) fn as_float(v: &Value, line: usize) -> Result<f64, RuntimeError> {
     }
 }
 
+pub(crate) fn as_string(v: &Value, line: usize) -> Result<String, RuntimeError> {
+    match v {
+        Value::Str(s) => Ok(s.clone()),
+        _ => Err(RuntimeError::new(ErrorCode::R001, line, 0, format!("expected string, got {}", value_type_name(v)))),
+    }
+}
+
 pub(crate) fn as_vec2(v: &Value, line: usize) -> Result<(f64, f64), RuntimeError> {
     match v {
         Value::Vec2(x, y) => Ok((*x, *y)),

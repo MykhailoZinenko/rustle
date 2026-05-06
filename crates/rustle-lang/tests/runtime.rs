@@ -4344,3 +4344,353 @@ fn file_large_content() {
     assert_eq!(f(&rt, "v"), 36.0);
     std::fs::remove_file("/tmp/rustle_test_large.txt").ok();
 }
+
+// ─── String slice ─────────────────────────────────────────────────────────────
+
+#[test]
+fn string_slice_basic() {
+    let mut rt = run(r#"
+        state { let v: string = "" }
+        fn on_update(s: State, input: Input) -> State {
+            s.v = "hello".slice(0, 3)
+            return s
+        }
+    "#);
+    tick(&mut rt);
+    assert_eq!(s(&rt, "v"), "hel");
+}
+
+#[test]
+fn string_slice_full_string() {
+    let mut rt = run(r#"
+        state { let v: string = "" }
+        fn on_update(s: State, input: Input) -> State {
+            s.v = "hello".slice(0, 5)
+            return s
+        }
+    "#);
+    tick(&mut rt);
+    assert_eq!(s(&rt, "v"), "hello");
+}
+
+#[test]
+fn string_slice_empty_result() {
+    let mut rt = run(r#"
+        state { let v: string = "" }
+        fn on_update(s: State, input: Input) -> State {
+            s.v = "hello".slice(2, 2)
+            return s
+        }
+    "#);
+    tick(&mut rt);
+    assert_eq!(s(&rt, "v"), "");
+}
+
+#[test]
+fn string_slice_beyond_length_clamps() {
+    let mut rt = run(r#"
+        state { let v: string = "" }
+        fn on_update(s: State, input: Input) -> State {
+            s.v = "abc".slice(1, 100)
+            return s
+        }
+    "#);
+    tick(&mut rt);
+    assert_eq!(s(&rt, "v"), "bc");
+}
+
+#[test]
+fn string_slice_last_char_removal() {
+    let mut rt = run(r#"
+        state { let v: string = "abcd" }
+        fn on_update(s: State, input: Input) -> State {
+            s.v = s.v.slice(0, s.v.len() - 1)
+            return s
+        }
+    "#);
+    tick(&mut rt);
+    assert_eq!(s(&rt, "v"), "abc");
+}
+
+#[test]
+fn string_slice_middle() {
+    let mut rt = run(r#"
+        state { let v: string = "" }
+        fn on_update(s: State, input: Input) -> State {
+            s.v = "abcdef".slice(2, 4)
+            return s
+        }
+    "#);
+    tick(&mut rt);
+    assert_eq!(s(&rt, "v"), "cd");
+}
+
+#[test]
+fn string_slice_single_char() {
+    let mut rt = run(r#"
+        state { let v: string = "" }
+        fn on_update(s: State, input: Input) -> State {
+            s.v = "abcde".slice(4, 5)
+            return s
+        }
+    "#);
+    tick(&mut rt);
+    assert_eq!(s(&rt, "v"), "e");
+}
+
+// ─── Text shape ───────────────────────────────────────────────────────────────
+
+#[test]
+fn text_shape_emits_draw_command() {
+    let mut rt = run(r#"
+        import shapes { text }
+        out << text(vec2(0.0, 0.0), "hello", 24.0)
+    "#);
+    let cmds = tick(&mut rt);
+    assert_eq!(cmds.len(), 1);
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
+    assert!(matches!(data.desc, ShapeDesc::Text { .. }));
+}
+
+#[test]
+fn text_shape_preserves_content() {
+    let mut rt = run(r#"
+        import shapes { text }
+        out << text(vec2(10.0, 20.0), "world", 32.0)
+    "#);
+    let cmds = tick(&mut rt);
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
+    let ShapeDesc::Text { pos, content, size } = &data.desc else { panic!("expected Text") };
+    assert_eq!(*pos, (10.0, 20.0));
+    assert_eq!(content, "world");
+    assert_eq!(*size, 32.0);
+}
+
+#[test]
+fn text_shape_with_color() {
+    let mut rt = run(r#"
+        import shapes { text }
+        out << text(vec2(0.0, 0.0), "hi", 16.0, color: #ff0000)
+    "#);
+    let cmds = tick(&mut rt);
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
+    assert_eq!(data.color[0], 1.0);
+    assert_eq!(data.color[1], 0.0);
+    assert_eq!(data.color[2], 0.0);
+    assert_eq!(data.color[3], 1.0);
+}
+
+#[test]
+fn text_shape_empty_string() {
+    let mut rt = run(r#"
+        import shapes { text }
+        out << text(vec2(0.0, 0.0), "", 24.0)
+    "#);
+    let cmds = tick(&mut rt);
+    assert_eq!(cmds.len(), 1);
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
+    let ShapeDesc::Text { content, .. } = &data.desc else { panic!("expected Text") };
+    assert_eq!(content, "");
+}
+
+#[test]
+fn text_shape_with_variable_content() {
+    let mut rt = run(r#"
+        import shapes { text }
+        let msg: string = "dynamic"
+        out << text(vec2(0.0, 0.0), msg, 20.0)
+    "#);
+    let cmds = tick(&mut rt);
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
+    let ShapeDesc::Text { content, .. } = &data.desc else { panic!("expected Text") };
+    assert_eq!(content, "dynamic");
+}
+
+#[test]
+fn text_shape_with_concatenated_string() {
+    let mut rt = run(r#"
+        import shapes { text }
+        let a: string = "hel"
+        let b: string = "lo"
+        out << text(vec2(0.0, 0.0), a + b, 24.0)
+    "#);
+    let cmds = tick(&mut rt);
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
+    let ShapeDesc::Text { content, .. } = &data.desc else { panic!("expected Text") };
+    assert_eq!(content, "hello");
+}
+
+#[test]
+fn text_shape_with_resolution() {
+    let mut rt = run(r#"
+        import shapes { text }
+        import coords { resolution }
+        resolution(800.0, 600.0)
+        out << text(vec2(100.0, 200.0), "test", 24.0)
+    "#);
+    let cmds = tick(&mut rt);
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
+    assert_eq!(data.coord_meta.px_width, 800.0);
+    assert_eq!(data.coord_meta.px_height, 600.0);
+}
+
+#[test]
+fn text_shape_multiple_in_frame() {
+    let mut rt = run(r#"
+        import shapes { text }
+        out << text(vec2(0.0, 0.0), "first", 24.0)
+        out << text(vec2(0.0, 30.0), "second", 24.0)
+        out << text(vec2(0.0, 60.0), "third", 24.0)
+    "#);
+    let cmds = tick(&mut rt);
+    assert_eq!(cmds.len(), 3);
+    for cmd in &cmds {
+        let DrawCommand::DrawShape(data) = cmd else { panic!("expected DrawShape") };
+        assert!(matches!(data.desc, ShapeDesc::Text { .. }));
+    }
+}
+
+#[test]
+fn text_shape_field_access_pos() {
+    let mut rt = run(r#"
+        import shapes { text }
+        state { let x: float = 0.0 let y: float = 0.0 }
+        fn on_update(s: State, input: Input) -> State {
+            let t = text(vec2(10.0, 20.0), "hi", 24.0)
+            s.x = t.pos.x
+            s.y = t.pos.y
+            return s
+        }
+    "#);
+    tick(&mut rt);
+    assert_eq!(f(&rt, "x"), 10.0);
+    assert_eq!(f(&rt, "y"), 20.0);
+}
+
+#[test]
+fn text_shape_field_access_content() {
+    let mut rt = run(r#"
+        import shapes { text }
+        state { let v: string = "" }
+        fn on_update(s: State, input: Input) -> State {
+            let t = text(vec2(0.0, 0.0), "hello", 24.0)
+            s.v = t.content
+            return s
+        }
+    "#);
+    tick(&mut rt);
+    assert_eq!(s(&rt, "v"), "hello");
+}
+
+#[test]
+fn text_shape_field_access_size() {
+    let mut rt = run(r#"
+        import shapes { text }
+        state { let v: float = 0.0 }
+        fn on_update(s: State, input: Input) -> State {
+            let t = text(vec2(0.0, 0.0), "hi", 32.0)
+            s.v = t.size
+            return s
+        }
+    "#);
+    tick(&mut rt);
+    assert_eq!(f(&rt, "v"), 32.0);
+}
+
+#[test]
+fn text_shape_in_state_with_keyboard_input() {
+    let mut rt = run(r#"
+        import shapes { text }
+        state { let typed: string = "" }
+        fn on_update(s: State, input: Input) -> State {
+            if input.key_pressed != "" {
+                if input.key_pressed.len() == 1 {
+                    s.typed = s.typed + input.key_pressed
+                }
+            }
+            out << text(vec2(0.0, 0.0), s.typed, 24.0)
+            return s
+        }
+    "#);
+
+    // First tick with 'a' pressed
+    let cmds = rt.tick(&Input {
+        dt: 0.016,
+        key_pressed: "a".to_string(),
+        ..Default::default()
+    }).unwrap();
+    assert_eq!(s(&rt, "typed"), "a");
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
+    let ShapeDesc::Text { content, .. } = &data.desc else { panic!("expected Text") };
+    assert_eq!(content, "a");
+
+    // Second tick with 'b' pressed
+    let cmds = rt.tick(&Input {
+        dt: 0.016,
+        key_pressed: "b".to_string(),
+        ..Default::default()
+    }).unwrap();
+    assert_eq!(s(&rt, "typed"), "ab");
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
+    let ShapeDesc::Text { content, .. } = &data.desc else { panic!("expected Text") };
+    assert_eq!(content, "ab");
+}
+
+#[test]
+fn text_shape_backspace_with_slice() {
+    let mut rt = run(r#"
+        import shapes { text }
+        state { let typed: string = "abc" }
+        fn on_update(s: State, input: Input) -> State {
+            if input.key_pressed == "backspace" {
+                if s.typed.len() > 0 {
+                    s.typed = s.typed.slice(0, s.typed.len() - 1)
+                }
+            }
+            out << text(vec2(0.0, 0.0), s.typed, 24.0)
+            return s
+        }
+    "#);
+
+    let cmds = rt.tick(&Input {
+        dt: 0.016,
+        key_pressed: "backspace".to_string(),
+        ..Default::default()
+    }).unwrap();
+    assert_eq!(s(&rt, "typed"), "ab");
+    let DrawCommand::DrawShape(data) = &cmds[0] else { panic!("expected DrawShape") };
+    let ShapeDesc::Text { content, .. } = &data.desc else { panic!("expected Text") };
+    assert_eq!(content, "ab");
+}
+
+#[test]
+fn text_shape_mixed_with_other_shapes() {
+    let mut rt = run(r#"
+        import shapes { text, rect, circle }
+        import render { fill }
+        out << rect(vec2(0.0, 0.0), vec2(100.0, 50.0), render: fill)
+        out << text(vec2(10.0, 10.0), "label", 16.0)
+        out << circle(vec2(50.0, 50.0), 10.0, render: fill)
+    "#);
+    let cmds = tick(&mut rt);
+    assert_eq!(cmds.len(), 3);
+    assert!(matches!(&cmds[0], DrawCommand::DrawShape(d) if matches!(d.desc, ShapeDesc::Rect { .. })));
+    assert!(matches!(&cmds[1], DrawCommand::DrawShape(d) if matches!(d.desc, ShapeDesc::Text { .. })));
+    assert!(matches!(&cmds[2], DrawCommand::DrawShape(d) if matches!(d.desc, ShapeDesc::Circle { .. })));
+}
+
+#[test]
+fn text_shape_template_string() {
+    let mut rt = run(r#"
+        import shapes { text }
+        state { let count: float = 42.0 let v: string = "" }
+        fn on_update(s: State, input: Input) -> State {
+            let msg: string = `count: ${s.count as string}`
+            s.v = msg
+            out << text(vec2(0.0, 0.0), msg, 24.0)
+            return s
+        }
+    "#);
+    tick(&mut rt);
+    assert_eq!(s(&rt, "v"), "count: 42");
+}

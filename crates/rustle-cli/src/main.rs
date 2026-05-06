@@ -156,7 +156,7 @@ impl ApplicationHandler for App {
         };
         surface.configure(&device, &config);
 
-        let renderer = Renderer::new(&device, format);
+        let renderer = Renderer::new(&device, &queue, format);
 
         self.state = Some(RunState {
             window,

@@ -159,6 +159,7 @@ pub enum ShapeDesc {
     Rect   { center: (f64, f64), size: (f64, f64), origin: Origin },
     Line   { from: (f64, f64), to: (f64, f64) },
     Polygon(Vec<(f64, f64)>),
+    Text   { pos: (f64, f64), content: String, size: f64 },
 }
 
 impl ShapeDesc {
@@ -170,6 +171,7 @@ impl ShapeDesc {
             Self::Circle { center, .. } | Self::Rect { center, .. } => *center,
             Self::Line   { from, .. }   => *from,
             Self::Polygon(pts) => pts.first().copied().unwrap_or((0.0, 0.0)),
+            Self::Text { pos, .. } => *pos,
         }
     }
 }

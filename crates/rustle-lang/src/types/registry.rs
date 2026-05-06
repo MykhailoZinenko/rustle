@@ -276,6 +276,7 @@ impl Default for TypeRegistry {
         r.register(rect_desc());
         r.register(line_desc());
         r.register(polygon_desc());
+        r.register(text_shape_desc());
         r.register(list_desc());
         r.register(res_desc());
         r.register(input_desc());
@@ -307,6 +308,7 @@ pub fn value_type_key(v: &Value) -> &'static str {
             crate::types::draw::ShapeDesc::Rect   { .. } => "rect",
             crate::types::draw::ShapeDesc::Line   { .. } => "line",
             crate::types::draw::ShapeDesc::Polygon(_)    => "polygon",
+            crate::types::draw::ShapeDesc::Text { .. }   => "text_shape",
         },
         Value::List(_)              => "list",
         Value::ResOk(_)
@@ -339,6 +341,7 @@ pub(crate) fn type_to_registry_key(ty: &Type) -> &'static str {
         Type::Rect      => "rect",
         Type::Line      => "line",
         Type::Polygon   => "polygon",
+        Type::TextShape => "text_shape",
         Type::Input     => "Input",
         Type::State     => "State",
         Type::List(_)   => "list",
@@ -460,6 +463,22 @@ fn string_desc() -> TypeDesc {
                         .map(|part| Value::Str(part.to_string()))
                         .collect();
                     Ok(Value::List(std::rc::Rc::new(std::cell::RefCell::new(items))))
+                },
+            },
+            MethodDesc {
+                name: "slice",
+                params: vec![Type::Float, Type::Float],
+                ret: Some(Type::String),
+                call: |v, args, line| {
+                    let Value::Str(s) = v else { unreachable!() };
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let start = expect_float(&args[0], "slice start", line)? as usize;
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let end = expect_float(&args[1], "slice end", line)? as usize;
+                    let chars: Vec<char> = s.chars().collect();
+                    let end = end.min(chars.len());
+                    let start = start.min(end);
+                    Ok(Value::Str(chars[start..end].iter().collect()))
                 },
             },
         ],
@@ -1164,6 +1183,44 @@ fn polygon_desc() -> TypeDesc {
                 },
             },
         ],
+    }
+}
+
+// ─── text_shape ───────────────────────────────────────────────────────────────
+
+fn text_shape_desc() -> TypeDesc {
+    TypeDesc {
+        name: "text_shape",
+        fields: vec![
+            FieldDesc {
+                name: "pos", ty: named("vec2"),
+                get: |v| {
+                    let Value::Shape(s) = v else { unreachable!() };
+                    let crate::types::draw::ShapeDesc::Text { pos, .. } = &s.desc else { unreachable!() };
+                    Ok(Value::Vec2(pos.0, pos.1))
+                },
+                set: None,
+            },
+            FieldDesc {
+                name: "content", ty: Type::String,
+                get: |v| {
+                    let Value::Shape(s) = v else { unreachable!() };
+                    let crate::types::draw::ShapeDesc::Text { content, .. } = &s.desc else { unreachable!() };
+                    Ok(Value::Str(content.clone()))
+                },
+                set: None,
+            },
+            FieldDesc {
+                name: "size", ty: float(),
+                get: |v| {
+                    let Value::Shape(s) = v else { unreachable!() };
+                    let crate::types::draw::ShapeDesc::Text { size, .. } = &s.desc else { unreachable!() };
+                    Ok(Value::Float(*size))
+                },
+                set: None,
+            },
+        ],
+        methods: vec![],
     }
 }
 

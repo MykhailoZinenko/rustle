@@ -1,0 +1,53 @@
+import shapes { rect, text, center }
+import render { fill, outline, stroke }
+import coords { resolution, origin }
+
+resolution(800, 600)
+origin(center)
+
+state {
+    let typed: string = ""
+    let cursor_visible: bool = true
+    let cursor_timer: float = 0.0
+}
+
+fn on_update(s: State, input: Input) -> State {
+    if input.key_pressed != "" {
+        if input.key_pressed == "backspace" {
+            if s.typed.len() > 0 {
+                s.typed = s.typed.slice(0, s.typed.len() - 1)
+            }
+        } else if input.key_pressed.len() == 1 {
+            s.typed = s.typed + input.key_pressed
+        }
+    }
+
+    s.cursor_timer = s.cursor_timer + input.dt
+    if s.cursor_timer > 0.5 {
+        s.cursor_visible = not s.cursor_visible
+        s.cursor_timer = 0.0
+    }
+
+    // Dark background
+    out << rect(vec2(0, 0), vec2(800, 600), render: fill, color: #14141f)
+
+    // Input field background
+    out << rect(vec2(0, 0), vec2(600, 50), render: fill, color: #262638)
+
+    // Input field border
+    out << rect(vec2(0, 0), vec2(600, 50), render: outline, color: #66668c)
+
+    // Typed text
+    out << text(vec2(-280, 0), s.typed, 28.0, color: #ffffff)
+
+    // Blinking cursor
+    if s.cursor_visible {
+        let cursor_x: float = -280.0 + s.typed.len() * 28.0 * 0.6
+        out << rect(vec2(cursor_x, 0), vec2(2, 30), render: fill, color: #99ccff)
+    }
+
+    // Title text
+    out << text(vec2(-120, -80), "Type something!", 32.0, color: #9999bf)
+
+    return s
+}

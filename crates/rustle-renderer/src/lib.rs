@@ -5,11 +5,13 @@
     clippy::similar_names
 )]
 
+pub mod atlas;
 mod instance;
 mod pipeline;
 pub(crate) mod prepare;
 
-use instance::{LineVertex, PolygonVertex, SdfInstance};
+use atlas::MsdfAtlas;
+use instance::{LineVertex, PolygonVertex, SdfInstance, TextVertex};
 use rustle_lang::DrawCommand;
 use wgpu::util::DeviceExt;
 
@@ -20,15 +22,21 @@ const INITIAL_LINE_VERTEX_CAPACITY: usize = 1024;
 const INITIAL_LINE_INDEX_CAPACITY: usize = 2048;
 const INITIAL_POLY_VERTEX_CAPACITY: usize = 1024;
 const INITIAL_POLY_INDEX_CAPACITY: usize = 2048;
+const INITIAL_TEXT_VERTEX_CAPACITY: usize = 1024;
+const INITIAL_TEXT_INDEX_CAPACITY: usize = 2048;
 
 pub struct Renderer {
     sdf_pipeline: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
     polygon_pipeline: wgpu::RenderPipeline,
+    text_pipeline: wgpu::RenderPipeline,
     #[expect(dead_code, reason = "retained for potential future pipeline recreation")]
     viewport_bind_group_layout: wgpu::BindGroupLayout,
     viewport_buffer: wgpu::Buffer,
     viewport_bind_group: wgpu::BindGroup,
+
+    text_bind_group: wgpu::BindGroup,
+    pub atlas: MsdfAtlas,
 
     sdf_instance_buffer: wgpu::Buffer,
     sdf_instance_capacity: usize,
@@ -42,11 +50,16 @@ pub struct Renderer {
     polygon_vertex_capacity: usize,
     polygon_index_buffer: wgpu::Buffer,
     polygon_index_capacity: usize,
+
+    text_vertex_buffer: wgpu::Buffer,
+    text_vertex_capacity: usize,
+    text_index_buffer: wgpu::Buffer,
+    text_index_capacity: usize,
 }
 
 impl Renderer {
     #[must_use]
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let viewport_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("viewport_bind_group_layout"),
@@ -82,6 +95,13 @@ impl Renderer {
         let line_pipeline = pipeline::line::create_pipeline(device, format);
         let polygon_pipeline = pipeline::polygon::create_pipeline(device, format);
 
+        let atlas = MsdfAtlas::load(device, queue);
+        let text_bind_group_layout = pipeline::text::create_bind_group_layout(device);
+        let text_bind_group = pipeline::text::create_bind_group(
+            device, &text_bind_group_layout, &atlas.view, &atlas.sampler,
+        );
+        let text_pipeline = pipeline::text::create_pipeline(device, format, &text_bind_group_layout);
+
         let sdf_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("sdf_instance_buffer"),
             size: (INITIAL_SDF_CAPACITY * std::mem::size_of::<SdfInstance>()) as u64,
@@ -115,13 +135,29 @@ impl Renderer {
             mapped_at_creation: false,
         });
 
+        let text_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("text_vertex_buffer"),
+            size: (INITIAL_TEXT_VERTEX_CAPACITY * std::mem::size_of::<TextVertex>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let text_index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("text_index_buffer"),
+            size: (INITIAL_TEXT_INDEX_CAPACITY * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         Self {
             sdf_pipeline,
             line_pipeline,
             polygon_pipeline,
+            text_pipeline,
             viewport_bind_group_layout,
             viewport_buffer,
             viewport_bind_group,
+            text_bind_group,
+            atlas,
             sdf_instance_buffer,
             sdf_instance_capacity: INITIAL_SDF_CAPACITY,
             line_vertex_buffer,
@@ -132,6 +168,10 @@ impl Renderer {
             polygon_vertex_capacity: INITIAL_POLY_VERTEX_CAPACITY,
             polygon_index_buffer,
             polygon_index_capacity: INITIAL_POLY_INDEX_CAPACITY,
+            text_vertex_buffer,
+            text_vertex_capacity: INITIAL_TEXT_VERTEX_CAPACITY,
+            text_index_buffer,
+            text_index_capacity: INITIAL_TEXT_INDEX_CAPACITY,
         }
     }
 
@@ -188,7 +228,7 @@ impl Renderer {
             bytemuck::cast_slice(&[width as f32, height as f32]),
         );
 
-        let frame = prepare::prepare(commands);
+        let frame = prepare::prepare(commands, &self.atlas.data);
 
         if !frame.sdf_instances.is_empty() {
             grow_buffer(device, &mut self.sdf_instance_buffer, &mut self.sdf_instance_capacity,
@@ -228,6 +268,21 @@ impl Renderer {
                 bytemuck::cast_slice(&frame.polygon_indices));
         }
 
+        if !frame.text_vertices.is_empty() {
+            grow_buffer(device, &mut self.text_vertex_buffer, &mut self.text_vertex_capacity,
+                frame.text_vertices.len(), std::mem::size_of::<TextVertex>(),
+                "text_vertex_buffer", wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
+            queue.write_buffer(&self.text_vertex_buffer, 0,
+                bytemuck::cast_slice(&frame.text_vertices));
+        }
+        if !frame.text_indices.is_empty() {
+            grow_buffer(device, &mut self.text_index_buffer, &mut self.text_index_capacity,
+                frame.text_indices.len(), std::mem::size_of::<u32>(),
+                "text_index_buffer", wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST);
+            queue.write_buffer(&self.text_index_buffer, 0,
+                bytemuck::cast_slice(&frame.text_indices));
+        }
+
         frame
     }
 
@@ -255,6 +310,15 @@ impl Renderer {
             pass.set_vertex_buffer(0, self.line_vertex_buffer.slice(..));
             pass.set_index_buffer(self.line_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..frame.line_indices.len() as u32, 0, 0..1);
+        }
+
+        // 4. MSDF text (on top)
+        if !frame.text_indices.is_empty() {
+            pass.set_pipeline(&self.text_pipeline);
+            pass.set_bind_group(0, &self.text_bind_group, &[]);
+            pass.set_vertex_buffer(0, self.text_vertex_buffer.slice(..));
+            pass.set_index_buffer(self.text_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..frame.text_indices.len() as u32, 0, 0..1);
         }
     }
 

@@ -10,3 +10,6 @@ workspace = true
 rustle-lang = { version = "0.1.0", path = "../rustle-lang" }
 wgpu = "29.0.3"
 bytemuck = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }

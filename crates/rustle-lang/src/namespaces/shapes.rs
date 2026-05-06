@@ -5,7 +5,7 @@ use crate::Value;
 use std::collections::HashMap;
 use super::{
     Export, ExportKind, NamespaceInfo, NamespaceProvider, RuntimeState,
-    as_float, as_vec2, as_vertices, check_argc, render_mode_from_named,
+    as_float, as_string, as_vec2, as_vertices, check_argc, render_mode_from_named,
 };
 
 fn origin_const(name: &'static str) -> Export {
@@ -29,6 +29,8 @@ impl NamespaceInfo for ShapesNamespace {
                 ty: Type::Fn(vec![Type::List(Box::new(Type::from_name("vec2")))], Some(Box::new(Type::from_name("polygon")))) },
             Export { name: "shape",   kind: ExportKind::Function,
                 ty: Type::Fn(vec![Type::List(Box::new(Type::from_name("vec2")))], Some(Box::new(Type::from_name("polygon")))) },
+            Export { name: "text",    kind: ExportKind::Function,
+                ty: Type::Fn(vec![Type::from_name("vec2"), Type::String, Type::Float], Some(Box::new(Type::TextShape))) },
             // Origin constants
             origin_const("center"),
             origin_const("top_left"), origin_const("top_right"),
@@ -80,6 +82,13 @@ impl NamespaceProvider for ShapesNamespace {
                     )));
                 }
                 ShapeDesc::Polygon(verts)
+            }
+            "text" => {
+                check_argc(name, args, 3, line)?;
+                let pos = as_vec2(&args[0], line)?;
+                let content = as_string(&args[1], line)?;
+                let size = as_float(&args[2], line)?;
+                ShapeDesc::Text { pos, content, size }
             }
             _ => return Ok(None),
         };

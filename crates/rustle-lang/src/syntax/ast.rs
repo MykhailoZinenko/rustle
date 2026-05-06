@@ -503,6 +503,7 @@ pub enum Type {
     Rect,
     Line,
     Polygon,
+    TextShape,
     State,
     Input,
     Array(Box<Type>, usize),
@@ -539,6 +540,7 @@ impl Type {
             "shape" => Self::Shape,
             "circle" => Self::Circle, "rect" => Self::Rect,
             "line" => Self::Line, "polygon" => Self::Polygon,
+            "text_shape" => Self::TextShape,
             "State" => Self::State, "Input" => Self::Input,
             other => Self::Named(other.into()),
         }
