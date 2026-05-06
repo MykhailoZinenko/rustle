@@ -106,19 +106,10 @@ impl AppCore {
         if self.terminal_initialized {
             return;
         }
-        self.terminal_initialized = true;
 
         let (tx, rx) = mpsc::channel();
         let settings = BackendSettings {
-            shell: if cfg!(target_os = "macos") {
-                "/bin/zsh".to_string()
-            } else if cfg!(target_os = "windows") {
-                std::env::var("COMSPEC").unwrap_or_else(|_| {
-                    "C:\\Windows\\System32\\cmd.exe".to_string()
-                })
-            } else {
-                "/bin/bash".to_string()
-            },
+            shell: BackendSettings::default_shell(),
             args: vec![],
             working_directory: std::env::current_dir().ok(),
         };
@@ -127,6 +118,7 @@ impl AppCore {
             Ok(backend) => {
                 self.terminal = Some(backend);
                 self.pty_event_rx = Some(rx);
+                self.terminal_initialized = true;
             }
             Err(e) => {
                 eprintln!("Failed to create terminal: {e}");
