@@ -14,6 +14,7 @@ use alacritty_terminal::term::search::{Match, RegexIter, RegexSearch};
 use alacritty_terminal::term::{
     self, cell::Cell, test::TermSize, viewport_to_point, Term, TermMode,
 };
+use alacritty_terminal::vte::ansi::Processor;
 use alacritty_terminal::{tty, Grid};
 use egui::Modifiers;
 use super::settings::BackendSettings;
@@ -139,6 +140,7 @@ pub struct TerminalBackend {
     size: TerminalSize,
     notifier: Notifier,
     last_content: RenderableContent,
+    screen_processor: Processor,
 }
 
 impl TerminalBackend {
@@ -196,7 +198,15 @@ impl TerminalBackend {
             size: terminal_size,
             notifier,
             last_content: initial_content,
+            screen_processor: Processor::new(),
         })
+    }
+
+    /// Write bytes directly to the terminal display, as if they came from PTY output.
+    pub fn write_to_screen(&mut self, bytes: &[u8]) {
+        let term = self.term.clone();
+        let mut term = term.lock();
+        self.screen_processor.advance(&mut *term, bytes);
     }
 
     pub fn process_command(&mut self, cmd: BackendCommand) {

@@ -121,12 +121,9 @@ impl<'a> TerminalView<'a> {
     }
 
     fn focus(self, layout: &Response) -> Self {
-        if self.has_focus {
+        if self.has_focus || layout.clicked() {
             layout.request_focus();
-        } else {
-            layout.surrender_focus();
         }
-
         self
     }
 
@@ -144,7 +141,10 @@ impl<'a> TerminalView<'a> {
         layout: &Response,
         state: &mut TerminalViewState,
     ) -> Self {
-        if !layout.has_focus() || !layout.contains_pointer() {
+        let has_focus = layout.has_focus();
+        let has_pointer = layout.contains_pointer();
+
+        if !has_focus && !has_pointer {
             return self;
         }
 
@@ -158,44 +158,55 @@ impl<'a> TerminalView<'a> {
                 | egui::Event::Key { .. }
                 | egui::Event::Copy
                 | egui::Event::Paste(_) => {
-                    input_actions.push(process_keyboard_event(
-                        event,
-                        self.backend,
-                        &self.bindings_layout,
-                        modifiers,
-                    ))
+                    if has_focus {
+                        input_actions.push(process_keyboard_event(
+                            event,
+                            self.backend,
+                            &self.bindings_layout,
+                            modifiers,
+                        ));
+                    }
                 },
-                egui::Event::MouseWheel { unit, delta, .. } => input_actions
-                    .push(process_mouse_wheel(
-                        state,
-                        self.font.font_type().size,
-                        unit,
-                        delta,
-                    )),
+                egui::Event::MouseWheel { unit, delta, .. } => {
+                    if has_pointer {
+                        input_actions.push(process_mouse_wheel(
+                            state,
+                            self.font.font_type().size,
+                            unit,
+                            delta,
+                        ));
+                    }
+                },
                 egui::Event::PointerButton {
                     button,
                     pressed,
                     modifiers,
                     pos,
                     ..
-                } => input_actions.push(process_button_click(
-                    state,
-                    layout,
-                    self.backend,
-                    &self.bindings_layout,
-                    button,
-                    pos,
-                    &modifiers,
-                    pressed,
-                )),
+                } => {
+                    if has_pointer {
+                        input_actions.push(process_button_click(
+                            state,
+                            layout,
+                            self.backend,
+                            &self.bindings_layout,
+                            button,
+                            pos,
+                            &modifiers,
+                            pressed,
+                        ));
+                    }
+                },
                 egui::Event::PointerMoved(pos) => {
-                    input_actions = process_mouse_move(
-                        state,
-                        layout,
-                        self.backend,
-                        pos,
-                        &modifiers,
-                    )
+                    if has_pointer {
+                        input_actions = process_mouse_move(
+                            state,
+                            layout,
+                            self.backend,
+                            pos,
+                            &modifiers,
+                        );
+                    }
                 },
                 _ => {},
             };
