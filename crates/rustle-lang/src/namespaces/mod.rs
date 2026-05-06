@@ -22,10 +22,10 @@ pub mod render;
 pub mod coords;
 pub mod file;
 
-pub(crate) fn color_from_named(named: &HashMap<String, Value>) -> [f64; 4] {
+pub(crate) fn color_from_named(named: &HashMap<String, Value>) -> Option<[f64; 4]> {
     match named.get("color") {
-        Some(Value::Color { r, g, b, a }) => [*r, *g, *b, *a],
-        _ => [1.0, 1.0, 1.0, 1.0],
+        Some(Value::Color { r, g, b, a }) => Some([*r, *g, *b, *a]),
+        _ => None,
     }
 }
 

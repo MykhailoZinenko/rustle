@@ -84,9 +84,10 @@ impl NamespaceProvider for ShapesNamespace {
             _ => return Ok(None),
         };
 
-        let color = super::color_from_named(named_args);
         let mut shape = ShapeData::new(desc, render_mode, coord_meta);
-        shape.color = color;
+        if let Some(color) = super::color_from_named(named_args) {
+            shape.color = color;
+        }
         Ok(Some(Value::Shape(shape)))
     }
 

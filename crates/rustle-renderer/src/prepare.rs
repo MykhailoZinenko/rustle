@@ -270,3 +270,4 @@ mod tests {
         assert_eq!(frame.polygon_indices.len(), 6);
     }
 }
+

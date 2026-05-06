@@ -1,0 +1,9 @@
+import shapes { circle }
+import render { fill }
+import coords { resolution, origin, center }
+
+resolution(800, 600)
+origin(center)
+
+let c = circle(vec2(0, 0), 100, render: fill)
+out << c

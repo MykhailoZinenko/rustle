@@ -236,7 +236,7 @@ pub struct ShapeData {
 impl ShapeData {
     #[must_use]
     pub fn new(desc: ShapeDesc, render_mode: RenderMode, coord_meta: CoordMeta) -> Self {
-        Self { desc, render_mode, coord_meta, transforms: Vec::new(), color: [1.0, 1.0, 1.0, 1.0] }
+        Self { desc, render_mode, coord_meta, transforms: Vec::new(), color: [0.7, 0.63, 1.0, 0.8] }
     }
 }
 

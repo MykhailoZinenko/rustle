@@ -94,6 +94,7 @@ pub fn draw_preview(
             let native_size = state.native_size.unwrap_or(canvas_size);
 
             let (rect, _) = ui.allocate_exact_size(canvas_size, egui::Sense::hover());
+            ui.painter().rect_filled(rect, 0.0, egui::Color32::BLACK);
             let callback = egui_wgpu::Callback::new_paint_callback(
                 rect,
                 RustlePaintCallback {
