@@ -73,6 +73,8 @@ pub enum ErrorCode {
     S020,
     /// `this` used outside struct method.
     S021,
+    /// Non-exhaustive match on enum.
+    S022,
 
     // Runtime
     /// Runtime type error.
@@ -140,6 +142,7 @@ impl ErrorCode {
             Self::S019 => "S019",
             Self::S020 => "S020",
             Self::S021 => "S021",
+            Self::S022 => "S022",
             Self::R001 => "R001",
             Self::R002 => "R002",
             Self::R003 => "R003",

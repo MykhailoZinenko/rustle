@@ -140,7 +140,7 @@ impl Validator {
             match item {
                 Item::FnDef(f) => self.scan_stmts_for_break_continue(&f.body),
                 Item::Stmt(s) => self.scan_stmt_for_break_continue(s),
-                Item::Struct(_) => {}
+                Item::Struct(_) | Item::Enum(_) => {}
             }
         }
     }

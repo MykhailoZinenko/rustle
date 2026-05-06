@@ -90,7 +90,7 @@ impl<'a> Interpreter<'a> {
     ) -> Self {
         let fn_table = program.items.iter().filter_map(|item| match item {
             ast::Item::FnDef(f) => Some((f.name.as_str(), f)),
-            ast::Item::Stmt(_) | ast::Item::Struct(_) => None,
+            ast::Item::Stmt(_) | ast::Item::Struct(_) | ast::Item::Enum(_) => None,
         }).collect();
         let struct_defs: HashMap<&str, &ast::StructDef> = program.items.iter().filter_map(|item| match item {
             ast::Item::Struct(s) => Some((s.name.as_str(), s)),
@@ -488,6 +488,18 @@ impl<'a> Interpreter<'a> {
                     methods,
                 };
                 Ok(Value::Object(Rc::new(RefCell::new(Box::new(instance)))))
+            }
+
+            Expr::EnumConstruction { enum_name, variant, fields, .. } => {
+                let mut field_values = HashMap::new();
+                for (field_name, field_expr) in fields {
+                    field_values.insert(field_name.clone(), self.eval_expr(field_expr)?);
+                }
+                Ok(Value::EnumVariant {
+                    enum_name: enum_name.clone(),
+                    variant: variant.clone(),
+                    fields: field_values,
+                })
             }
         }
     }
@@ -1043,15 +1055,25 @@ impl<'a> Interpreter<'a> {
                 let scrut = self.eval_expr(&m.expr)?;
                 let mut matched = false;
                 for arm in &m.arms {
-                    if arm.values.is_empty() {
-                        // else arm
-                        matched = true;
-                    } else {
-                        for val_expr in &arm.values {
-                            let val = self.eval_expr(val_expr)?;
-                            if values_equal(&scrut, &val) {
-                                matched = true;
-                                break;
+                    match &arm.pattern {
+                        ast::MatchPattern::Else => {
+                            matched = true;
+                        }
+                        ast::MatchPattern::Values(values) => {
+                            for val_expr in values {
+                                let val = self.eval_expr(val_expr)?;
+                                if values_equal(&scrut, &val) {
+                                    matched = true;
+                                    break;
+                                }
+                            }
+                        }
+                        ast::MatchPattern::EnumVariant { enum_name: _, variant, .. } => {
+                            // Check if the scrutinee is an enum value matching this variant
+                            if let Value::EnumVariant { variant: scrut_variant, .. } = &scrut {
+                                if scrut_variant == variant {
+                                    matched = true;
+                                }
                             }
                         }
                     }
@@ -1321,6 +1343,19 @@ fn eval_field(types: &TypeRegistry, obj: &Value, field: &str, line: usize) -> Re
                     format!("state has no field `{field}` (available: {})", keys.join(", ")))
             });
     }
+    // Enum variant fields — accessed after match narrows the variant.
+    if let Value::EnumVariant { enum_name, variant, fields } = obj {
+        return fields.get(field).cloned().ok_or_else(|| {
+            let available: Vec<&str> = fields.keys().map(String::as_str).collect();
+            if available.is_empty() {
+                RuntimeError::new(ErrorCode::R003, line, 0,
+                    format!("`{enum_name}.{variant}` has no fields"))
+            } else {
+                RuntimeError::new(ErrorCode::R003, line, 0,
+                    format!("`{enum_name}.{variant}` has no field `{field}` (available: {})", available.join(", ")))
+            }
+        });
+    }
     // Object (struct) fields — reference type with dynamic fields.
     if let Value::Object(rc) = obj {
         let guard = rc.borrow();
@@ -1546,6 +1581,11 @@ fn values_equal(a: &Value, b: &Value) -> bool {
         (Value::Color { r: ar, g: ag, b: ab, a: aa }, Value::Color { r: br, g: bg, b: bb, a: ba }) =>
             ar.to_bits() == br.to_bits() && ag.to_bits() == bg.to_bits() && ab.to_bits() == bb.to_bits() && aa.to_bits() == ba.to_bits(),
         (Value::Object(a), Value::Object(b)) => Rc::ptr_eq(a, b),
+        (Value::EnumVariant { enum_name: en_a, variant: v_a, fields: f_a },
+         Value::EnumVariant { enum_name: en_b, variant: v_b, fields: f_b }) => {
+            en_a == en_b && v_a == v_b && f_a.len() == f_b.len()
+                && f_a.iter().all(|(k, va)| f_b.get(k).map_or(false, |vb| values_equal(va, vb)))
+        }
         _ => false,
     }
 }
@@ -1622,6 +1662,9 @@ fn collect_free_expr(expr: &Expr, bound: &HashSet<String>, free: &mut HashSet<St
         Expr::StructConstruction { fields, .. } => {
             for (_, e) in fields { collect_free_expr(e, bound, free); }
         }
+        Expr::EnumConstruction { fields, .. } => {
+            for (_, e) in fields { collect_free_expr(e, bound, free); }
+        }
     }
 }
 
@@ -1676,7 +1719,9 @@ fn collect_free_stmt(stmt: &Stmt, bound: &mut HashSet<String>, free: &mut HashSe
         Stmt::Match(m) => {
             collect_free_expr(&m.expr, bound, free);
             for arm in &m.arms {
-                for v in &arm.values { collect_free_expr(v, bound, free); }
+                if let ast::MatchPattern::Values(values) = &arm.pattern {
+                    for v in values { collect_free_expr(v, bound, free); }
+                }
                 let mut arm_bound = bound.clone();
                 for s in &arm.body { collect_free_stmt(s, &mut arm_bound, free); }
             }

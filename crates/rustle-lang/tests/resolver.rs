@@ -1707,3 +1707,79 @@ fn struct_private_field_assign_error() {
     "#);
     assert!(has(&errs, ErrorCode::S016));
 }
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn enum_declaration_resolves() {
+    ok(r#"
+        enum Direction { Up; Down; Left; Right }
+        let d: Direction = Direction.Up
+    "#);
+}
+
+#[test]
+fn enum_unknown_variant() {
+    let errs = err(r#"
+        enum Color { Red; Green; Blue }
+        let c: Color = Color.Yellow
+    "#);
+    assert!(!errs.is_empty());
+}
+
+#[test]
+fn enum_field_access_in_match() {
+    ok(r#"
+        enum Shape {
+            Circle { radius: float }
+            Empty
+        }
+        fn test(sh: Shape) -> float {
+            match sh {
+                Shape.Circle => { return sh.radius }
+                else => { return 0.0 }
+            }
+        }
+    "#);
+}
+
+#[test]
+fn enum_exhaustiveness_error() {
+    let errs = err(r#"
+        enum Color { Red; Green; Blue }
+        fn test(c: Color) -> float {
+            match c {
+                Color.Red => { return 1.0 }
+            }
+            return 0.0
+        }
+    "#);
+    assert!(has(&errs, ErrorCode::S022));
+}
+
+#[test]
+fn enum_exhaustiveness_with_else() {
+    ok(r#"
+        enum Color { Red; Green; Blue }
+        fn test(c: Color) -> float {
+            match c {
+                Color.Red => { return 1.0 }
+                else => { return 0.0 }
+            }
+        }
+    "#);
+}
+
+#[test]
+fn enum_exhaustiveness_all_variants() {
+    ok(r#"
+        enum Color { Red; Green; Blue }
+        fn test(c: Color) -> float {
+            match c {
+                Color.Red => { return 1.0 }
+                Color.Green => { return 2.0 }
+                Color.Blue => { return 3.0 }
+            }
+        }
+    "#);
+}

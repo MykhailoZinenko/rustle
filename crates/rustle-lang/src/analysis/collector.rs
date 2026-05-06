@@ -48,6 +48,7 @@ impl<'a> Collector<'a> {
                 Item::FnDef(f)  => self.collect_fn_sig(f),
                 Item::Stmt(s)   => self.collect_top_stmt(s),
                 Item::Struct(s) => self.collect_struct(s),
+                Item::Enum(e) => self.collect_enum(e),
             }
         }
 
@@ -151,6 +152,22 @@ impl<'a> Collector<'a> {
             def.name.clone(),
             Some(Type::Named(def.name.clone())),
             SymbolKind::Struct,
+            def.span,
+        );
+        if !self.table.declare_top_level(sym) {
+            self.errors.push(Error::new(
+                ErrorCode::S003,
+                def.span.line, def.span.column,
+                format!("'{}' is already defined", def.name),
+            ));
+        }
+    }
+
+    fn collect_enum(&mut self, def: &crate::syntax::ast::EnumDef) {
+        let sym = Symbol::new(
+            def.name.clone(),
+            Some(Type::Named(def.name.clone())),
+            SymbolKind::Enum,
             def.span,
         );
         if !self.table.declare_top_level(sym) {

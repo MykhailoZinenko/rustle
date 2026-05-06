@@ -145,6 +145,7 @@ fn token_source_len(text: &str, start: usize, token: &Token) -> usize {
         TokenKind::Continue => 8,
         TokenKind::None => 4,
         TokenKind::Struct => 6,
+        TokenKind::Enum => 4,
         TokenKind::TFloat => 5,
         TokenKind::TBool => 4,
         TokenKind::TArray => 5,

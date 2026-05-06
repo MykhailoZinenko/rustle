@@ -41,6 +41,7 @@ pub enum TokenKind {
     Continue,
     None,
     Struct,
+    Enum,
     Hash,       // # (for #fn private methods in structs)
 
     // Type keywords — only true primitives and parameterised collection types
@@ -150,6 +151,7 @@ impl TokenKind {
             Self::Continue     => "'continue'",
             Self::None         => "'none'",
             Self::Struct       => "'struct'",
+            Self::Enum         => "'enum'",
             Self::Hash         => "'#'",
             Self::TFloat       => "'float'",
             Self::TBool        => "'bool'",
@@ -202,7 +204,7 @@ impl TokenKind {
             Self::Fn | Self::Let | Self::If | Self::Else | Self::Match | Self::While | Self::For | Self::Foreach
             | Self::In | Self::Return | Self::Const | Self::State | Self::Import
             | Self::Out | Self::Console | Self::Try | Self::And | Self::Or | Self::Not | Self::As
-            | Self::Break | Self::Continue | Self::None | Self::Struct
+            | Self::Break | Self::Continue | Self::None | Self::Struct | Self::Enum
         )
     }
 }
@@ -235,6 +237,7 @@ pub fn keyword_or_ident(s: String) -> TokenKind {
         "match"     => TokenKind::Match,
         "none"      => TokenKind::None,
         "struct"    => TokenKind::Struct,
+        "enum"      => TokenKind::Enum,
         "true"      => TokenKind::Bool(true),
         "false"     => TokenKind::Bool(false),
         "float"     => TokenKind::TFloat,

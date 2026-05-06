@@ -86,12 +86,36 @@ pub struct StructDef {
     pub span: Span,
 }
 
+// ─── Enums ─────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct EnumVariant {
+    pub name: String,
+    pub fields: Vec<EnumVariantField>,  // empty for data-less variants
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnumVariantField {
+    pub name: String,
+    pub ty: Type,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnumDef {
+    pub name: String,
+    pub variants: Vec<EnumVariant>,
+    pub span: Span,
+}
+
 /// A top-level item is either a function definition or a statement.
 #[derive(Debug, Clone)]
 pub enum Item {
     FnDef(FnDef),
     Stmt(Stmt),
     Struct(StructDef),
+    Enum(EnumDef),
 }
 
 // ─── Functions ───────────────────────────────────────────────────────────────
@@ -220,9 +244,18 @@ pub struct MatchStmt {
 }
 
 #[derive(Debug, Clone)]
+pub enum MatchPattern {
+    /// Value equality: `1, 2 =>` (existing behavior)
+    Values(Vec<Expr>),
+    /// Enum variant: `Shape.Circle =>`
+    EnumVariant { enum_name: String, variant: String, span: Span },
+    /// Catch-all: `else =>`
+    Else,
+}
+
+#[derive(Debug, Clone)]
 pub struct MatchArm {
-    /// Patterns to match (empty for `else`).
-    pub values: Vec<Expr>,
+    pub pattern: MatchPattern,
     pub body: Vec<Stmt>,
     pub span: Span,
 }
@@ -371,6 +404,14 @@ pub enum Expr {
         fields: Vec<(String, Expr)>,
         span: Span,
     },
+
+    /// `Shape.Circle { x: 10.0, y: 20.0 }` or `Shape.Empty`
+    EnumConstruction {
+        enum_name: String,
+        variant: String,
+        fields: Vec<(String, Expr)>,  // empty for data-less variants
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -393,7 +434,8 @@ impl Expr {
             | Expr::MethodCall { span, .. }
             | Expr::Transform { span, .. }
             | Expr::Lambda { span, .. }
-            | Expr::StructConstruction { span, .. } => span,
+            | Expr::StructConstruction { span, .. }
+            | Expr::EnumConstruction { span, .. } => span,
         }
     }
 }

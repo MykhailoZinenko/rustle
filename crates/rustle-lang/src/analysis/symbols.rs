@@ -12,6 +12,7 @@ pub enum SymbolKind {
     Param,
     StateField,
     Struct,
+    Enum,
 }
 
 #[derive(Debug, Clone)]

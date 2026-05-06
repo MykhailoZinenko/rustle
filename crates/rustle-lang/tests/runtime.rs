@@ -3437,3 +3437,199 @@ fn struct_private_field_access_via_method() {
     "#);
     assert_eq!(f(&rt, "v"), 2.0);
 }
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn enum_basic_construction() {
+    let rt = run(r#"
+        enum Color {
+            Red
+            Green
+            Blue
+        }
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            let c: Color = Color.Red
+            s.v = "ok"
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "ok");
+}
+
+#[test]
+fn enum_with_data() {
+    let rt = run(r#"
+        enum Shape {
+            Circle { radius: float }
+            Rect { w: float, h: float }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let sh: Shape = Shape.Circle { radius: 5.0 }
+            s.v = 1.0
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 1.0);
+}
+
+#[test]
+fn enum_match_basic() {
+    let rt = run(r#"
+        enum Direction {
+            Up
+            Down
+            Left
+            Right
+        }
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            let d: Direction = Direction.Left
+            match d {
+                Direction.Up => { s.v = "up" }
+                Direction.Down => { s.v = "down" }
+                Direction.Left => { s.v = "left" }
+                Direction.Right => { s.v = "right" }
+            }
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "left");
+}
+
+#[test]
+fn enum_match_with_field_access() {
+    let rt = run(r#"
+        enum Shape {
+            Circle { radius: float }
+            Rect { w: float, h: float }
+            Empty
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let sh: Shape = Shape.Circle { radius: 5.0 }
+            match sh {
+                Shape.Circle => { s.v = sh.radius }
+                Shape.Rect => { s.v = sh.w * sh.h }
+                Shape.Empty => { s.v = -1.0 }
+            }
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 5.0);
+}
+
+#[test]
+fn enum_match_rect_fields() {
+    let rt = run(r#"
+        enum Shape {
+            Circle { radius: float }
+            Rect { w: float, h: float }
+            Empty
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let sh: Shape = Shape.Rect { w: 3.0, h: 4.0 }
+            match sh {
+                Shape.Circle => { s.v = sh.radius }
+                Shape.Rect => { s.v = sh.w * sh.h }
+                Shape.Empty => { s.v = -1.0 }
+            }
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 12.0);
+}
+
+#[test]
+fn enum_match_else() {
+    let rt = run(r#"
+        enum Color {
+            Red
+            Green
+            Blue
+        }
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            let c: Color = Color.Blue
+            match c {
+                Color.Red => { s.v = "red" }
+                else => { s.v = "not red" }
+            }
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "not red");
+}
+
+#[test]
+fn enum_console_output() {
+    let rt = run(r#"
+        enum Shape {
+            Circle { radius: float }
+            Empty
+        }
+        state { let v: string = "" }
+        fn on_init(s: State) -> State {
+            let sh: Shape = Shape.Circle { radius: 5.0 }
+            console << sh
+            s.v = "done"
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "v"), "done");
+}
+
+#[test]
+fn enum_in_function_param() {
+    let rt = run(r#"
+        enum Shape {
+            Circle { radius: float }
+            Rect { w: float, h: float }
+        }
+        fn area(sh: Shape) -> float {
+            match sh {
+                Shape.Circle => { return sh.radius * sh.radius * 3.14159 }
+                Shape.Rect => { return sh.w * sh.h }
+            }
+        }
+        state { let v: float = 0.0 }
+        fn on_init(s: State) -> State {
+            s.v = area(Shape.Rect { w: 5.0, h: 3.0 })
+            return s
+        }
+    "#);
+    assert_eq!(f(&rt, "v"), 15.0);
+}
+
+#[test]
+fn enum_equality() {
+    let rt = run(r#"
+        enum Color { Red; Green; Blue }
+        state { let v: bool = false }
+        fn on_init(s: State) -> State {
+            let a: Color = Color.Red
+            let b: Color = Color.Red
+            s.v = a == b
+            return s
+        }
+    "#);
+    assert!(b(&rt, "v"));
+}
+
+#[test]
+fn enum_inequality() {
+    let rt = run(r#"
+        enum Color { Red; Green; Blue }
+        state { let v: bool = false }
+        fn on_init(s: State) -> State {
+            let a: Color = Color.Red
+            let b: Color = Color.Blue
+            s.v = a != b
+            return s
+        }
+    "#);
+    assert!(b(&rt, "v"));
+}

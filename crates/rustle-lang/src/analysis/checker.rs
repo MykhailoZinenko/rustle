@@ -28,6 +28,8 @@ pub struct TypeResolver<'a> {
     binops: BinopRegistry,
     /// When inside a struct method, holds the struct name for `this` resolution.
     current_struct: Option<String>,
+    /// Type narrowing in match arms: maps variable name -> (enum_name, variant_name)
+    narrowed_variants: std::collections::HashMap<String, (String, String)>,
 }
 
 impl<'a> TypeResolver<'a> {
@@ -42,6 +44,7 @@ impl<'a> TypeResolver<'a> {
             lookup: LookupContext::new(None, registry, type_registry),
             binops: BinopRegistry::default(),
             current_struct: None,
+            narrowed_variants: std::collections::HashMap::new(),
         }
     }
 
@@ -57,6 +60,7 @@ impl<'a> TypeResolver<'a> {
                 Item::FnDef(f)  => self.check_fn(f),
                 Item::Stmt(s)   => { self.check_stmt(s); }
                 Item::Struct(def) => self.check_struct(def),
+                Item::Enum(_) => {} // validated in a later phase
             }
         }
         (self.table, self.errors)
@@ -336,23 +340,94 @@ impl<'a> TypeResolver<'a> {
         if !is_matchable(&scrut_ty) {
             self.errors.push(Error::new(
                 ErrorCode::S008, m.expr.span().line, m.expr.span().column,
-                format!("match scrutinee must be a comparable type (float, bool, string, vec2, vec3, vec4, color), found `{}`", type_name(&scrut_ty)),
+                format!("match scrutinee must be a comparable type (float, bool, string, vec2, vec3, vec4, color, enum), found `{}`", type_name(&scrut_ty)),
             ));
         }
         for arm in &m.arms {
-            for val in &arm.values {
-                match self.infer_expr(val) {
-                    Ok(val_ty) if !types_compatible(&scrut_ty, &val_ty) => {
-                        self.errors.push(Error::new(
-                            ErrorCode::S002, val.span().line, val.span().column,
-                            format!("match arm value must match scrutinee type `{}`, found `{}`", type_name(&scrut_ty), type_name(&val_ty)),
-                        ));
+            match &arm.pattern {
+                crate::syntax::ast::MatchPattern::Values(values) => {
+                    for val in values {
+                        match self.infer_expr(val) {
+                            Ok(val_ty) if !types_compatible(&scrut_ty, &val_ty) => {
+                                self.errors.push(Error::new(
+                                    ErrorCode::S002, val.span().line, val.span().column,
+                                    format!("match arm value must match scrutinee type `{}`, found `{}`", type_name(&scrut_ty), type_name(&val_ty)),
+                                ));
+                            }
+                            Err(e) => self.errors.extend(e),
+                            _ => {}
+                        }
                     }
-                    Err(e) => self.errors.extend(e),
-                    _ => {}
                 }
+                crate::syntax::ast::MatchPattern::EnumVariant { enum_name, variant, span } => {
+                    // Validate: enum exists and variant exists
+                    if let Some(program) = self.program {
+                        let enum_found = program.items.iter().find_map(|item| {
+                            if let crate::syntax::ast::Item::Enum(def) = item {
+                                if def.name == *enum_name { return Some(def); }
+                            }
+                            None
+                        });
+                        if let Some(edef) = enum_found {
+                            if !edef.variants.iter().any(|v| v.name == *variant) {
+                                self.errors.push(Error::new(
+                                    ErrorCode::S009, span.line, span.column,
+                                    format!("enum `{enum_name}` has no variant `{variant}`"),
+                                ));
+                            }
+                        } else {
+                            self.errors.push(Error::new(
+                                ErrorCode::S001, span.line, span.column,
+                                format!("undefined enum `{enum_name}`"),
+                            ));
+                        }
+                    }
+                    // Set up type narrowing for the arm body
+                    if let Expr::Ident(ref var_name, _) = m.expr {
+                        self.narrowed_variants.insert(var_name.clone(), (enum_name.clone(), variant.clone()));
+                    }
+                }
+                crate::syntax::ast::MatchPattern::Else => {}
             }
             self.check_block(&arm.body);
+            // Remove narrowing after checking arm body
+            if let crate::syntax::ast::MatchPattern::EnumVariant { .. } = &arm.pattern {
+                if let Expr::Ident(ref var_name, _) = m.expr {
+                    self.narrowed_variants.remove(var_name);
+                }
+            }
+        }
+
+        // Exhaustiveness check for enum matches
+        if let Type::Named(ref enum_name) = scrut_ty {
+            if let Some(program) = self.program {
+                let enum_def = program.items.iter().find_map(|item| {
+                    if let crate::syntax::ast::Item::Enum(def) = item {
+                        if def.name == *enum_name { return Some(def); }
+                    }
+                    None
+                });
+                if let Some(edef) = enum_def {
+                    let has_else = m.arms.iter().any(|arm| matches!(arm.pattern, crate::syntax::ast::MatchPattern::Else));
+                    if !has_else {
+                        let covered: std::collections::HashSet<&str> = m.arms.iter().filter_map(|arm| {
+                            if let crate::syntax::ast::MatchPattern::EnumVariant { variant, .. } = &arm.pattern {
+                                Some(variant.as_str())
+                            } else { None }
+                        }).collect();
+                        let missing: Vec<&str> = edef.variants.iter()
+                            .filter(|v| !covered.contains(v.name.as_str()))
+                            .map(|v| v.name.as_str())
+                            .collect();
+                        if !missing.is_empty() {
+                            self.errors.push(Error::new(
+                                ErrorCode::S022, m.expr.span().line, m.expr.span().column,
+                                format!("non-exhaustive match on `{enum_name}`: missing {}", missing.join(", ")),
+                            ));
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -627,6 +702,47 @@ impl<'a> TypeResolver<'a> {
 
             Expr::Field { expr, field, span } => {
                 let obj_ty = self.infer_expr(expr)?;
+                // Type narrowing: if the variable is narrowed to an enum variant, resolve variant fields
+                if let Expr::Ident(ref var_name, _) = **expr {
+                    if let Some((enum_name, variant_name)) = self.narrowed_variants.get(var_name) {
+                        if let Some(program) = self.program {
+                            let field_ty = program.items.iter().find_map(|item| {
+                                if let crate::syntax::ast::Item::Enum(def) = item {
+                                    if def.name == *enum_name {
+                                        let var = def.variants.iter().find(|v| v.name == *variant_name)?;
+                                        let f = var.fields.iter().find(|f| f.name == *field)?;
+                                        return Some(f.ty.clone());
+                                    }
+                                }
+                                None
+                            });
+                            if let Some(ty) = field_ty {
+                                return Ok(ty);
+                            }
+                            // Variant exists but field doesn't — give a nice error
+                            let variant_fields: Vec<String> = program.items.iter().find_map(|item| {
+                                if let crate::syntax::ast::Item::Enum(def) = item {
+                                    if def.name == *enum_name {
+                                        let var = def.variants.iter().find(|v| v.name == *variant_name)?;
+                                        return Some(var.fields.iter().map(|f| f.name.clone()).collect());
+                                    }
+                                }
+                                None
+                            }).unwrap_or_default();
+                            if variant_fields.is_empty() {
+                                return Err(vec![Error::new(
+                                    ErrorCode::S009, span.line, span.column,
+                                    format!("`{enum_name}.{variant_name}` has no fields"),
+                                )]);
+                            } else {
+                                return Err(vec![Error::new(
+                                    ErrorCode::S009, span.line, span.column,
+                                    format!("`{enum_name}.{variant_name}` has no field `{field}` (available: {})", variant_fields.join(", ")),
+                                )]);
+                            }
+                        }
+                    }
+                }
                 // Check private field visibility for struct types
                 if let Type::Named(ref struct_name) = obj_ty {
                     if let Some(def) = self.find_struct_def(struct_name) {
@@ -839,6 +955,32 @@ impl<'a> TypeResolver<'a> {
 
                 Ok(Type::Named(name.clone()))
             }
+
+            Expr::EnumConstruction { enum_name, variant, fields, span } => {
+                // Validate enum and variant exist
+                if let Some(program) = self.program {
+                    let enum_def = program.items.iter().find_map(|item| {
+                        if let crate::syntax::ast::Item::Enum(def) = item {
+                            if def.name == *enum_name { return Some(def); }
+                        }
+                        None
+                    });
+                    if let Some(edef) = enum_def {
+                        if !edef.variants.iter().any(|v| v.name == *variant) {
+                            return Err(vec![Error::new(
+                                ErrorCode::S009, span.line, span.column,
+                                format!("enum `{enum_name}` has no variant `{variant}`"),
+                            )]);
+                        }
+                    }
+                }
+                // Type-check field expressions
+                for (_field_name, field_expr) in fields {
+                    self.infer_expr(field_expr)?;
+                }
+                // Return the enum type
+                Ok(Type::Named(enum_name.clone()))
+            }
         }
     }
 
@@ -961,6 +1103,12 @@ impl<'a> TypeResolver<'a> {
             if is_opt_or_none(l) || is_opt_or_none(r) {
                 // At least one side is optional — allow the comparison
                 return Ok(Type::Bool);
+            }
+            // == / != on Named types (enums, structs) — both sides must be same type
+            if let (Type::Named(ln), Type::Named(rn)) = (l, r) {
+                if ln == rn {
+                    return Ok(Type::Bool);
+                }
             }
         }
 
@@ -1173,7 +1321,7 @@ impl<'a> TypeResolver<'a> {
 /// True for types that support equality (usable in match).
 #[must_use] 
 pub fn is_matchable(ty: &Type) -> bool {
-    matches!(ty, Type::Float | Type::Bool | Type::String | Type::Vec2 | Type::Vec3 | Type::Vec4 | Type::Color)
+    matches!(ty, Type::Float | Type::Bool | Type::String | Type::Vec2 | Type::Vec3 | Type::Vec4 | Type::Color | Type::Named(_))
 }
 
 /// True for any type that can be pushed to `out <<` or used with `@`.

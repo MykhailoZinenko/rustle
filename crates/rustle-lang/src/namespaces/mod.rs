@@ -185,6 +185,12 @@ pub(crate) fn value_type_name(v: &Value) -> &'static str {
         Value::NativeFn(_) | Value::Closure(_) => "fn",
         Value::State(_)      => "State",
         Value::Object(_)     => "object",
+        Value::EnumVariant { enum_name, .. } => {
+            // Leak a &'static str from the enum name — acceptable since type names are few
+            // Actually just return a generic label for now
+            let _ = enum_name;
+            "enum"
+        }
         Value::Input {..}    => "Input",
         Value::None          => "none",
     }

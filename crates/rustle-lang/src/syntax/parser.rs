@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::syntax::ast::{Program, Item, ImportDecl, StateBlock, StateField, Param, Stmt, FnDef, VarDecl, AssignTarget, BinOp, Expr, Assign, Span, PrintLevel, PrintStmt, OutStmt, IfStmt, MatchArm, MatchStmt, WhileStmt, ForStmt, ForeachStmt, UnOp, Type, InterpolPart, StructDef, StructField, StructMethod, Visibility};
+use crate::syntax::ast::{Program, Item, ImportDecl, StateBlock, StateField, Param, Stmt, FnDef, VarDecl, AssignTarget, BinOp, Expr, Assign, Span, PrintLevel, PrintStmt, OutStmt, IfStmt, MatchArm, MatchPattern, MatchStmt, WhileStmt, ForStmt, ForeachStmt, UnOp, Type, InterpolPart, StructDef, StructField, StructMethod, Visibility, EnumDef, EnumVariant, EnumVariantField};
 use crate::error::{Error, ErrorCode};
 use crate::syntax::token::{Token, TokenKind};
 
@@ -40,6 +40,10 @@ impl Parser {
                 },
                 TokenKind::Struct => match self.parse_struct_def() {
                     Ok(s) => items.push(Item::Struct(s)),
+                    Err(e) => { errors.push(e); self.recover(); }
+                },
+                TokenKind::Enum => match self.parse_enum_def() {
+                    Ok(e) => items.push(Item::Enum(e)),
                     Err(e) => { errors.push(e); self.recover(); }
                 },
                 TokenKind::Eof => break,
@@ -473,9 +477,14 @@ impl Parser {
         let mut arms = Vec::new();
         while !self.check(TokenKind::RBrace) && !self.is_at_end() {
             let arm_start = self.span();
-            let (values, body) = if self.matches(TokenKind::Else) {
+            let (pattern, body) = if self.matches(TokenKind::Else) {
                 self.expect(TokenKind::FatArrow)?;
-                (Vec::new(), self.parse_block()?)
+                (MatchPattern::Else, self.parse_block()?)
+            } else if self.is_enum_variant_pattern() {
+                let pattern = self.parse_enum_variant_pattern()?;
+                self.expect(TokenKind::FatArrow)?;
+                let body = self.parse_block()?;
+                (pattern, body)
             } else {
                 let mut values = Vec::new();
                 values.push(self.parse_expr()?);
@@ -484,14 +493,34 @@ impl Parser {
                 }
                 self.expect(TokenKind::FatArrow)?;
                 let body = self.parse_block()?;
-                (values, body)
+                (MatchPattern::Values(values), body)
             };
             let arm_span = self.span_from(&arm_start);
-            arms.push(MatchArm { values, body, span: arm_span });
+            arms.push(MatchArm { pattern, body, span: arm_span });
         }
         self.expect(TokenKind::RBrace)?;
         let span = self.span_from(&start);
         Ok(Stmt::Match(MatchStmt { expr, arms, span }))
+    }
+
+    /// Check if the current position is an enum variant pattern: `Ident.Ident =>`
+    fn is_enum_variant_pattern(&self) -> bool {
+        let i = self.pos;
+        if i + 3 >= self.tokens.len() { return false; }
+        let is_ident_upper = matches!(&self.tokens[i].kind, TokenKind::Ident(n) if n.starts_with(char::is_uppercase));
+        let is_dot = self.tokens[i + 1].kind == TokenKind::Dot;
+        let is_variant_upper = matches!(&self.tokens[i + 2].kind, TokenKind::Ident(n) if n.starts_with(char::is_uppercase));
+        let is_fat_arrow = self.tokens[i + 3].kind == TokenKind::FatArrow;
+        is_ident_upper && is_dot && is_variant_upper && is_fat_arrow
+    }
+
+    fn parse_enum_variant_pattern(&mut self) -> Result<MatchPattern, Error> {
+        let start = self.span();
+        let enum_name = self.expect_ident()?;
+        self.expect(TokenKind::Dot)?;
+        let variant = self.expect_ident()?;
+        let span = self.span_from(&start);
+        Ok(MatchPattern::EnumVariant { enum_name, variant, span })
     }
 
     fn parse_while(&mut self) -> Result<Stmt, Error> {
@@ -855,6 +884,8 @@ impl Parser {
             let (args, named_args) = self.parse_mixed_arg_list()?;
             self.expect(TokenKind::RParen)?;
             Ok(Expr::Call { callee: name, args, named_args, span })
+        } else if name.starts_with(char::is_uppercase) && self.check(TokenKind::Dot) && self.is_enum_construction_start() {
+            self.parse_enum_construction_expr(name, span)
         } else if name.starts_with(char::is_uppercase) && self.check(TokenKind::LBrace) && self.is_struct_construction_start() {
             self.parse_struct_construction(name, span)
         } else {
@@ -877,6 +908,88 @@ impl Parser {
         self.expect(TokenKind::RBrace)?;
         let span = self.span_from(&start);
         Ok(Expr::StructConstruction { name, fields, span })
+    }
+
+    /// Check if current position is `.<UpperIdent>` (possibly followed by `{`)
+    fn is_enum_construction_start(&self) -> bool {
+        let i = self.pos;
+        // current is Dot
+        if i >= self.tokens.len() || self.tokens[i].kind != TokenKind::Dot { return false; }
+        let after_dot = i + 1;
+        if after_dot >= self.tokens.len() { return false; }
+        matches!(&self.tokens[after_dot].kind, TokenKind::Ident(n) if n.starts_with(char::is_uppercase))
+    }
+
+    fn parse_enum_construction_expr(&mut self, enum_name: String, start: Span) -> Result<Expr, Error> {
+        self.expect(TokenKind::Dot)?;
+        let variant = self.expect_ident()?;
+        if self.check(TokenKind::LBrace) && self.is_struct_construction_start() {
+            // Enum construction with fields: Shape.Circle { x: 10.0, y: 20.0 }
+            self.expect(TokenKind::LBrace)?;
+            let mut fields = Vec::new();
+            while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+                let field_name = self.expect_ident()?;
+                self.expect(TokenKind::Colon)?;
+                let value = self.parse_expr()?;
+                fields.push((field_name, value));
+                if !self.check(TokenKind::RBrace) {
+                    self.expect(TokenKind::Comma)?;
+                }
+            }
+            self.expect(TokenKind::RBrace)?;
+            let span = self.span_from(&start);
+            Ok(Expr::EnumConstruction { enum_name, variant, fields, span })
+        } else {
+            // Data-less variant: Shape.Empty
+            let span = self.span_from(&start);
+            Ok(Expr::EnumConstruction { enum_name, variant, fields: vec![], span })
+        }
+    }
+
+    // ─── Enum definitions ───────────────────────────────────────────────────
+
+    fn parse_enum_def(&mut self) -> Result<EnumDef, Error> {
+        let start = self.span();
+        self.expect(TokenKind::Enum)?;
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::LBrace)?;
+        let mut variants = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            variants.push(self.parse_enum_variant()?);
+        }
+        self.expect(TokenKind::RBrace)?;
+        let span = self.span_from(&start);
+        Ok(EnumDef { name, variants, span })
+    }
+
+    fn parse_enum_variant(&mut self) -> Result<EnumVariant, Error> {
+        let start = self.span();
+        let name = self.expect_ident()?;
+        let fields = if self.check(TokenKind::LBrace) {
+            self.expect(TokenKind::LBrace)?;
+            let mut fields = Vec::new();
+            while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+                let field_start = self.span();
+                let field_name = self.expect_ident()?;
+                self.expect(TokenKind::Colon)?;
+                let ty = self.parse_type()?;
+                let field_span = self.span_from(&field_start);
+                fields.push(EnumVariantField { name: field_name, ty, span: field_span });
+                if !self.check(TokenKind::RBrace) {
+                    self.expect(TokenKind::Comma)?;
+                }
+            }
+            self.expect(TokenKind::RBrace)?;
+            fields
+        } else {
+            Vec::new()
+        };
+        let span = self.span_from(&start);
+        // Allow optional semicolons between variants
+        while self.check(TokenKind::Semicolon) {
+            self.advance();
+        }
+        Ok(EnumVariant { name, fields, span })
     }
 
     // ─── Argument lists ──────────────────────────────────────────────────────
@@ -1378,7 +1491,7 @@ mod tests {
                 assert_eq!(f.params.len(), 2);
                 assert_eq!(f.return_ty, Some(Type::Float));
             }
-            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) | Item::Enum(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1387,7 +1500,7 @@ mod tests {
         let p = parse("fn draw() { }");
         match &p.items[0] {
             Item::FnDef(f) => assert!(f.return_ty.is_none()),
-            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) | Item::Enum(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1419,9 +1532,9 @@ mod tests {
         match &p.items[0] {
             Item::Stmt(Stmt::Match(m)) => {
                 assert_eq!(m.arms.len(), 3);
-                assert_eq!(m.arms[0].values.len(), 1);
-                assert_eq!(m.arms[1].values.len(), 2);
-                assert!(m.arms[2].values.is_empty());
+                assert!(matches!(&m.arms[0].pattern, MatchPattern::Values(v) if v.len() == 1));
+                assert!(matches!(&m.arms[1].pattern, MatchPattern::Values(v) if v.len() == 2));
+                assert!(matches!(&m.arms[2].pattern, MatchPattern::Else));
             }
             _ => panic!("expected Match"),
         }
@@ -1588,7 +1701,7 @@ mod tests {
                 assert_eq!(f.params[1].ty, Type::Input);
                 assert_eq!(f.return_ty, Some(Type::State));
             }
-            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) | Item::Enum(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1601,7 +1714,7 @@ mod tests {
                 assert_eq!(f.params[1].ty, Type::Color);
                 assert_eq!(f.return_ty, Some(Type::Shape));
             }
-            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) | Item::Enum(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1941,7 +2054,7 @@ mod tests {
             Item::FnDef(f) => {
                 assert!(matches!(f.body[0], Stmt::Return(None, _)));
             }
-            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) | Item::Enum(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1952,7 +2065,7 @@ mod tests {
             Item::FnDef(f) => {
                 assert!(matches!(f.body[0], Stmt::Return(Some(_), _)));
             }
-            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) | Item::Enum(_) => panic!("expected FnDef"),
         }
     }
 
@@ -1973,7 +2086,7 @@ mod tests {
                 assert!(f.params.is_empty());
                 assert_eq!(f.return_ty, Some(Type::Float));
             }
-            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) | Item::Enum(_) => panic!("expected FnDef"),
         }
     }
 
@@ -2021,7 +2134,7 @@ mod tests {
             Item::FnDef(f) => {
                 assert_eq!(f.params[0].ty, Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))));
             }
-            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) | Item::Enum(_) => panic!("expected FnDef"),
         }
     }
 
@@ -2032,7 +2145,7 @@ mod tests {
             Item::FnDef(f) => {
                 assert_eq!(f.params[0].ty, Type::Fn(vec![Type::Float], None));
             }
-            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) | Item::Enum(_) => panic!("expected FnDef"),
         }
     }
 
@@ -2193,7 +2306,7 @@ fn on_update(s: State, input: Input) -> State {
                 assert_eq!(f.return_ty, Some(Type::State));
                 assert_eq!(f.body.len(), 4);
             }
-            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) | Item::Enum(_) => panic!("expected FnDef"),
         }
     }
 
@@ -2208,7 +2321,7 @@ fn mul(a: float, b: float) -> float { return a * b }
         assert_eq!(p.items.len(), 3);
         let names: Vec<&str> = p.items.iter().map(|i| match i {
             Item::FnDef(f) => f.name.as_str(),
-            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) | Item::Enum(_) => panic!("expected FnDef"),
         }).collect();
         assert_eq!(names, vec!["add", "sub", "mul"]);
     }
@@ -2225,7 +2338,7 @@ fn mul(a: float, b: float) -> float { return a * b }
                 assert_eq!(f.params[0].ty, Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))));
                 assert_eq!(f.params[1].ty, Type::Float);
             }
-            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) | Item::Enum(_) => panic!("expected FnDef"),
         }
     }
 
@@ -2339,7 +2452,7 @@ if result.ok {
             Item::FnDef(f) => {
                 assert_eq!(f.return_ty, Some(Type::Res(Box::new(Type::Float))));
             }
-            Item::Stmt(_) | Item::Struct(_) => panic!("expected FnDef"),
+            Item::Stmt(_) | Item::Struct(_) | Item::Enum(_) => panic!("expected FnDef"),
         }
     }
 
