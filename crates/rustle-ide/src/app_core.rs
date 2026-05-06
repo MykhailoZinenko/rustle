@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use eframe::egui;
-use rustle_lang::DrawCommand;
+use rustle_lang::{DrawCommand, Input};
 
 use crate::core::app_event_core::handle_app_event;
 use crate::events::app_events::AppEvent;
@@ -110,8 +110,11 @@ impl AppCore {
         let mut new_console = Vec::new();
         let mut runtime_error = None;
 
+        let input = build_input_from_egui(ctx);
+
         let status = tick_runtime(
             &mut self.runner,
+            input,
             &mut |frame| {
                 new_draw = Some(frame.draw_commands);
                 new_console.extend(frame.console_entries);
@@ -245,4 +248,45 @@ fn push_console(console: &mut VecDeque<ConsoleEntry>, entry: ConsoleEntry) {
         console.pop_front();
     }
     console.push_back(entry);
+}
+
+fn build_input_from_egui(ctx: &egui::Context) -> Input {
+    ctx.input(|i| {
+        let (mouse_x, mouse_y) = i.pointer.interact_pos()
+            .map(|p| (p.x as f64, p.y as f64))
+            .unwrap_or((0.0, 0.0));
+
+        let mouse_down = i.pointer.primary_down();
+        let mouse_pressed = i.pointer.primary_pressed();
+        let mouse_released = i.pointer.primary_released();
+
+        let mut key_pressed = String::new();
+        let mut key_released = String::new();
+        for event in &i.events {
+            if let egui::Event::Key { key, pressed, .. } = event {
+                let name = format!("{key:?}").to_lowercase();
+                if *pressed {
+                    key_pressed = name;
+                } else {
+                    key_released = name;
+                }
+            }
+        }
+
+        let key_down = i.keys_down.iter().next()
+            .map(|k| format!("{k:?}").to_lowercase())
+            .unwrap_or_default();
+
+        Input {
+            dt: 0.0, // dt is set by the runner from frame timing
+            mouse_x,
+            mouse_y,
+            mouse_down,
+            mouse_pressed,
+            mouse_released,
+            key_pressed,
+            key_down,
+            key_released,
+        }
+    })
 }

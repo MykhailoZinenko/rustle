@@ -33,10 +33,42 @@ use analysis::resolve;
 pub struct State(pub HashMap<String, Value>);
 
 /// Per-frame input passed into `on_update`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Input {
     /// Elapsed time in seconds since the last frame.
     pub dt: f64,
+    /// Mouse X position (in script coordinates).
+    pub mouse_x: f64,
+    /// Mouse Y position (in script coordinates).
+    pub mouse_y: f64,
+    /// Left mouse button currently held.
+    pub mouse_down: bool,
+    /// Left mouse button just pressed this frame.
+    pub mouse_pressed: bool,
+    /// Left mouse button just released this frame.
+    pub mouse_released: bool,
+    /// Key just pressed this frame (empty if none).
+    pub key_pressed: String,
+    /// Key currently held (empty if none).
+    pub key_down: String,
+    /// Key just released this frame (empty if none).
+    pub key_released: String,
+}
+
+impl Default for Input {
+    fn default() -> Self {
+        Self {
+            dt: 0.0,
+            mouse_x: 0.0,
+            mouse_y: 0.0,
+            mouse_down: false,
+            mouse_pressed: false,
+            mouse_released: false,
+            key_pressed: String::new(),
+            key_down: String::new(),
+            key_released: String::new(),
+        }
+    }
 }
 
 /// A compiled Rustle program. Produced by `compile`.

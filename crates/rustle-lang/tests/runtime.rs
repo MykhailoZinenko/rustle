@@ -31,12 +31,12 @@ fn run_err(src: &str) -> rustle_lang::RuntimeError {
 }
 
 fn tick(rt: &mut Runtime) -> Vec<DrawCommand> {
-    rt.tick(&Input { dt: 0.016 })
+    rt.tick(&Input { dt: 0.016, ..Default::default() })
         .unwrap_or_else(|e| panic!("tick failed: {e:?}"))
 }
 
 fn tick_err(rt: &mut Runtime) -> rustle_lang::RuntimeError {
-    rt.tick(&Input { dt: 0.016 })
+    rt.tick(&Input { dt: 0.016, ..Default::default() })
         .expect_err("expected tick to fail")
 }
 
@@ -3632,4 +3632,62 @@ fn enum_inequality() {
         }
     "#);
     assert!(b(&rt, "v"));
+}
+
+// ─── Input handling ──────────────────────────────────────────────────────────
+
+#[test]
+fn input_mouse_position() {
+    let mut rt = run(r#"
+        state { let mx: float = 0.0 }
+        fn on_update(s: State, input: Input) -> State {
+            s.mx = input.mouse_x
+            return s
+        }
+    "#);
+    rt.tick(&Input { dt: 0.016, mouse_x: 42.0, ..Default::default() }).unwrap();
+    assert_eq!(f(&rt, "mx"), 42.0);
+}
+
+#[test]
+fn input_mouse_down() {
+    let mut rt = run(r#"
+        state { let clicked: bool = false }
+        fn on_update(s: State, input: Input) -> State {
+            if input.mouse_pressed {
+                s.clicked = true
+            }
+            return s
+        }
+    "#);
+    rt.tick(&Input { dt: 0.016, mouse_pressed: true, ..Default::default() }).unwrap();
+    assert!(b(&rt, "clicked"));
+}
+
+#[test]
+fn input_key_pressed() {
+    let mut rt = run(r#"
+        state { let last_key: string = "" }
+        fn on_update(s: State, input: Input) -> State {
+            if input.key_pressed != "" {
+                s.last_key = input.key_pressed
+            }
+            return s
+        }
+    "#);
+    rt.tick(&Input { dt: 0.016, key_pressed: "space".to_string(), ..Default::default() }).unwrap();
+    assert_eq!(s(&rt, "last_key"), "space");
+}
+
+#[test]
+fn input_dt_still_works() {
+    let mut rt = run(r#"
+        state { let t: float = 0.0 }
+        fn on_update(s: State, input: Input) -> State {
+            s.t = s.t + input.dt
+            return s
+        }
+    "#);
+    rt.tick(&Input { dt: 0.5, ..Default::default() }).unwrap();
+    assert_eq!(f(&rt, "t"), 0.5);
 }

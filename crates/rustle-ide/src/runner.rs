@@ -58,7 +58,7 @@ pub fn spawn_runtime(source: &str) -> Result<ScriptHandle, String> {
 pub fn render_static_preview(source: &str) -> Result<PreviewFrame, String> {
     let program = compile(source).map_err(join_compile_errors)?;
     let mut runtime = Runtime::new(program).map_err(|error| error.message)?;
-    let commands = runtime.tick(&Input { dt: 0.0 }).map_err(|error| error.message)?;
+    let commands = runtime.tick(&Input::default()).map_err(|error| error.message)?;
     Ok(split_draw_commands(commands))
 }
 
@@ -71,6 +71,7 @@ pub fn stop_runtime(runner: &mut PreviewRunnerState) {
 
 pub fn tick_runtime(
     runner: &mut PreviewRunnerState,
+    input: Input,
     on_frame: &mut dyn FnMut(PreviewFrame),
     on_error: &mut dyn FnMut(String),
 ) -> TickStatus {
@@ -81,7 +82,7 @@ pub fn tick_runtime(
     let now = Instant::now();
     let dt = now.duration_since(runner.last_tick).as_secs_f64();
     runner.last_tick = now;
-    script.tick(dt);
+    script.tick(Input { dt, ..input });
 
     let mut should_stop = false;
     while let Ok(result) = script.rx.try_recv() {

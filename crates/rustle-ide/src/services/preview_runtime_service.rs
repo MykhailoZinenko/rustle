@@ -67,8 +67,8 @@ impl ScriptHandle {
         }
     }
 
-    pub fn tick(&self, dt: f64) {
-        let _ = self.tx.send(WorkerCmd::Tick(Input { dt }));
+    pub fn tick(&self, input: Input) {
+        let _ = self.tx.send(WorkerCmd::Tick(input));
     }
 
     pub fn stop(&mut self) {

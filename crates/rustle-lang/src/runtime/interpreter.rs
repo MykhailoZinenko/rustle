@@ -238,7 +238,17 @@ impl<'a> Interpreter<'a> {
     /// Returns a runtime error if `on_update` fails during execution.
     pub fn run_update(&mut self, state: State, input: &Input) -> Result<State, RuntimeError> {
         let Some(f) = self.fn_table.get("on_update").copied() else { return Ok(state); };
-        let input_val = Value::Input { dt: input.dt };
+        let input_val = Value::Input {
+            dt: input.dt,
+            mouse_x: input.mouse_x,
+            mouse_y: input.mouse_y,
+            mouse_down: input.mouse_down,
+            mouse_pressed: input.mouse_pressed,
+            mouse_released: input.mouse_released,
+            key_pressed: input.key_pressed.clone(),
+            key_down: input.key_down.clone(),
+            key_released: input.key_released.clone(),
+        };
         self.run_lifecycle("on_update", f, state, &[("input", input_val)])
     }
 

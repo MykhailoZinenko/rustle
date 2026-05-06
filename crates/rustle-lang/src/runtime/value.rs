@@ -47,7 +47,17 @@ pub enum Value {
         variant: String,
         fields: HashMap<String, Value>,
     },
-    Input { dt: f64 },
+    Input {
+        dt: f64,
+        mouse_x: f64,
+        mouse_y: f64,
+        mouse_down: bool,
+        mouse_pressed: bool,
+        mouse_released: bool,
+        key_pressed: String,
+        key_down: String,
+        key_released: String,
+    },
     None,
 }
 
@@ -103,7 +113,7 @@ impl fmt::Display for Value {
             Value::State(_)  => write!(f, "<state>"),
             Value::Object(rc) => write!(f, "{}", rc.borrow().display()),
             Value::EnumVariant { enum_name, variant, .. } => write!(f, "{enum_name}.{variant}"),
-            Value::Input { dt } => write!(f, "input(dt={dt})"),
+            Value::Input { dt, .. } => write!(f, "input(dt={dt})"),
             Value::None => write!(f, "none"),
         }
     }
