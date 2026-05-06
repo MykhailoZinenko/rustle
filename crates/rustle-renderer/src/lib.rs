@@ -9,25 +9,35 @@ mod instance;
 mod pipeline;
 pub(crate) mod prepare;
 
-use instance::{PolygonVertex, SdfInstance};
+use instance::{LineVertex, PolygonVertex, SdfInstance};
 use rustle_lang::DrawCommand;
 use wgpu::util::DeviceExt;
 
 pub use prepare::PreparedFrame;
 
 const INITIAL_SDF_CAPACITY: usize = 256;
-const INITIAL_VERTEX_CAPACITY: usize = 1024;
-const INITIAL_INDEX_CAPACITY: usize = 2048;
+const INITIAL_LINE_VERTEX_CAPACITY: usize = 1024;
+const INITIAL_LINE_INDEX_CAPACITY: usize = 2048;
+const INITIAL_POLY_VERTEX_CAPACITY: usize = 1024;
+const INITIAL_POLY_INDEX_CAPACITY: usize = 2048;
 
 pub struct Renderer {
     sdf_pipeline: wgpu::RenderPipeline,
+    line_pipeline: wgpu::RenderPipeline,
     polygon_pipeline: wgpu::RenderPipeline,
     #[expect(dead_code, reason = "retained for potential future pipeline recreation")]
     viewport_bind_group_layout: wgpu::BindGroupLayout,
     viewport_buffer: wgpu::Buffer,
     viewport_bind_group: wgpu::BindGroup,
+
     sdf_instance_buffer: wgpu::Buffer,
     sdf_instance_capacity: usize,
+
+    line_vertex_buffer: wgpu::Buffer,
+    line_vertex_capacity: usize,
+    line_index_buffer: wgpu::Buffer,
+    line_index_capacity: usize,
+
     polygon_vertex_buffer: wgpu::Buffer,
     polygon_vertex_capacity: usize,
     polygon_index_buffer: wgpu::Buffer,
@@ -69,6 +79,7 @@ impl Renderer {
 
         let sdf_pipeline =
             pipeline::sdf::create_pipeline(device, format, &viewport_bind_group_layout);
+        let line_pipeline = pipeline::line::create_pipeline(device, format);
         let polygon_pipeline = pipeline::polygon::create_pipeline(device, format);
 
         let sdf_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -78,32 +89,49 @@ impl Renderer {
             mapped_at_creation: false,
         });
 
-        let polygon_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("polygon_vertex_buffer"),
-            size: (INITIAL_VERTEX_CAPACITY * std::mem::size_of::<PolygonVertex>()) as u64,
+        let line_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("line_vertex_buffer"),
+            size: (INITIAL_LINE_VERTEX_CAPACITY * std::mem::size_of::<LineVertex>()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let line_index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("line_index_buffer"),
+            size: (INITIAL_LINE_INDEX_CAPACITY * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
+        let polygon_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("polygon_vertex_buffer"),
+            size: (INITIAL_POLY_VERTEX_CAPACITY * std::mem::size_of::<PolygonVertex>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let polygon_index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("polygon_index_buffer"),
-            size: (INITIAL_INDEX_CAPACITY * std::mem::size_of::<u32>()) as u64,
+            size: (INITIAL_POLY_INDEX_CAPACITY * std::mem::size_of::<u32>()) as u64,
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         Self {
             sdf_pipeline,
+            line_pipeline,
             polygon_pipeline,
             viewport_bind_group_layout,
             viewport_buffer,
             viewport_bind_group,
             sdf_instance_buffer,
             sdf_instance_capacity: INITIAL_SDF_CAPACITY,
+            line_vertex_buffer,
+            line_vertex_capacity: INITIAL_LINE_VERTEX_CAPACITY,
+            line_index_buffer,
+            line_index_capacity: INITIAL_LINE_INDEX_CAPACITY,
             polygon_vertex_buffer,
-            polygon_vertex_capacity: INITIAL_VERTEX_CAPACITY,
+            polygon_vertex_capacity: INITIAL_POLY_VERTEX_CAPACITY,
             polygon_index_buffer,
-            polygon_index_capacity: INITIAL_INDEX_CAPACITY,
+            polygon_index_capacity: INITIAL_POLY_INDEX_CAPACITY,
         }
     }
 
@@ -154,7 +182,6 @@ impl Renderer {
         width: u32,
         height: u32,
     ) -> PreparedFrame {
-        // Update viewport uniform
         queue.write_buffer(
             &self.viewport_buffer,
             0,
@@ -163,34 +190,42 @@ impl Renderer {
 
         let frame = prepare::prepare(commands);
 
-        // Upload SDF instances
         if !frame.sdf_instances.is_empty() {
-            self.ensure_sdf_capacity(device, frame.sdf_instances.len());
-            queue.write_buffer(
-                &self.sdf_instance_buffer,
-                0,
-                bytemuck::cast_slice(&frame.sdf_instances),
-            );
+            grow_buffer(device, &mut self.sdf_instance_buffer, &mut self.sdf_instance_capacity,
+                frame.sdf_instances.len(), std::mem::size_of::<SdfInstance>(),
+                "sdf_instance_buffer", wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
+            queue.write_buffer(&self.sdf_instance_buffer, 0,
+                bytemuck::cast_slice(&frame.sdf_instances));
         }
 
-        // Upload polygon vertices
+        if !frame.line_vertices.is_empty() {
+            grow_buffer(device, &mut self.line_vertex_buffer, &mut self.line_vertex_capacity,
+                frame.line_vertices.len(), std::mem::size_of::<LineVertex>(),
+                "line_vertex_buffer", wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
+            queue.write_buffer(&self.line_vertex_buffer, 0,
+                bytemuck::cast_slice(&frame.line_vertices));
+        }
+        if !frame.line_indices.is_empty() {
+            grow_buffer(device, &mut self.line_index_buffer, &mut self.line_index_capacity,
+                frame.line_indices.len(), std::mem::size_of::<u32>(),
+                "line_index_buffer", wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST);
+            queue.write_buffer(&self.line_index_buffer, 0,
+                bytemuck::cast_slice(&frame.line_indices));
+        }
+
         if !frame.polygon_vertices.is_empty() {
-            self.ensure_vertex_capacity(device, frame.polygon_vertices.len());
-            queue.write_buffer(
-                &self.polygon_vertex_buffer,
-                0,
-                bytemuck::cast_slice(&frame.polygon_vertices),
-            );
+            grow_buffer(device, &mut self.polygon_vertex_buffer, &mut self.polygon_vertex_capacity,
+                frame.polygon_vertices.len(), std::mem::size_of::<PolygonVertex>(),
+                "polygon_vertex_buffer", wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
+            queue.write_buffer(&self.polygon_vertex_buffer, 0,
+                bytemuck::cast_slice(&frame.polygon_vertices));
         }
-
-        // Upload polygon indices
         if !frame.polygon_indices.is_empty() {
-            self.ensure_index_capacity(device, frame.polygon_indices.len());
-            queue.write_buffer(
-                &self.polygon_index_buffer,
-                0,
-                bytemuck::cast_slice(&frame.polygon_indices),
-            );
+            grow_buffer(device, &mut self.polygon_index_buffer, &mut self.polygon_index_capacity,
+                frame.polygon_indices.len(), std::mem::size_of::<u32>(),
+                "polygon_index_buffer", wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST);
+            queue.write_buffer(&self.polygon_index_buffer, 0,
+                bytemuck::cast_slice(&frame.polygon_indices));
         }
 
         frame
@@ -198,72 +233,54 @@ impl Renderer {
 
     /// Record draw calls into an existing render pass (for egui integration).
     pub fn render_to_pass<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, frame: &PreparedFrame) {
-        // Draw SDF shapes
-        if !frame.sdf_instances.is_empty() {
-            pass.set_pipeline(&self.sdf_pipeline);
-            pass.set_bind_group(0, &self.viewport_bind_group, &[]);
-            pass.set_vertex_buffer(0, self.sdf_instance_buffer.slice(..));
-            // 6 vertices per quad (generated in vertex shader), N instances
-            pass.draw(0..6, 0..frame.sdf_instances.len() as u32);
-        }
-
-        // Draw polygons
+        // 1. Filled polygons (behind everything)
         if !frame.polygon_indices.is_empty() {
             pass.set_pipeline(&self.polygon_pipeline);
             pass.set_vertex_buffer(0, self.polygon_vertex_buffer.slice(..));
             pass.set_index_buffer(self.polygon_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..frame.polygon_indices.len() as u32, 0, 0..1);
         }
+
+        // 2. SDF shapes (circles, rects)
+        if !frame.sdf_instances.is_empty() {
+            pass.set_pipeline(&self.sdf_pipeline);
+            pass.set_bind_group(0, &self.viewport_bind_group, &[]);
+            pass.set_vertex_buffer(0, self.sdf_instance_buffer.slice(..));
+            pass.draw(0..6, 0..frame.sdf_instances.len() as u32);
+        }
+
+        // 3. Lines and polygon outlines
+        if !frame.line_indices.is_empty() {
+            pass.set_pipeline(&self.line_pipeline);
+            pass.set_vertex_buffer(0, self.line_vertex_buffer.slice(..));
+            pass.set_index_buffer(self.line_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..frame.line_indices.len() as u32, 0, 0..1);
+        }
     }
 
-    fn ensure_sdf_capacity(&mut self, device: &wgpu::Device, needed: usize) {
-        if needed <= self.sdf_instance_capacity {
-            return;
-        }
-        let mut cap = self.sdf_instance_capacity;
-        while cap < needed {
-            cap *= 2;
-        }
-        self.sdf_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("sdf_instance_buffer"),
-            size: (cap * std::mem::size_of::<SdfInstance>()) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.sdf_instance_capacity = cap;
-    }
+}
 
-    fn ensure_vertex_capacity(&mut self, device: &wgpu::Device, needed: usize) {
-        if needed <= self.polygon_vertex_capacity {
-            return;
-        }
-        let mut cap = self.polygon_vertex_capacity;
-        while cap < needed {
-            cap *= 2;
-        }
-        self.polygon_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("polygon_vertex_buffer"),
-            size: (cap * std::mem::size_of::<PolygonVertex>()) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.polygon_vertex_capacity = cap;
+fn grow_buffer(
+    device: &wgpu::Device,
+    buffer: &mut wgpu::Buffer,
+    capacity: &mut usize,
+    needed: usize,
+    element_size: usize,
+    label: &str,
+    usage: wgpu::BufferUsages,
+) {
+    if needed <= *capacity {
+        return;
     }
-
-    fn ensure_index_capacity(&mut self, device: &wgpu::Device, needed: usize) {
-        if needed <= self.polygon_index_capacity {
-            return;
-        }
-        let mut cap = self.polygon_index_capacity;
-        while cap < needed {
-            cap *= 2;
-        }
-        self.polygon_index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("polygon_index_buffer"),
-            size: (cap * std::mem::size_of::<u32>()) as u64,
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.polygon_index_capacity = cap;
+    let mut cap = *capacity;
+    while cap < needed {
+        cap *= 2;
     }
+    *buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: (cap * element_size) as u64,
+        usage,
+        mapped_at_creation: false,
+    });
+    *capacity = cap;
 }

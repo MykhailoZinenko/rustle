@@ -1,18 +1,20 @@
 use rustle_lang::{DrawCommand, RenderMode, ShapeData, ShapeDesc, origin_offset};
 
-use crate::instance::{PolygonVertex, SdfInstance};
+use crate::instance::{LineVertex, PolygonVertex, SdfInstance};
 
-/// GPU-ready data for one frame.
 pub struct PreparedFrame {
     pub(crate) sdf_instances: Vec<SdfInstance>,
+    pub(crate) line_vertices: Vec<LineVertex>,
+    pub(crate) line_indices: Vec<u32>,
     pub(crate) polygon_vertices: Vec<PolygonVertex>,
     pub(crate) polygon_indices: Vec<u32>,
 }
 
-/// Convert a slice of `DrawCommand`s into GPU instance/vertex data.
 #[must_use]
 pub fn prepare(commands: &[DrawCommand]) -> PreparedFrame {
     let mut sdf_instances = Vec::new();
+    let mut line_vertices = Vec::new();
+    let mut line_indices = Vec::new();
     let mut polygon_vertices = Vec::new();
     let mut polygon_indices = Vec::new();
 
@@ -21,17 +23,25 @@ pub fn prepare(commands: &[DrawCommand]) -> PreparedFrame {
             continue;
         };
         match &data.desc {
-            ShapeDesc::Circle { .. } | ShapeDesc::Rect { .. } | ShapeDesc::Line { .. } => {
-                if let Some(inst) = build_sdf_instance(data) {
+            ShapeDesc::Circle { .. } => {
+                if let Some(inst) = build_circle(data) {
                     sdf_instances.push(inst);
                 }
             }
+            ShapeDesc::Rect { .. } => {
+                if let Some(inst) = build_rect(data) {
+                    sdf_instances.push(inst);
+                }
+            }
+            ShapeDesc::Line { .. } => {
+                build_line(data, &mut line_vertices, &mut line_indices);
+            }
             ShapeDesc::Polygon(pts) => match &data.render_mode {
                 RenderMode::Outline | RenderMode::Stroke(_) => {
-                    build_polygon_outline(data, pts, &mut sdf_instances);
+                    build_polygon_outline(data, pts, &mut line_vertices, &mut line_indices);
                 }
                 _ => {
-                    build_polygon(data, pts, &mut polygon_vertices, &mut polygon_indices);
+                    build_polygon_fill(data, pts, &mut polygon_vertices, &mut polygon_indices);
                 }
             },
             _ => {}
@@ -40,10 +50,54 @@ pub fn prepare(commands: &[DrawCommand]) -> PreparedFrame {
 
     PreparedFrame {
         sdf_instances,
+        line_vertices,
+        line_indices,
         polygon_vertices,
         polygon_indices,
     }
 }
+
+// ─── Coordinate helpers ──────────────────────────────────────────────────────
+
+fn color_f32(data: &ShapeData) -> [f32; 4] {
+    [
+        data.color[0] as f32,
+        data.color[1] as f32,
+        data.color[2] as f32,
+        data.color[3] as f32,
+    ]
+}
+
+/// Accumulate translation and scale from transforms.
+/// Returns (tx, ty) in user coords and (sx, sy) scale factors.
+fn accumulate_transforms(data: &ShapeData) -> (f64, f64, f64, f64) {
+    let mut tx = 0.0;
+    let mut ty = 0.0;
+    let mut sx = 1.0;
+    let mut sy = 1.0;
+    for t in &data.transforms {
+        tx += t.tx;
+        ty += t.ty;
+        sx *= t.sx;
+        sy *= t.sy;
+    }
+    (tx, ty, sx, sy)
+}
+
+/// Convert a user-coordinate point (with transforms applied) to NDC.
+fn to_ndc(data: &ShapeData, x: f64, y: f64) -> (f64, f64) {
+    let meta = &data.coord_meta;
+    (meta.x_to_ndc(x), meta.y_to_ndc(y))
+}
+
+/// Apply transforms to a point relative to a pivot, return in user coords.
+fn apply_transform(x: f64, y: f64, pivot_x: f64, pivot_y: f64, tx: f64, ty: f64, sx: f64, sy: f64) -> (f64, f64) {
+    let rx = pivot_x + (x - pivot_x) * sx + tx;
+    let ry = pivot_y + (y - pivot_y) * sy + ty;
+    (rx, ry)
+}
+
+// ─── Render mode → SDF params ────────────────────────────────────────────────
 
 #[expect(clippy::match_same_arms, reason = "non_exhaustive enum requires wildcard arm")]
 fn render_mode_code(mode: &RenderMode) -> f32 {
@@ -56,207 +110,155 @@ fn render_mode_code(mode: &RenderMode) -> f32 {
     }
 }
 
-fn stroke_width(mode: &RenderMode) -> f32 {
+fn stroke_width_px(mode: &RenderMode) -> f32 {
     match mode {
         RenderMode::Stroke(w) => *w as f32,
         _ => 0.0,
     }
 }
 
-fn color_f32(data: &ShapeData) -> [f32; 4] {
-    [
-        data.color[0] as f32,
-        data.color[1] as f32,
-        data.color[2] as f32,
-        data.color[3] as f32,
-    ]
-}
+// ─── Circle (SDF) ────────────────────────────────────────────────────────────
 
-/// Accumulate translation (NDC) and scale from transforms.
-/// Note: rotation (TransformData::angle) is not yet implemented.
-fn accumulate_transforms(data: &ShapeData) -> (f64, f64, f64, f64) {
-    let meta = &data.coord_meta;
-    let mut tx = 0.0;
-    let mut ty = 0.0;
-    let mut sx = 1.0;
-    let mut sy = 1.0;
-    for t in &data.transforms {
-        tx += meta.w_to_ndc(t.tx);
-        ty += meta.dy_to_ndc(t.ty);
-        sx *= t.sx;
-        sy *= t.sy;
-    }
-    (tx, ty, sx, sy)
-}
-
-fn build_sdf_instance(data: &ShapeData) -> Option<SdfInstance> {
+fn build_circle(data: &ShapeData) -> Option<SdfInstance> {
+    let ShapeDesc::Circle { center, radius } = &data.desc else {
+        return None;
+    };
     let meta = &data.coord_meta;
     let (tx, ty, sx, sy) = accumulate_transforms(data);
 
-    match &data.desc {
-        ShapeDesc::Circle { center, radius } => {
-            let cx = meta.x_to_ndc(center.0) + tx;
-            let cy = meta.y_to_ndc(center.1) + ty;
-            let r_ndc_x = meta.w_to_ndc(*radius) * sx;
-            let r_ndc_y = meta.h_to_ndc(*radius) * sy;
+    let cx = center.0 + tx;
+    let cy = center.1 + ty;
+    let (ndc_x, ndc_y) = to_ndc(data, cx, cy);
+    let r_ndc_x = meta.w_to_ndc(*radius) * sx;
+    let r_ndc_y = meta.h_to_ndc(*radius) * sy;
 
-            Some(SdfInstance {
-                center: [cx as f32, cy as f32],
-                size: [r_ndc_x as f32, r_ndc_y as f32],
-                color: color_f32(data),
-                shape_params: [
-                    0.0, // circle
-                    render_mode_code(&data.render_mode),
-                    stroke_width(&data.render_mode),
-                    0.0, // corner_radius
-                ],
-                line_dir: [0.0; 4],
-            })
-        }
-        ShapeDesc::Rect { center, size, origin } => {
-            let hw_ndc = meta.w_to_ndc(size.0 / 2.0) * sx;
-            let hh_ndc = meta.h_to_ndc(size.1 / 2.0) * sy;
-            let (off_x, off_y) = origin_offset(origin, hw_ndc, hh_ndc);
+    Some(SdfInstance {
+        center: [ndc_x as f32, ndc_y as f32],
+        size: [r_ndc_x as f32, r_ndc_y as f32],
+        color: color_f32(data),
+        shape_params: [
+            0.0,
+            render_mode_code(&data.render_mode),
+            stroke_width_px(&data.render_mode),
+            0.0,
+        ],
+    })
+}
 
-            let cx = meta.x_to_ndc(center.0) + off_x + tx;
-            let cy = meta.y_to_ndc(center.1) + off_y + ty;
+// ─── Rect (SDF) ──────────────────────────────────────────────────────────────
 
-            Some(SdfInstance {
-                center: [cx as f32, cy as f32],
-                size: [hw_ndc as f32, hh_ndc as f32],
-                color: color_f32(data),
-                shape_params: [
-                    1.0, // rect
-                    render_mode_code(&data.render_mode),
-                    stroke_width(&data.render_mode),
-                    0.0, // corner_radius
-                ],
-                line_dir: [0.0; 4],
-            })
-        }
-        ShapeDesc::Line { from, to } => {
-            let x0 = meta.x_to_ndc(from.0);
-            let y0 = meta.y_to_ndc(from.1);
-            let x1 = meta.x_to_ndc(to.0);
-            let y1 = meta.y_to_ndc(to.1);
+fn build_rect(data: &ShapeData) -> Option<SdfInstance> {
+    let ShapeDesc::Rect { center, size, origin } = &data.desc else {
+        return None;
+    };
+    let meta = &data.coord_meta;
+    let (tx, ty, sx, sy) = accumulate_transforms(data);
 
-            let mx = f64::midpoint(x0, x1) + tx;
-            let my = f64::midpoint(y0, y1) + ty;
-            let dx = (x1 - x0) * sx;
-            let dy = (y1 - y0) * sy;
-            let half_len = (dx * dx + dy * dy).sqrt() / 2.0;
+    let hw_ndc = meta.w_to_ndc(size.0 / 2.0) * sx;
+    let hh_ndc = meta.h_to_ndc(size.1 / 2.0) * sy;
+    let (off_x, off_y) = origin_offset(origin, hw_ndc, hh_ndc);
 
-            // Line thickness in NDC: use stroke width or a default thin line
-            let thickness_ndc = if let RenderMode::Stroke(w) = &data.render_mode {
-                meta.h_to_ndc(*w) * sy
-            } else {
-                meta.h_to_ndc(1.0) * sy
-            };
+    let cx = center.0 + tx;
+    let cy = center.1 + ty;
+    let (ndc_x, ndc_y) = to_ndc(data, cx, cy);
 
-            // Normalized line direction
-            let len = (dx * dx + dy * dy).sqrt();
-            let (ndx, ndy) = if len > 1e-12 {
-                (dx / len, dy / len)
-            } else {
-                (1.0, 0.0)
-            };
+    Some(SdfInstance {
+        center: [(ndc_x + off_x) as f32, (ndc_y + off_y) as f32],
+        size: [hw_ndc as f32, hh_ndc as f32],
+        color: color_f32(data),
+        shape_params: [
+            1.0,
+            render_mode_code(&data.render_mode),
+            stroke_width_px(&data.render_mode),
+            0.0,
+        ],
+    })
+}
 
-            // Axis-aligned bounding box that covers the diagonal line plus thickness
-            let half_w = dx.abs() / 2.0 + thickness_ndc;
-            let half_h = dy.abs() / 2.0 + thickness_ndc;
+// ─── Line (geometry quad) ────────────────────────────────────────────────────
 
-            Some(SdfInstance {
-                center: [mx as f32, my as f32],
-                size: [half_w as f32, half_h as f32],
-                color: color_f32(data),
-                shape_params: [
-                    2.0, // line
-                    render_mode_code(&data.render_mode),
-                    0.0, // stroke_width unused for lines — thickness is geometric
-                    0.0,
-                ],
-                line_dir: [
-                    ndx as f32,
-                    ndy as f32,
-                    half_len as f32,
-                    thickness_ndc as f32,
-                ],
-            })
-        }
-        _ => None,
+fn line_thickness(data: &ShapeData) -> f64 {
+    match &data.render_mode {
+        RenderMode::Stroke(w) => *w,
+        _ => 1.0,
     }
 }
 
-fn build_polygon_outline(
+fn build_line(data: &ShapeData, vertices: &mut Vec<LineVertex>, indices: &mut Vec<u32>) {
+    let ShapeDesc::Line { from, to } = &data.desc else {
+        return;
+    };
+    let (tx, ty, sx, sy) = accumulate_transforms(data);
+    let pivot_x = (from.0 + to.0) / 2.0;
+    let pivot_y = (from.1 + to.1) / 2.0;
+
+    let (ax, ay) = apply_transform(from.0, from.1, pivot_x, pivot_y, tx, ty, sx, sy);
+    let (bx, by) = apply_transform(to.0, to.1, pivot_x, pivot_y, tx, ty, sx, sy);
+
+    let thickness = line_thickness(data);
+    let color = color_f32(data);
+
+    emit_line_quad(data, ax, ay, bx, by, thickness, color, vertices, indices);
+}
+
+/// Emit a single line-segment quad (4 vertices, 6 indices).
+/// Endpoints are in user coordinates; perpendicular is computed in user space
+/// (which is pixel-isotropic), then vertices are converted to NDC.
+fn emit_line_quad(
     data: &ShapeData,
-    pts: &[(f64, f64)],
-    sdf_instances: &mut Vec<SdfInstance>,
+    ax: f64, ay: f64,
+    bx: f64, by: f64,
+    thickness: f64,
+    color: [f32; 4],
+    vertices: &mut Vec<LineVertex>,
+    indices: &mut Vec<u32>,
 ) {
-    if pts.len() < 2 {
+    let dx = bx - ax;
+    let dy = by - ay;
+    let len = (dx * dx + dy * dy).sqrt();
+    if len < 1e-12 {
         return;
     }
 
-    let meta = &data.coord_meta;
-    let (tx, ty, sx, sy) = accumulate_transforms(data);
-    let color = color_f32(data);
+    let half_t = thickness / 2.0;
+    let aa_pad = 1.5;
+    let expand = half_t + aa_pad;
 
-    let centroid_x: f64 = pts.iter().map(|p| p.0).sum::<f64>() / pts.len() as f64;
-    let centroid_y: f64 = pts.iter().map(|p| p.1).sum::<f64>() / pts.len() as f64;
-    let cx_ndc = meta.x_to_ndc(centroid_x);
-    let cy_ndc = meta.y_to_ndc(centroid_y);
+    // Perpendicular unit vector in user/pixel space (isotropic)
+    let px = -dy / len;
+    let py = dx / len;
 
-    let thickness_ndc = if let RenderMode::Stroke(w) = &data.render_mode {
-        meta.h_to_ndc(*w) * sy
-    } else {
-        meta.h_to_ndc(1.0) * sy
-    };
+    // Four corners: offset endpoints by perpendicular * expand
+    let corners = [
+        (ax - px * expand, ay - py * expand), // v0: start, left edge
+        (ax + px * expand, ay + py * expand), // v1: start, right edge
+        (bx - px * expand, by - py * expand), // v2: end, left edge
+        (bx + px * expand, by + py * expand), // v3: end, right edge
+    ];
+    let dists = [
+        -(expand as f32),
+        expand as f32,
+        -(expand as f32),
+        expand as f32,
+    ];
 
-    let n = pts.len();
-    for i in 0..n {
-        let j = (i + 1) % n;
-
-        let mut x0 = meta.x_to_ndc(pts[i].0);
-        let mut y0 = meta.y_to_ndc(pts[i].1);
-        let mut x1 = meta.x_to_ndc(pts[j].0);
-        let mut y1 = meta.y_to_ndc(pts[j].1);
-
-        x0 = cx_ndc + (x0 - cx_ndc) * sx + tx;
-        y0 = cy_ndc + (y0 - cy_ndc) * sy + ty;
-        x1 = cx_ndc + (x1 - cx_ndc) * sx + tx;
-        y1 = cy_ndc + (y1 - cy_ndc) * sy + ty;
-
-        let mx = f64::midpoint(x0, x1);
-        let my = f64::midpoint(y0, y1);
-        let dx = x1 - x0;
-        let dy = y1 - y0;
-        let len = (dx * dx + dy * dy).sqrt();
-        let half_len = len / 2.0;
-
-        let (ndx, ndy) = if len > 1e-12 {
-            (dx / len, dy / len)
-        } else {
-            (1.0, 0.0)
-        };
-
-        let half_w = dx.abs() / 2.0 + thickness_ndc;
-        let half_h = dy.abs() / 2.0 + thickness_ndc;
-
-        sdf_instances.push(SdfInstance {
-            center: [mx as f32, my as f32],
-            size: [half_w as f32, half_h as f32],
+    let base = vertices.len() as u32;
+    for (i, &(cx, cy)) in corners.iter().enumerate() {
+        let (nx, ny) = to_ndc(data, cx, cy);
+        vertices.push(LineVertex {
+            position: [nx as f32, ny as f32],
             color,
-            shape_params: [
-                2.0, // line shape type
-                render_mode_code(&data.render_mode),
-                0.0,
-                0.0,
-            ],
-            line_dir: [ndx as f32, ndy as f32, half_len as f32, thickness_ndc as f32],
+            edge_dist: dists[i],
+            half_thickness: half_t as f32,
         });
     }
+
+    indices.extend_from_slice(&[base, base + 1, base + 2, base + 2, base + 1, base + 3]);
 }
 
-fn build_polygon(
+// ─── Polygon (fill) ──────────────────────────────────────────────────────────
+
+fn build_polygon_fill(
     data: &ShapeData,
     pts: &[(f64, f64)],
     vertices: &mut Vec<PolygonVertex>,
@@ -266,35 +268,23 @@ fn build_polygon(
         return;
     }
 
-    let meta = &data.coord_meta;
     let (tx, ty, sx, sy) = accumulate_transforms(data);
     let color = color_f32(data);
 
-    // Compute centroid for scale pivot
     let centroid_x: f64 = pts.iter().map(|p| p.0).sum::<f64>() / pts.len() as f64;
     let centroid_y: f64 = pts.iter().map(|p| p.1).sum::<f64>() / pts.len() as f64;
-    let cx_ndc = meta.x_to_ndc(centroid_x);
-    let cy_ndc = meta.y_to_ndc(centroid_y);
 
     let base = vertices.len() as u32;
 
     for &(px, py) in pts {
-        let mut nx = meta.x_to_ndc(px);
-        let mut ny = meta.y_to_ndc(py);
-        // Apply scale around centroid
-        nx = cx_ndc + (nx - cx_ndc) * sx;
-        ny = cy_ndc + (ny - cy_ndc) * sy;
-        // Apply translation
-        nx += tx;
-        ny += ty;
-
+        let (rx, ry) = apply_transform(px, py, centroid_x, centroid_y, tx, ty, sx, sy);
+        let (nx, ny) = to_ndc(data, rx, ry);
         vertices.push(PolygonVertex {
             position: [nx as f32, ny as f32],
             color,
         });
     }
 
-    // Fan triangulation: correct for convex polygons only.
     let n = pts.len() as u32;
     for i in 1..n - 1 {
         indices.push(base);
@@ -302,6 +292,37 @@ fn build_polygon(
         indices.push(base + i + 1);
     }
 }
+
+// ─── Polygon (outline) ──────────────────────────────────────────────────────
+
+fn build_polygon_outline(
+    data: &ShapeData,
+    pts: &[(f64, f64)],
+    line_vertices: &mut Vec<LineVertex>,
+    line_indices: &mut Vec<u32>,
+) {
+    if pts.len() < 2 {
+        return;
+    }
+
+    let (tx, ty, sx, sy) = accumulate_transforms(data);
+    let color = color_f32(data);
+    let thickness = line_thickness(data);
+
+    let centroid_x: f64 = pts.iter().map(|p| p.0).sum::<f64>() / pts.len() as f64;
+    let centroid_y: f64 = pts.iter().map(|p| p.1).sum::<f64>() / pts.len() as f64;
+
+    let n = pts.len();
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let (ax, ay) = apply_transform(pts[i].0, pts[i].1, centroid_x, centroid_y, tx, ty, sx, sy);
+        let (bx, by) = apply_transform(pts[j].0, pts[j].1, centroid_x, centroid_y, tx, ty, sx, sy);
+
+        emit_line_quad(data, ax, ay, bx, by, thickness, color, line_vertices, line_indices);
+    }
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -333,10 +354,8 @@ mod tests {
 
         assert_eq!(frame.sdf_instances.len(), 1);
         let inst = &frame.sdf_instances[0];
-        // Center at origin → NDC (0, 0)
         assert!((inst.center[0]).abs() < 1e-6);
         assert!((inst.center[1]).abs() < 1e-6);
-        // radius 50 in 800px wide → w_to_ndc = 2*50/800 = 0.125
         let expected_w = 2.0 * 50.0 / 800.0;
         let expected_h = 2.0 * 50.0 / 600.0;
         assert!((f64::from(inst.size[0]) - expected_w).abs() < 1e-5);
@@ -344,7 +363,7 @@ mod tests {
     }
 
     #[test]
-    fn polygon_four_points() {
+    fn polygon_four_points_fill() {
         let pts = vec![(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)];
         let data = ShapeData {
             desc: ShapeDesc::Polygon(pts),
@@ -357,8 +376,47 @@ mod tests {
         let frame = prepare(&cmds);
 
         assert_eq!(frame.polygon_vertices.len(), 4);
-        // Fan triangulation: 4 pts → 2 triangles → 6 indices
         assert_eq!(frame.polygon_indices.len(), 6);
+        assert!(frame.line_vertices.is_empty());
+    }
+
+    #[test]
+    fn polygon_outline_produces_line_geometry() {
+        let pts = vec![(0.0, 0.0), (100.0, 0.0), (100.0, 100.0)];
+        let data = ShapeData {
+            desc: ShapeDesc::Polygon(pts),
+            render_mode: RenderMode::Outline,
+            coord_meta: meta_800x600(),
+            transforms: Vec::new(),
+            color: [1.0, 1.0, 1.0, 1.0],
+        };
+        let cmds = vec![DrawCommand::DrawShape(data)];
+        let frame = prepare(&cmds);
+
+        assert!(frame.polygon_vertices.is_empty());
+        // 3 edges × 4 vertices = 12
+        assert_eq!(frame.line_vertices.len(), 12);
+        // 3 edges × 6 indices = 18
+        assert_eq!(frame.line_indices.len(), 18);
+    }
+
+    #[test]
+    fn line_produces_quad() {
+        let data = ShapeData {
+            desc: ShapeDesc::Line {
+                from: (0.0, 0.0),
+                to: (100.0, 0.0),
+            },
+            render_mode: RenderMode::Fill,
+            coord_meta: meta_800x600(),
+            transforms: Vec::new(),
+            color: [1.0, 1.0, 1.0, 1.0],
+        };
+        let cmds = vec![DrawCommand::DrawShape(data)];
+        let frame = prepare(&cmds);
+
+        assert_eq!(frame.line_vertices.len(), 4);
+        assert_eq!(frame.line_indices.len(), 6);
+        assert!(frame.sdf_instances.is_empty());
     }
 }
-
