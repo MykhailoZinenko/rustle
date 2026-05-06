@@ -9,5 +9,7 @@ workspace = true
 [dependencies]
 rustle-lang = { version = "0.1.0", path = "../rustle-lang" }
 rustle-renderer = { version = "0.1.0", path = "../rustle-renderer" }
-eframe = "^0.34.1"
+eframe = { version = "^0.34.1", features = ["wgpu"] }
+egui-wgpu = "0.34.2"
+wgpu = "29.0.3"
 rfd = "0.17.2"

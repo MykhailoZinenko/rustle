@@ -3,6 +3,7 @@ use rustle_lang::DrawCommand;
 
 use crate::events::app_events::AppEvent;
 use crate::renderer::egui_renderer::EguiPreviewRenderer;
+use crate::renderer::wgpu_renderer::RustlePaintCallback;
 use crate::theme::ThemePalette;
 
 pub struct PreviewPanelState<'a> {
@@ -16,9 +17,8 @@ pub struct PreviewPanelState<'a> {
 pub fn draw_preview(
     ui: &mut Ui,
     state: PreviewPanelState<'_>,
-    renderer: &EguiPreviewRenderer,
     theme: &ThemePalette,
- ) -> Option<AppEvent> {
+) -> Option<AppEvent> {
     let mut event = None;
 
     Frame::new()
@@ -88,7 +88,21 @@ pub fn draw_preview(
                 return;
             }
 
-            renderer.draw(ui, state.commands, fitted_size, theme);
+            let canvas_size = fitted_size.unwrap_or_else(|| {
+                state.native_size.unwrap_or(egui::vec2(400.0, 400.0))
+            });
+            let native_size = state.native_size.unwrap_or(canvas_size);
+
+            let (rect, _) = ui.allocate_exact_size(canvas_size, egui::Sense::hover());
+            let callback = egui_wgpu::Callback::new_paint_callback(
+                rect,
+                RustlePaintCallback {
+                    commands: state.commands.to_vec(),
+                    width: native_size.x as u32,
+                    height: native_size.y as u32,
+                },
+            );
+            ui.painter().add(callback);
         });
 
     event

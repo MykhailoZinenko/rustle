@@ -6,19 +6,16 @@ use crate::core::app_event_core::wrap_editor;
 use crate::core::shortcut_core::{ShortcutAction, consume_shortcut};
 use crate::events::app_events::AppEvent;
 use crate::events::editor_events::EditorEvent;
-use crate::renderer::egui_renderer::EguiPreviewRenderer;
 use crate::theme::visuals_for;
 
 pub struct App {
     core: AppCore,
-    renderer: EguiPreviewRenderer,
 }
 
 impl Default for App {
     fn default() -> Self {
         Self {
             core: AppCore::default(),
-            renderer: EguiPreviewRenderer,
         }
     }
 }
@@ -48,7 +45,6 @@ impl eframe::App for App {
             crate::ui::workspace_ui::draw_workspace(
                 ui,
                 &mut self.core,
-                &self.renderer,
                 &theme,
             );
         });

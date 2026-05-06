@@ -2,7 +2,6 @@ use eframe::egui;
 
 use crate::app_core::AppCore;
 use crate::events::app_events::AppEvent;
-use crate::renderer::egui_renderer::EguiPreviewRenderer;
 use crate::theme::ThemePalette;
 use crate::ui::console_ui::draw_console;
 use crate::ui::preview_ui::PreviewPanelState;
@@ -10,7 +9,6 @@ use crate::ui::preview_ui::PreviewPanelState;
 pub fn draw_workspace(
     ui: &mut egui::Ui,
     core: &mut AppCore,
-    renderer: &EguiPreviewRenderer,
     theme: &ThemePalette,
 ) {
     let mut preview_event = None;
@@ -140,7 +138,6 @@ pub fn draw_workspace(
                             error: core.preview_error(),
                             native_size: core.preview_native_size(),
                         },
-                        renderer,
                         theme,
                     );
                 },
