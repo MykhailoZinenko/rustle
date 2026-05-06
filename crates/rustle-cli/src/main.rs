@@ -268,7 +268,7 @@ impl ApplicationHandler for App {
                 state.input_state.key_pressed.clear();
                 state.input_state.key_released.clear();
 
-                let commands: Vec<DrawCommand> = match state.runtime.tick(&input) {
+                let all_commands = match state.runtime.tick(&input) {
                     Ok(cmds) => cmds,
                     Err(e) => {
                         eprintln!("Runtime error: {e}");
@@ -279,6 +279,17 @@ impl ApplicationHandler for App {
                     }
                 };
 
+                let mut commands = Vec::with_capacity(all_commands.len());
+                for cmd in all_commands {
+                    match cmd {
+                        DrawCommand::Print(ref msg) => println!("{msg}"),
+                        DrawCommand::Warn(ref msg) => eprintln!("[warn] {msg}"),
+                        DrawCommand::Error(ref msg) => eprintln!("[error] {msg}"),
+                        _ => {}
+                    }
+                    commands.push(cmd);
+                }
+
                 let frame = match state.surface.get_current_texture() {
                     wgpu::CurrentSurfaceTexture::Success(f)
                     | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
@@ -287,10 +298,13 @@ impl ApplicationHandler for App {
                         state.window.request_redraw();
                         return;
                     }
-                    other => {
-                        eprintln!("Surface error: {other:?}");
-                        self.exit_code = 1;
-                        event_loop.exit();
+                    wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => {
+                        state.window.request_redraw();
+                        return;
+                    }
+                    wgpu::CurrentSurfaceTexture::Validation => {
+                        state.surface.configure(&state.device, &state.config);
+                        state.window.request_redraw();
                         return;
                     }
                 };
