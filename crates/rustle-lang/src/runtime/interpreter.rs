@@ -1004,18 +1004,9 @@ impl<'a> Interpreter<'a> {
                     .collect();
                 let msg = parts?.join(" ");
                 match p.level {
-                    ast::PrintLevel::Log   => {
-                        println!("{msg}");
-                        self.env.emit(DrawCommand::Print(msg));
-                    }
-                    ast::PrintLevel::Warn  => {
-                        eprintln!("[warn] {msg}");
-                        self.env.emit(DrawCommand::Warn(msg));
-                    }
-                    ast::PrintLevel::Error => {
-                        eprintln!("[error] {msg}");
-                        self.env.emit(DrawCommand::Error(msg));
-                    }
+                    ast::PrintLevel::Log   => self.env.emit(DrawCommand::Print(msg)),
+                    ast::PrintLevel::Warn  => self.env.emit(DrawCommand::Warn(msg)),
+                    ast::PrintLevel::Error => self.env.emit(DrawCommand::Error(msg)),
                 }
             }
 
