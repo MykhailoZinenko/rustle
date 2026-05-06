@@ -84,7 +84,10 @@ impl NamespaceProvider for ShapesNamespace {
             _ => return Ok(None),
         };
 
-        Ok(Some(Value::Shape(ShapeData::new(desc, render_mode, coord_meta))))
+        let color = super::color_from_named(named_args);
+        let mut shape = ShapeData::new(desc, render_mode, coord_meta);
+        shape.color = color;
+        Ok(Some(Value::Shape(shape)))
     }
 
     fn get_constant(&self, name: &str) -> Option<Value> {

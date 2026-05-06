@@ -230,12 +230,13 @@ pub struct ShapeData {
     pub render_mode: RenderMode,
     pub coord_meta:  CoordMeta,
     pub transforms:  Vec<TransformData>,
+    pub color:       [f64; 4],
 }
 
 impl ShapeData {
-    #[must_use] 
+    #[must_use]
     pub fn new(desc: ShapeDesc, render_mode: RenderMode, coord_meta: CoordMeta) -> Self {
-        Self { desc, render_mode, coord_meta, transforms: Vec::new() }
+        Self { desc, render_mode, coord_meta, transforms: Vec::new(), color: [1.0, 1.0, 1.0, 1.0] }
     }
 }
 
