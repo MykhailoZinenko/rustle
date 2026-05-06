@@ -1,3 +1,5 @@
+#[macro_use]
+mod terminal;
 mod app;
 mod app_core;
 mod core;

@@ -18,6 +18,7 @@ impl ThemeMode {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub struct ThemePalette {
     pub gutter_text: Color32,

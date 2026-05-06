@@ -12,7 +12,7 @@ use crate::theme::{ThemeMode, ThemePalette};
 pub fn draw_top_bar(
     ui: &mut egui::Ui,
     editor: &EditorState,
-    is_running: bool,
+    _is_running: bool,
     console_visible: bool,
     theme_mode: ThemeMode,
     _theme: &ThemePalette,
@@ -88,18 +88,10 @@ pub fn draw_top_bar(
 
             ui.menu_button("Run", |ui| {
                 if ui
-                    .add_enabled(!is_running, egui::Button::new("Run   F5"))
+                    .button("Run in Terminal   F5")
                     .clicked()
                 {
-                    events.push(AppEvent::StartPreview);
-                    ui.close();
-                }
-
-                if ui
-                    .add_enabled(is_running, egui::Button::new("Stop  F5"))
-                    .clicked()
-                {
-                    events.push(AppEvent::StopPreview);
+                    events.push(AppEvent::RunInTerminal);
                     ui.close();
                 }
             });

@@ -17,6 +17,8 @@ pub fn handle_app_event(core: &mut AppCore, event: AppEvent) {
         }
         AppEvent::StartPreview => core.start_preview(),
         AppEvent::StopPreview => core.stop_preview(),
+        AppEvent::RunInTerminal => core.run_in_terminal(),
+        AppEvent::Notify(message) => core.notify(message),
         AppEvent::ToggleSuggestions => {
             core.state.suggestions.is_open = !core.state.suggestions.is_open;
         }

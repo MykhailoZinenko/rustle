@@ -2,9 +2,11 @@ pub mod editor_ui;
 pub mod editor_code_view_ui;
 pub mod editor_highlight_ui;
 pub mod editor_suggestions_ui;
+#[allow(dead_code)]
 pub mod console_ui;
 pub mod editor_status_bar_ui;
 pub mod editor_tabs_ui;
 pub mod preview_ui;
+pub mod terminal_ui;
 pub mod top_bar;
 pub mod workspace_ui;

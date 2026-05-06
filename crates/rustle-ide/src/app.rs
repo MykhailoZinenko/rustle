@@ -23,6 +23,7 @@ impl Default for App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         ui.ctx().set_visuals(visuals_for(self.core.state.theme_mode));
+        self.core.ensure_terminal(ui.ctx());
         self.core.tick_preview(ui.ctx());
         let shortcut_action = consume_shortcut(ui.ctx());
 
@@ -79,11 +80,7 @@ impl App {
                 }
             }
             Some(ShortcutAction::ToggleRun) => {
-                if self.core.is_running() {
-                    self.core.queue_event(AppEvent::StopPreview);
-                } else {
-                    self.core.queue_event(AppEvent::StartPreview);
-                }
+                self.core.queue_event(AppEvent::RunInTerminal);
             }
             Some(ShortcutAction::ToggleSuggestions) => {
                 self.core.queue_event(AppEvent::ToggleSuggestions);

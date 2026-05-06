@@ -68,7 +68,7 @@ impl EditorState {
         self.tabs.remove(index);
 
         match self.active {
-            Some(i) if self.tabs.is_empty() => self.active = None,
+            Some(_) if self.tabs.is_empty() => self.active = None,
             Some(i) if i == index => {
                 self.active = Some(index.saturating_sub(1).min(self.tabs.len().saturating_sub(1)));
             }

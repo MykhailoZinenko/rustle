@@ -1,8 +1,11 @@
 use std::collections::VecDeque;
-use std::time::Instant;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use eframe::egui;
 use rustle_lang::{DrawCommand, Input};
+
+use crate::terminal::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
 
 use crate::core::app_event_core::handle_app_event;
 use crate::events::app_events::AppEvent;
@@ -13,6 +16,7 @@ use crate::runner::{
 use crate::state::app_state::AppState;
 
 const MAX_CONSOLE_ENTRIES: usize = 1000;
+const NOTIFICATION_DURATION: Duration = Duration::from_secs(3);
 
 pub struct LayoutState {
     pub editor_preview_ratio: f32,
@@ -28,6 +32,11 @@ impl Default for LayoutState {
     }
 }
 
+pub struct Notification {
+    pub message: String,
+    pub created_at: Instant,
+}
+
 pub struct AppCore {
     pub state: AppState,
     pub events: Vec<AppEvent>,
@@ -39,6 +48,10 @@ pub struct AppCore {
     pub console: VecDeque<ConsoleEntry>,
     pub last_static_preview: Option<PreviewSnapshot>,
     pub layout: LayoutState,
+    pub terminal: Option<TerminalBackend>,
+    pub pty_event_rx: Option<mpsc::Receiver<(u64, PtyEvent)>>,
+    pub notifications: Vec<Notification>,
+    terminal_initialized: bool,
 }
 
 impl Default for AppCore {
@@ -54,6 +67,10 @@ impl Default for AppCore {
             console: VecDeque::new(),
             last_static_preview: None,
             layout: LayoutState::default(),
+            terminal: None,
+            pty_event_rx: None,
+            notifications: Vec::new(),
+            terminal_initialized: false,
         }
     }
 }
@@ -69,6 +86,74 @@ impl AppCore {
 
     pub fn queue_event(&mut self, event: AppEvent) {
         self.events.push(event);
+    }
+
+    pub fn notify(&mut self, message: String) {
+        self.notifications.push(Notification {
+            message,
+            created_at: Instant::now(),
+        });
+    }
+
+    pub fn ensure_terminal(&mut self, ctx: &egui::Context) {
+        if self.terminal_initialized {
+            return;
+        }
+        self.terminal_initialized = true;
+
+        let (tx, rx) = mpsc::channel();
+        let settings = BackendSettings {
+            shell: if cfg!(target_os = "macos") {
+                "/bin/zsh".to_string()
+            } else {
+                "/bin/bash".to_string()
+            },
+            args: vec![],
+            working_directory: std::env::current_dir().ok(),
+        };
+
+        match TerminalBackend::new(1, ctx.clone(), tx, settings) {
+            Ok(backend) => {
+                self.terminal = Some(backend);
+                self.pty_event_rx = Some(rx);
+            }
+            Err(e) => {
+                eprintln!("Failed to create terminal: {e}");
+            }
+        }
+    }
+
+    pub fn run_in_terminal(&mut self) {
+        let Some(active_index) = self.state.editor.active_index() else {
+            self.notify("No active file to run".to_string());
+            return;
+        };
+
+        let tab = &self.state.editor.tabs[active_index];
+        let path = match tab.file_path() {
+            Some(p) => p.to_path_buf(),
+            None => {
+                self.notify("Please save the file before running".to_string());
+                return;
+            }
+        };
+        let buffer = tab.buffer.clone();
+        let file_name = tab.file_name().to_string();
+
+        if let Err(e) = std::fs::write(&path, &buffer) {
+            self.notify(format!("Failed to save: {e}"));
+            return;
+        }
+        self.state.editor.tabs[active_index].is_dirty = false;
+        self.notify(format!("Running: {file_name}"));
+
+        if let Some(terminal) = self.terminal.as_mut() {
+            let cmd = format!("cargo run -q -p rustle-cli -- \"{}\"\n", path.display());
+            terminal.process_command(BackendCommand::Write(cmd.into_bytes()));
+            self.state.console_visible = true;
+        } else {
+            self.notify("Terminal not initialized".to_string());
+        }
     }
 
     pub fn drain_events(&mut self) {
@@ -106,6 +191,9 @@ impl AppCore {
     }
 
     pub fn tick_preview(&mut self, ctx: &egui::Context) {
+        // Cleanup old notifications
+        self.notifications.retain(|n| n.created_at.elapsed() < NOTIFICATION_DURATION);
+
         let mut new_draw = None;
         let mut new_console = Vec::new();
         let mut runtime_error = None;

@@ -3,7 +3,7 @@ use eframe::egui;
 use crate::app_core::AppCore;
 use crate::events::app_events::AppEvent;
 use crate::theme::ThemePalette;
-use crate::ui::console_ui::draw_console;
+use crate::ui::terminal_ui::draw_terminal;
 use crate::ui::preview_ui::PreviewPanelState;
 
 pub fn draw_workspace(
@@ -11,6 +11,7 @@ pub fn draw_workspace(
     core: &mut AppCore,
     theme: &ThemePalette,
 ) {
+    draw_notifications(ui, core);
     let mut preview_event = None;
     let available_rect = ui.available_rect_before_wrap();
     let console_visible = core.state.console_visible;
@@ -153,7 +154,7 @@ pub fn draw_workspace(
                 .max_rect(bottom_rect)
                 .layout(egui::Layout::top_down(egui::Align::Min)),
             |ui| {
-                draw_console(ui, &core.console, theme, &mut core.events);
+                draw_terminal(ui, core, theme);
             },
         );
     }
@@ -179,4 +180,42 @@ fn paint_splitter(
             theme.surface_stroke
         },
     );
+}
+
+fn draw_notifications(ui: &egui::Ui, core: &AppCore) {
+    let view_rect = ui.ctx().content_rect();
+    let mut anchor = view_rect.right_top() + egui::vec2(-20.0, 20.0);
+
+    for notification in &core.notifications {
+        let elapsed = notification.created_at.elapsed().as_secs_f32();
+        let opacity = if elapsed > 2.5 {
+            (3.0 - elapsed).max(0.0) / 0.5
+        } else {
+            1.0
+        };
+        
+        if opacity <= 0.0 { continue; }
+
+        let color = egui::Color32::from_rgba_unmultiplied(40, 44, 52, (opacity * 255.0) as u8);
+        let text_color = egui::Color32::from_rgba_unmultiplied(224, 226, 232, (opacity * 255.0) as u8);
+        let stroke_color = egui::Color32::from_rgba_unmultiplied(78, 136, 224, (opacity * 255.0) as u8);
+
+        egui::Area::new(egui::Id::new(("notification", notification.created_at)))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(anchor)
+            .pivot(egui::Align2::RIGHT_TOP)
+            .interactable(false)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::new()
+                    .fill(color)
+                    .stroke(egui::Stroke::new(1.0, stroke_color))
+                    .inner_margin(egui::Margin::symmetric(16, 8))
+                    .corner_radius(4.0)
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new(&notification.message).color(text_color));
+                    });
+            });
+        
+        anchor.y += 40.0;
+    }
 }
