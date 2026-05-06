@@ -1,0 +1,14 @@
+[package]
+name = "rustle-cli"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+rustle-lang = { version = "0.1.0", path = "../rustle-lang" }
+rustle-renderer = { version = "0.1.0", path = "../rustle-renderer" }
+wgpu = "29.0.3"
+winit = "0.30"
+pollster = "0.4"

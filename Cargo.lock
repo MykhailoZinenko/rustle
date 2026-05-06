@@ -2590,6 +2590,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustle-cli"
+version = "0.1.0"
+dependencies = [
+ "pollster",
+ "rustle-lang",
+ "rustle-renderer",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
 name = "rustle-ide"
 version = "0.1.0"
 dependencies = [

@@ -3,6 +3,7 @@ members = [
     "crates/rustle-lang",
     "crates/rustle-renderer",
     "crates/rustle-ide",
+    "crates/rustle-cli",
 ]
 resolver = "2"
 
