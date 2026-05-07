@@ -1,35 +1,5 @@
 use crate::syntax::ast::Type;
-use crate::types::draw::RenderMode;
-use crate::error::{ErrorCode, RuntimeError};
-use crate::Value;
 use std::collections::HashMap;
-
-// ─── Runtime state ────────────────────────────────────────────────────────────
-
-/// Interpreter-level state passed to every namespace call.
-/// Holds the current coordinate context — updated by `resolution`, `default`,
-/// `normalize`, `origin` and snapshotted into each `ShapeData` at build time.
-#[derive(Clone)]
-#[derive(Default)]
-pub struct RuntimeState {
-    pub coord_meta: crate::types::draw::CoordMeta,
-}
-
-
-pub mod core;
-pub mod shapes;
-pub mod render;
-pub mod coords;
-pub mod file;
-
-pub(crate) fn color_from_named(named: &HashMap<String, Value>) -> Option<[f64; 4]> {
-    match named.get("color") {
-        Some(Value::Color { r, g, b, a }) => Some([*r, *g, *b, *a]),
-        _ => None,
-    }
-}
-
-// ─── Export ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ExportKind { Function, Constant }
@@ -41,10 +11,6 @@ pub struct Export {
     pub ty:   Type,
 }
 
-// ─── Compile-time interface ───────────────────────────────────────────────────
-
-/// What the resolver needs: type exports only.
-/// No dependency on `Value`, `RuntimeError`, or runtime state.
 pub trait NamespaceInfo: Send + Sync {
     fn name(&self) -> &'static str;
     fn exports(&self) -> Vec<Export>;
@@ -54,91 +20,31 @@ pub trait NamespaceInfo: Send + Sync {
     }
 }
 
-// ─── Runtime interface ────────────────────────────────────────────────────────
-
-/// What the interpreter needs: call dispatch + constant lookup.
-/// Extends `NamespaceInfo` so a single object serves both roles.
-pub trait NamespaceProvider: NamespaceInfo {
-    /// # Errors
-    /// Returns an error if the call fails (wrong argument types, count, or runtime failure).
-    fn call(
-        &self,
-        name: &str,
-        args: &[Value],
-        named: &HashMap<String, Value>,
-        state: &mut RuntimeState,
-        line: usize,
-    ) -> Result<Option<Value>, RuntimeError>;
-
-    fn get_constant(&self, name: &str) -> Option<Value>;
-}
-
-// ─── Registry ─────────────────────────────────────────────────────────────────
-
-/// Registry of namespace providers for resolving imports and dispatching calls.
-///
-/// Uses dynamic dispatch (`Box<dyn NamespaceProvider>`) to support potential
-/// future plugin/extension namespaces. The fixed set of built-in namespaces
-/// (core, shapes, render, coords) is registered via [`Self::standard()`].
 pub struct NamespaceRegistry {
-    pub(crate) providers: Vec<Box<dyn NamespaceProvider>>,
-    export_cache: HashMap<String, usize>,
+    providers: Vec<Box<dyn NamespaceInfo>>,
 }
 
 impl NamespaceRegistry {
     #[must_use]
-    pub fn new() -> Self { Self { providers: Vec::new(), export_cache: HashMap::new() } }
+    pub fn new() -> Self { Self { providers: Vec::new() } }
 
-    pub fn register(&mut self, p: Box<dyn NamespaceProvider>) {
-        let idx = self.providers.len();
-        for export in p.exports() {
-            self.export_cache.insert(export.name.to_string(), idx);
-        }
+    pub fn register(&mut self, p: Box<dyn NamespaceInfo>) {
         self.providers.push(p);
     }
 
-    #[must_use] 
-    pub fn get(&self, name: &str) -> Option<&dyn NamespaceProvider> {
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&dyn NamespaceInfo> {
         self.providers.iter().find(|p| p.name() == name).map(std::convert::AsRef::as_ref)
     }
 
-    /// # Errors
-    /// Returns an error if the matching provider's call fails.
-    pub fn call_any(
-        &self,
-        name: &str,
-        args: &[Value],
-        named: &HashMap<String, Value>,
-        state: &mut RuntimeState,
-        line: usize,
-    ) -> Result<Option<Value>, RuntimeError> {
-        if let Some(&idx) = self.export_cache.get(name) {
-            return self.providers[idx].call(name, args, named, state, line);
-        }
-        for p in &self.providers {
-            if let Some(v) = p.call(name, args, named, state, line)? {
-                return Ok(Some(v));
-            }
-        }
-        Ok(None)
-    }
-
     #[must_use]
-    pub fn get_constant(&self, name: &str) -> Option<Value> {
-        if let Some(&idx) = self.export_cache.get(name) {
-            return self.providers[idx].get_constant(name);
-        }
-        self.providers.iter().find_map(|p| p.get_constant(name))
-    }
-
-    #[must_use] 
     pub fn standard() -> Self {
         let mut r = Self::new();
-        r.register(Box::new(core::CoreNamespace));
-        r.register(Box::new(shapes::ShapesNamespace));
-        r.register(Box::new(render::RenderNamespace));
-        r.register(Box::new(coords::CoordsNamespace));
-        r.register(Box::new(file::FileNamespace));
+        r.register(Box::new(CoreInfo));
+        r.register(Box::new(ShapesInfo));
+        r.register(Box::new(RenderInfo));
+        r.register(Box::new(CoordsInfo));
+        r.register(Box::new(FileInfo));
         r
     }
 }
@@ -147,64 +53,148 @@ impl Default for NamespaceRegistry {
     fn default() -> Self { Self::standard() }
 }
 
-// ─── Shared helpers ───────────────────────────────────────────────────────────
+// ─── Core namespace ──────────────────────────────────────────────────────────
 
-pub(crate) fn as_float(v: &Value, line: usize) -> Result<f64, RuntimeError> {
-    match v {
-        Value::Float(x) => Ok(*x),
-        _ => Err(RuntimeError::new(ErrorCode::R001, line, 0, format!("expected float, got {}", value_type_name(v)))),
+struct CoreInfo;
+
+impl NamespaceInfo for CoreInfo {
+    fn name(&self) -> &'static str { "core" }
+    fn exports(&self) -> Vec<Export> {
+        use ExportKind::{Function as F, Constant as C};
+        vec![
+            Export { name: "sin",   kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "cos",   kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "tan",   kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "asin",  kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "acos",  kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "atan",  kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "sqrt",  kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "abs",   kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "floor", kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "ceil",  kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "round", kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "sign",  kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "fract", kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "atan2", kind: F, ty: Type::Fn(vec![Type::Float, Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "pow",   kind: F, ty: Type::Fn(vec![Type::Float, Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "min",   kind: F, ty: Type::Fn(vec![Type::Float, Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "max",   kind: F, ty: Type::Fn(vec![Type::Float, Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "clamp", kind: F, ty: Type::Fn(vec![Type::Float, Type::Float, Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "lerp",  kind: F, ty: Type::Fn(vec![Type::Float, Type::Float, Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "vec2",  kind: F, ty: Type::Fn(vec![Type::Float, Type::Float], Some(Box::new(Type::Vec2))) },
+            Export { name: "vec3",  kind: F, ty: Type::Fn(vec![Type::Float, Type::Float, Type::Float], Some(Box::new(Type::Vec3))) },
+            Export { name: "vec4",  kind: F, ty: Type::Fn(vec![Type::Float, Type::Float, Type::Float, Type::Float], Some(Box::new(Type::Vec4))) },
+            Export { name: "color", kind: F, ty: Type::Fn(vec![Type::Float, Type::Float, Type::Float], Some(Box::new(Type::Color))) },
+            Export { name: "transform", kind: F, ty: Type::Fn(vec![], Some(Box::new(Type::Transform))) },
+            Export { name: "mat3",  kind: F, ty: Type::Fn(vec![], Some(Box::new(Type::Mat3))) },
+            Export { name: "mat4",  kind: F, ty: Type::Fn(vec![], Some(Box::new(Type::Mat4))) },
+            Export { name: "mat3_translate", kind: F, ty: Type::Fn(vec![Type::Float, Type::Float], Some(Box::new(Type::Mat3))) },
+            Export { name: "mat3_rotate",    kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Mat3))) },
+            Export { name: "mat3_scale",     kind: F, ty: Type::Fn(vec![Type::Float, Type::Float], Some(Box::new(Type::Mat3))) },
+            Export { name: "mat4_translate", kind: F, ty: Type::Fn(vec![Type::Float, Type::Float, Type::Float], Some(Box::new(Type::Mat4))) },
+            Export { name: "mat4_scale",    kind: F, ty: Type::Fn(vec![Type::Float, Type::Float, Type::Float], Some(Box::new(Type::Mat4))) },
+            Export { name: "mat4_rotate_x", kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Mat4))) },
+            Export { name: "mat4_rotate_y", kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Mat4))) },
+            Export { name: "mat4_rotate_z", kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Mat4))) },
+            Export { name: "ok",    kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(Type::Res(Box::new(Type::Float))))) },
+            Export { name: "error", kind: F, ty: Type::Fn(vec![Type::String], Some(Box::new(Type::Res(Box::new(Type::Float))))) },
+            Export { name: "PI",  kind: C, ty: Type::Float },
+            Export { name: "TAU", kind: C, ty: Type::Float },
+            Export { name: "red",         kind: C, ty: Type::Color },
+            Export { name: "green",       kind: C, ty: Type::Color },
+            Export { name: "blue",        kind: C, ty: Type::Color },
+            Export { name: "white",       kind: C, ty: Type::Color },
+            Export { name: "black",       kind: C, ty: Type::Color },
+            Export { name: "transparent", kind: C, ty: Type::Color },
+        ]
     }
 }
 
-pub(crate) fn as_string(v: &Value, line: usize) -> Result<String, RuntimeError> {
-    match v {
-        Value::Str(s) => Ok(s.clone()),
-        _ => Err(RuntimeError::new(ErrorCode::R001, line, 0, format!("expected string, got {}", value_type_name(v)))),
+pub(crate) fn core_exports() -> Vec<Export> { CoreInfo.exports() }
+
+// ─── Shapes namespace ────────────────────────────────────────────────────────
+
+struct ShapesInfo;
+
+impl NamespaceInfo for ShapesInfo {
+    fn name(&self) -> &'static str { "shapes" }
+    fn exports(&self) -> Vec<Export> {
+        use ExportKind::{Function as F, Constant as C};
+        vec![
+            Export { name: "circle",  kind: F, ty: Type::Fn(vec![Type::Vec2, Type::Float], Some(Box::new(Type::Circle))) },
+            Export { name: "rect",    kind: F, ty: Type::Fn(vec![Type::Vec2, Type::Vec2], Some(Box::new(Type::Rect))) },
+            Export { name: "line",    kind: F, ty: Type::Fn(vec![Type::Vec2, Type::Vec2], Some(Box::new(Type::Line))) },
+            Export { name: "polygon", kind: F, ty: Type::Fn(vec![Type::List(Box::new(Type::Vec2))], Some(Box::new(Type::Polygon))) },
+            Export { name: "shape",   kind: F, ty: Type::Fn(vec![Type::List(Box::new(Type::Vec2))], Some(Box::new(Type::Polygon))) },
+            Export { name: "text",    kind: F, ty: Type::Fn(vec![Type::Vec2, Type::String, Type::Float], Some(Box::new(Type::TextShape))) },
+            Export { name: "center",       kind: C, ty: Type::String },
+            Export { name: "top_left",     kind: C, ty: Type::String },
+            Export { name: "top_right",    kind: C, ty: Type::String },
+            Export { name: "bottom_left",  kind: C, ty: Type::String },
+            Export { name: "bottom_right", kind: C, ty: Type::String },
+            Export { name: "top",          kind: C, ty: Type::String },
+            Export { name: "bottom",       kind: C, ty: Type::String },
+            Export { name: "left",         kind: C, ty: Type::String },
+            Export { name: "right",        kind: C, ty: Type::String },
+        ]
     }
 }
 
-pub(crate) fn as_vec2(v: &Value, line: usize) -> Result<(f64, f64), RuntimeError> {
-    match v {
-        Value::Vec2(x, y) => Ok((*x, *y)),
-        _ => Err(RuntimeError::new(ErrorCode::R001, line, 0, format!("expected vec2, got {}", value_type_name(v)))),
+// ─── Render namespace ────────────────────────────────────────────────────────
+
+struct RenderInfo;
+
+impl NamespaceInfo for RenderInfo {
+    fn name(&self) -> &'static str { "render" }
+    fn exports(&self) -> Vec<Export> {
+        use ExportKind::{Function as F, Constant as C};
+        let rm = Type::Named("render_mode".into());
+        vec![
+            Export { name: "sdf",     kind: C, ty: rm.clone() },
+            Export { name: "fill",    kind: C, ty: rm.clone() },
+            Export { name: "outline", kind: C, ty: rm.clone() },
+            Export { name: "stroke",  kind: F, ty: Type::Fn(vec![Type::Float], Some(Box::new(rm))) },
+        ]
     }
 }
 
-pub(crate) fn as_vertices(v: &Value, line: usize) -> Result<Vec<(f64, f64)>, RuntimeError> {
-    match v {
-        Value::List(items) => items.borrow().iter().map(|i| as_vec2(i, line)).collect(),
-        _ => Err(RuntimeError::new(ErrorCode::R001, line, 0, "expected list[vec2]")),
+// ─── Coords namespace ────────────────────────────────────────────────────────
+
+struct CoordsInfo;
+
+impl NamespaceInfo for CoordsInfo {
+    fn name(&self) -> &'static str { "coords" }
+    fn exports(&self) -> Vec<Export> {
+        use ExportKind::{Function as F, Constant as C};
+        vec![
+            Export { name: "resolution", kind: F, ty: Type::Fn(vec![Type::Float, Type::Float], Some(Box::new(Type::Float))) },
+            Export { name: "origin",     kind: F, ty: Type::Fn(vec![Type::String], Some(Box::new(Type::Float))) },
+            Export { name: "center",       kind: C, ty: Type::String },
+            Export { name: "top_left",     kind: C, ty: Type::String },
+            Export { name: "top_right",    kind: C, ty: Type::String },
+            Export { name: "bottom_left",  kind: C, ty: Type::String },
+            Export { name: "bottom_right", kind: C, ty: Type::String },
+            Export { name: "top",          kind: C, ty: Type::String },
+            Export { name: "bottom",       kind: C, ty: Type::String },
+            Export { name: "left",         kind: C, ty: Type::String },
+            Export { name: "right",        kind: C, ty: Type::String },
+        ]
     }
 }
 
-pub(crate) fn check_argc(name: &str, args: &[Value], n: usize, line: usize) -> Result<(), RuntimeError> {
-    if args.len() == n {
-        Ok(())
-    } else {
-        Err(RuntimeError::new(ErrorCode::R008, line, 0, format!("`{name}` expects {n} args, got {}", args.len())))
-    }
-}
+// ─── File namespace ──────────────────────────────────────────────────────────
 
-pub(crate) fn render_mode_from_named(named: &HashMap<String, Value>, line: usize) -> Result<RenderMode, RuntimeError> {
-    match named.get("render") {
-        Some(Value::RenderMode(m)) => Ok(m.clone()),
-        Some(_) => Err(RuntimeError::new(ErrorCode::R011, line, 0, "`render:` must be a render_mode value")),
-        None    => Ok(RenderMode::default()),
-    }
-}
+struct FileInfo;
 
-pub fn value_type_name(v: &Value) -> &'static str {
-    match v {
-        Value::ResOk(_) => "res<ok>",
-        Value::ResErr(_) => "res<err>",
-        Value::Namespace(_) => "namespace",
-        Value::NativeFn(_) | Value::Closure(_) => "fn",
-        Value::RenderMode(_) => "render_mode",
-        Value::EnumVariant { .. } => "enum",
-        Value::Object(_) => "object",
-        _ => {
-            let key = crate::types::registry::value_type_key(v);
-            if key.is_empty() { "unknown" } else { key }
-        }
+impl NamespaceInfo for FileInfo {
+    fn name(&self) -> &'static str { "file" }
+    fn exports(&self) -> Vec<Export> {
+        use ExportKind::Function as F;
+        vec![
+            Export { name: "read",       kind: F, ty: Type::Fn(vec![Type::String], Some(Box::new(Type::Res(Box::new(Type::String))))) },
+            Export { name: "read_lines", kind: F, ty: Type::Fn(vec![Type::String], Some(Box::new(Type::Res(Box::new(Type::List(Box::new(Type::String))))))) },
+            Export { name: "write",      kind: F, ty: Type::Fn(vec![Type::String, Type::String], Some(Box::new(Type::Res(Box::new(Type::Bool))))) },
+            Export { name: "append",     kind: F, ty: Type::Fn(vec![Type::String, Type::String], Some(Box::new(Type::Res(Box::new(Type::Bool))))) },
+        ]
     }
 }

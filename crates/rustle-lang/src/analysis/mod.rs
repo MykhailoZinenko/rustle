@@ -3,11 +3,11 @@ pub mod collector;
 pub mod lookup;
 pub mod checker;
 pub mod validator;
+pub mod type_info;
 
 use crate::syntax::ast;
 use crate::error::Error;
 use crate::namespaces::NamespaceRegistry;
-use crate::types::registry::TypeRegistry;
 use collector::Collector;
 use checker::TypeResolver;
 use validator::Validator;
@@ -41,8 +41,7 @@ pub fn resolve(
     all_errors.extend(collect_errors);
 
     // ── Pass 2: type inference and checking ───────────────────────────────────
-    let type_registry = TypeRegistry::default();
-    let (table, type_errors) = TypeResolver::new(table, registry, &type_registry).run(program);
+    let (table, type_errors) = TypeResolver::new(table, registry).run(program);
     all_errors.extend(type_errors);
 
     // ── Pass 3: semantic validation ───────────────────────────────────────────

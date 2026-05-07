@@ -1,103 +1,136 @@
-//! Rustle scripting language runtime.
-//!
-//! Provides compilation and execution of `.rustle` scripts for 2D interactive scenes.
-//! The main entry points are [`compile`] and [`Runtime`].
-
 pub mod syntax;
 pub mod types;
-pub mod runtime;
 pub mod analysis;
 pub mod error;
 pub mod namespaces;
+pub mod vm;
 
 pub use types::draw::{CoordMeta, DrawCommand, Origin, RenderMode, ShapeData, ShapeDesc, TransformData, origin_offset};
 pub use error::{Error, ErrorCode, RuntimeError};
 pub use syntax::token::{Token, TokenKind};
-pub use runtime::value::Value;
-pub use namespaces::RuntimeState;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use crate::syntax::ast::Program as AstProgram;
-use namespaces::NamespaceRegistry;
-use types::binop_registry::BinopRegistry;
-use types::registry::TypeRegistry;
 use analysis::resolve;
+use namespaces::NamespaceRegistry;
+use vm::value::StackValue;
+use vm::heap::Heap;
+use vm::CompiledProgram;
+use vm::natives;
 
-// ─── Public API types ─────────────────────────────────────────────────────────
+// ─── Value — public API type for state access ────────────────────────────────
 
-/// Persistent script state between frames. Defined by the `state {}` block.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum Value {
+    Float(f64),
+    Bool(bool),
+    Str(String),
+    Vec2(f64, f64),
+    Vec3(f64, f64, f64),
+    Vec4(f64, f64, f64, f64),
+    Mat3(Box<[f64; 9]>),
+    Mat4(Box<[f64; 16]>),
+    Color { r: f64, g: f64, b: f64, a: f64 },
+    List(Rc<RefCell<Vec<Value>>>),
+    Shape(ShapeData),
+    Transform(TransformData),
+    RenderMode(RenderMode),
+    ResOk(Box<Value>),
+    ResErr(String),
+    EnumVariant { enum_name: String, variant: String, fields: HashMap<String, Value> },
+    Object { type_name: String, fields: HashMap<String, Value> },
+    Input { dt: f64, mouse_x: f64, mouse_y: f64, mouse_down: bool, mouse_pressed: bool, mouse_released: bool, key_pressed: String, key_down: String, key_released: String },
+    None,
+}
+
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Float(v) => {
+                if v.fract() == 0.0 && v.abs() < 1e15 { write!(f, "{}", *v as i64) }
+                else { write!(f, "{v}") }
+            }
+            Value::Bool(b) => write!(f, "{b}"),
+            Value::Str(s) => write!(f, "{s}"),
+            Value::Vec2(x, y) => write!(f, "vec2({x}, {y})"),
+            Value::Vec3(x, y, z) => write!(f, "vec3({x}, {y}, {z})"),
+            Value::Vec4(x, y, z, w) => write!(f, "vec4({x}, {y}, {z}, {w})"),
+            Value::Color { r, g, b, a } => write!(f, "color({r:.3}, {g:.3}, {b:.3}, {a:.3})"),
+            Value::Mat3(_) => write!(f, "mat3(...)"),
+            Value::Mat4(_) => write!(f, "mat4(...)"),
+            Value::List(rc) => {
+                let items = rc.borrow();
+                write!(f, "[")?;
+                for (i, v) in items.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{v}")?;
+                }
+                write!(f, "]")
+            }
+            Value::Shape(_) => write!(f, "<shape>"),
+            Value::Transform(_) => write!(f, "<transform>"),
+            Value::RenderMode(_) => write!(f, "<render_mode>"),
+            Value::ResOk(v) => write!(f, "ok({v})"),
+            Value::ResErr(e) => write!(f, "err({e})"),
+            Value::Object { type_name, fields } => {
+                let parts: Vec<String> = fields.iter()
+                    .map(|(k, v)| format!("{k}: {v}"))
+                    .collect();
+                write!(f, "{type_name} {{ {} }}", parts.join(", "))
+            }
+            Value::EnumVariant { enum_name, variant, .. } => write!(f, "{enum_name}.{variant}"),
+            Value::Input { dt, .. } => write!(f, "input(dt={dt})"),
+            Value::None => write!(f, "none"),
+        }
+    }
+}
+
+// ─── Public API types ────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Default)]
 pub struct State(pub(crate) HashMap<String, Value>);
 
 impl State {
-    pub fn get(&self, key: &str) -> Option<&Value> {
-        self.0.get(key)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &Value)> {
-        self.0.iter()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
+    pub fn get(&self, key: &str) -> Option<&Value> { self.0.get(key) }
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &Value)> { self.0.iter() }
+    pub fn len(&self) -> usize { self.0.len() }
+    pub fn is_empty(&self) -> bool { self.0.is_empty() }
 }
 
-/// Per-frame input passed into `on_update`.
 #[derive(Debug, Clone)]
 pub struct Input {
-    /// Elapsed time in seconds since the last frame.
     pub dt: f64,
-    /// Mouse X position (in script coordinates).
     pub mouse_x: f64,
-    /// Mouse Y position (in script coordinates).
     pub mouse_y: f64,
-    /// Left mouse button currently held.
     pub mouse_down: bool,
-    /// Left mouse button just pressed this frame.
     pub mouse_pressed: bool,
-    /// Left mouse button just released this frame.
     pub mouse_released: bool,
-    /// Key just pressed this frame (empty if none).
     pub key_pressed: String,
-    /// Key currently held (empty if none).
     pub key_down: String,
-    /// Key just released this frame (empty if none).
     pub key_released: String,
 }
 
 impl Default for Input {
     fn default() -> Self {
         Self {
-            dt: 0.0,
-            mouse_x: 0.0,
-            mouse_y: 0.0,
-            mouse_down: false,
-            mouse_pressed: false,
-            mouse_released: false,
-            key_pressed: String::new(),
-            key_down: String::new(),
-            key_released: String::new(),
+            dt: 0.0, mouse_x: 0.0, mouse_y: 0.0,
+            mouse_down: false, mouse_pressed: false, mouse_released: false,
+            key_pressed: String::new(), key_down: String::new(), key_released: String::new(),
         }
     }
 }
 
-/// A compiled Rustle program. Produced by `compile`.
 pub struct Program {
-    pub(crate) ast: AstProgram,
+    pub(crate) compiled: Arc<CompiledProgram>,
+    pub(crate) native_table: Vec<natives::NativeFunc>,
+    #[allow(dead_code)]
     pub(crate) registry: NamespaceRegistry,
-    pub(crate) types: TypeRegistry,
-    pub(crate) binops: BinopRegistry,
 }
-
-// ─── Public API ───────────────────────────────────────────────────────────────
 
 /// Parse and type-check source text. Returns a compiled program ready for execution.
 ///
@@ -113,122 +146,139 @@ pub fn compile(source: &str) -> Result<Program, Vec<Error>> {
     let ast = syntax::parser::Parser::new(tokens).parse()?;
     let registry = NamespaceRegistry::standard();
     resolve(&ast, &registry)?;
-    Ok(Program { ast, registry, types: TypeRegistry::default(), binops: BinopRegistry::default() })
+    let compiled = vm::compiler::Compiler::compile(&ast, &registry);
+    let native_table = natives::native_table();
+    Ok(Program { compiled: Arc::new(compiled), native_table, registry })
 }
 
-// ─── Runtime ──────────────────────────────────────────────────────────────────
+// ─── StackValue → Value bridge (public API boundary) ─────────────────────────
 
-/// Persistent runtime that owns the program, state, and frame config between ticks.
-///
-/// Lifecycle:
-///   1. `Runtime::new(program)` — runs top-level config (`resolution`, `origin`),
-///      evaluates `state {}` field initializers, and calls `init(state)` if present.
-///   2. `runtime.tick(input)` — runs `update(state, input)` each frame, persisting
-///      both state and `coord_meta` (resolution/origin) across ticks.
-#[expect(clippy::struct_field_names, reason = "runtime_state is the clearest name for the field; abbreviating would reduce clarity")]
+fn sv_to_value(sv: StackValue, heap: &Heap, prog: &CompiledProgram) -> Value {
+    match sv {
+        StackValue::Float(f) => Value::Float(f),
+        StackValue::Bool(b) => Value::Bool(b),
+        StackValue::None => Value::None,
+        StackValue::HeapRef(idx) => heap_to_value(heap.get(idx), heap, prog),
+    }
+}
+
+fn heap_to_value(obj: &vm::value::HeapObject, heap: &Heap, prog: &CompiledProgram) -> Value {
+    use vm::value::HeapObject;
+    match obj {
+        HeapObject::Str(s) => Value::Str(s.clone()),
+        HeapObject::Vec2(x, y) => Value::Vec2(*x, *y),
+        HeapObject::Vec3(x, y, z) => Value::Vec3(*x, *y, *z),
+        HeapObject::Vec4(x, y, z, w) => Value::Vec4(*x, *y, *z, *w),
+        HeapObject::Color { r, g, b, a } => Value::Color { r: *r, g: *g, b: *b, a: *a },
+        HeapObject::Mat3(m) => Value::Mat3(m.clone()),
+        HeapObject::Mat4(m) => Value::Mat4(m.clone()),
+        HeapObject::List(items) => {
+            let vals: Vec<Value> = items.iter().map(|sv| sv_to_value(*sv, heap, prog)).collect();
+            Value::List(Rc::new(RefCell::new(vals)))
+        }
+        HeapObject::Shape(sd) => Value::Shape(sd.clone()),
+        HeapObject::Transform(td) => Value::Transform(td.clone()),
+        HeapObject::RenderMode(rm) => Value::RenderMode(rm.clone()),
+        HeapObject::ResOk(sv) => Value::ResOk(Box::new(sv_to_value(*sv, heap, prog))),
+        HeapObject::ResErr(s) => Value::ResErr(s.clone()),
+        HeapObject::Object(obj) => {
+            let def = &prog.struct_defs[obj.struct_def_idx as usize];
+            let mut fields = HashMap::new();
+            for (i, val) in obj.fields.iter().enumerate() {
+                let name = def.field_names.get(i).cloned().unwrap_or_else(|| format!("_{i}"));
+                fields.insert(name, sv_to_value(*val, heap, prog));
+            }
+            Value::Object { type_name: obj.type_name.clone(), fields }
+        }
+        HeapObject::EnumVariant(ev) => {
+            let fields: HashMap<String, Value> = ev.field_names.iter().zip(&ev.field_values)
+                .map(|(k, v)| (k.clone(), sv_to_value(*v, heap, prog))).collect();
+            Value::EnumVariant { enum_name: ev.enum_name.clone(), variant: ev.variant.clone(), fields }
+        }
+        HeapObject::Input(io) => Value::Input {
+            dt: io.dt, mouse_x: io.mouse_x, mouse_y: io.mouse_y,
+            mouse_down: io.mouse_down, mouse_pressed: io.mouse_pressed, mouse_released: io.mouse_released,
+            key_pressed: io.key_pressed.clone(), key_down: io.key_down.clone(), key_released: io.key_released.clone(),
+        },
+        _ => Value::None,
+    }
+}
+
+// ─── Runtime ─────────────────────────────────────────────────────────────────
+
 pub struct Runtime {
     program: Program,
-    state: State,
-    runtime_state: RuntimeState,
-    base_env: Option<crate::runtime::interpreter::Env>,
+    vm: vm::vm::Vm,
+    state_ref: u32,
+    cached_globals: Vec<StackValue>,
+    has_on_update: bool,
+    #[allow(dead_code)]
     cancel: Option<Arc<AtomicBool>>,
 }
 
 impl Runtime {
-    /// # Errors
-    /// Returns an error if the script's `on_init` fails at runtime.
     pub fn new(program: Program) -> Result<Self, RuntimeError> {
         Self::new_inner(program, None)
     }
 
-    /// Create a runtime with a cancellation token. When the flag is set to `true`,
-    /// the interpreter aborts at the next loop iteration or function call boundary.
-    ///
-    /// # Errors
-    /// Returns an error if the script's `on_init` fails at runtime.
     pub fn new_cancellable(program: Program, cancel: Arc<AtomicBool>) -> Result<Self, RuntimeError> {
         Self::new_inner(program, Some(cancel))
     }
 
     fn new_inner(program: Program, cancel: Option<Arc<AtomicBool>>) -> Result<Self, RuntimeError> {
-        use runtime::interpreter::Interpreter;
-
-        let mut interp = Interpreter::new(&program.ast, &program.registry, &program.types, &program.binops);
-        if let Some(ref c) = cancel {
-            interp = interp.with_cancel(c.clone());
+        let mut vm = vm::vm::Vm::new(program.compiled.clone(), program.native_table.clone());
+        if let Some(ref c) = cancel { vm.set_cancel(c.clone()); }
+        vm.run_chunk(0)?;
+        let cached_globals = vm.globals.clone();
+        let sv = vm.create_state(program.compiled.state_fields.len());
+        let state_ref = sv.as_heap_ref().unwrap();
+        if let Some(init_chunk) = program.compiled.state_init_chunk {
+            vm.run_lifecycle(init_chunk, &[sv])?;
         }
-
-        // 1. Run top-level stmts — resolution(), origin(), etc. These set
-        //    runtime_state.coord_meta which persists for all subsequent ticks.
-        interp.run_top_level()?;
-
-        // Cache the environment after top-level setup (imports + constants).
-        // This avoids re-running imports and top-level statements on every tick.
-        let base_env = Some(interp.take_env());
-
-        // 2. Evaluate state{} field initializers.
-        let mut state = State::default();
-        if let Some(ref state_block) = program.ast.state {
-            for field in &state_block.fields {
-                let val = interp.eval_expr(&field.initializer)?;
-                state.0.insert(field.name.clone(), val);
-            }
+        if let Some(init_chunk) = program.compiled.on_init_chunk {
+            vm.run_lifecycle(init_chunk, &[StackValue::HeapRef(state_ref)])?;
         }
-
-        // 3. Run init(state) if present — full imperative setup (loops, push, etc.).
-        state = interp.run_init(state)?;
-
-        let runtime_state = interp.take_runtime_state();
-
-        Ok(Self { program, state, runtime_state, base_env, cancel })
+        let has_on_update = program.compiled.on_update_chunk.is_some();
+        Ok(Self { program, vm, state_ref, cached_globals, has_on_update, cancel })
     }
 
-    /// Execute one frame. Runs `update(state, input)` if present, otherwise
-    /// re-runs top-level draw statements.
-    ///
-    /// # Errors
-    /// Returns an error if the script's `on_update` fails at runtime.
     pub fn tick(&mut self, input: &Input) -> Result<Vec<DrawCommand>, RuntimeError> {
-        use runtime::interpreter::Interpreter;
-
-        let mut interp = Interpreter::new(&self.program.ast, &self.program.registry, &self.program.types, &self.program.binops)
-            .with_runtime_state(self.runtime_state.clone());
-        if let Some(ref c) = self.cancel {
-            interp = interp.with_cancel(c.clone());
-        }
-
-        if interp.has_fn("on_update") {
-            // Restore cached env (imports + top-level vars) instead of re-running top_level
-            if let Some(ref env) = self.base_env {
-                interp = interp.with_env(env.clone());
+        self.vm.stack.clear();
+        self.vm.frames_clear();
+        self.vm.output.clear();
+        self.vm.globals = self.cached_globals.clone();
+        if self.has_on_update {
+            if let Some(update_chunk) = self.program.compiled.on_update_chunk {
+                let input_sv = self.vm.heap.alloc(vm::value::HeapObject::Input(vm::value::InputObj {
+                    dt: input.dt, mouse_x: input.mouse_x, mouse_y: input.mouse_y,
+                    mouse_down: input.mouse_down, mouse_pressed: input.mouse_pressed, mouse_released: input.mouse_released,
+                    key_pressed: input.key_pressed.clone(), key_down: input.key_down.clone(), key_released: input.key_released.clone(),
+                }));
+                self.vm.run_lifecycle(update_chunk, &[StackValue::HeapRef(self.state_ref), input_sv])?;
             }
-            self.state = interp.run_update(std::mem::take(&mut self.state), input)?;
         } else {
-            // Static scripts (no on_update): must re-run top-level each frame to emit shapes
-            interp.run_top_level()?;
+            self.vm.run_chunk(0)?;
         }
-
-        self.runtime_state = interp.take_runtime_state();
-        Ok(interp.take_output())
+        Ok(self.vm.take_output())
     }
 
-    /// Return a reference to the script's persistent state.
     #[must_use]
-    pub fn state(&self) -> &State { &self.state }
-
-    /// Run `on_exit(s)` if defined, then drop. Call when the app stops.
-    ///
-    /// # Errors
-    /// Returns an error if the script's `on_exit` fails at runtime.
-    pub fn exit(&mut self) -> Result<(), RuntimeError> {
-        use runtime::interpreter::Interpreter;
-
-        let mut interp = Interpreter::new(&self.program.ast, &self.program.registry, &self.program.types, &self.program.binops)
-            .with_runtime_state(self.runtime_state.clone());
-        if let Some(ref c) = self.cancel {
-            interp = interp.with_cancel(c.clone());
+    pub fn state(&self) -> State {
+        let mut map = HashMap::new();
+        if let vm::value::HeapObject::State(state_obj) = self.vm.heap.get(self.state_ref) {
+            for (i, name) in self.program.compiled.state_fields.iter().enumerate() {
+                if i < state_obj.fields.len() {
+                    map.insert(name.clone(), sv_to_value(state_obj.fields[i], &self.vm.heap, &self.program.compiled));
+                }
+            }
         }
-        self.state = interp.run_on_exit(std::mem::take(&mut self.state))?;
+        State(map)
+    }
+
+    pub fn exit(&mut self) -> Result<(), RuntimeError> {
+        if let Some(exit_chunk) = self.program.compiled.on_exit_chunk {
+            self.vm.run_lifecycle(exit_chunk, &[StackValue::HeapRef(self.state_ref)])?;
+        }
         Ok(())
     }
 }

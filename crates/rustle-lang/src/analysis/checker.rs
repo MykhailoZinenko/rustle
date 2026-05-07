@@ -7,8 +7,6 @@
 use crate::syntax::ast::{Type, Program, Item, StateBlock, FnDef, Stmt, VarDecl, Assign, AssignTarget, OutStmt, PrintStmt, MatchStmt, IfStmt, Expr, Span, WhileStmt, ForStmt, ForeachStmt, BinOp, UnOp};
 use crate::error::{Error, ErrorCode, suggest_similar};
 use crate::namespaces::NamespaceRegistry;
-use crate::types::binop_registry::{BinopRegistry, type_to_key, key_to_type};
-use crate::types::registry::TypeRegistry;
 use super::lookup::LookupContext;
 use super::symbols::{ScopeKind, Symbol, SymbolKind, SymbolTable};
 
@@ -24,8 +22,6 @@ pub struct TypeResolver<'a> {
     program: Option<&'a Program>,
     /// Lookup context for field/method resolution (State, namespaces).
     lookup: LookupContext<'a>,
-    /// Operator type table — same registry used at runtime, queried for return types.
-    binops: BinopRegistry,
     /// When inside a struct method, holds the struct name for `this` resolution.
     current_struct: Option<String>,
     /// Type narrowing in match arms: maps variable name -> (enum_name, variant_name)
@@ -34,15 +30,14 @@ pub struct TypeResolver<'a> {
 
 impl<'a> TypeResolver<'a> {
     #[must_use]
-    pub fn new(table: SymbolTable, registry: &'a NamespaceRegistry, type_registry: &'a TypeRegistry) -> Self {
+    pub fn new(table: SymbolTable, registry: &'a NamespaceRegistry) -> Self {
         Self {
             table,
             errors: Vec::new(),
             current_fn_order: None,
             current_fn_return: None,
             program: None,
-            lookup: LookupContext::new(None, registry, type_registry),
-            binops: BinopRegistry::default(),
+            lookup: LookupContext::new(None, registry),
             current_struct: None,
             narrowed_variants: std::collections::HashMap::new(),
         }
@@ -51,7 +46,7 @@ impl<'a> TypeResolver<'a> {
     #[must_use]
     pub fn run(mut self, program: &'a Program) -> (SymbolTable, Vec<Error>) {
         self.program = Some(program);
-        self.lookup = LookupContext::new(Some(program), self.lookup.registry, self.lookup.type_registry);
+        self.lookup = LookupContext::new(Some(program), self.lookup.registry);
         if let Some(state) = &program.state {
             self.check_state(state);
         }
@@ -1129,10 +1124,9 @@ impl<'a> TypeResolver<'a> {
             return Ok(Type::Bool);
         }
 
-        if let (Some(lk), Some(rk)) = (type_to_key(l), type_to_key(r))
-            && let Some(ret_key) = self.binops.result_type(op, lk, rk) {
-                return Ok(key_to_type(ret_key));
-            }
+        if let Some(ret_ty) = super::type_info::binop_result_type(op, l, r) {
+            return Ok(ret_ty);
+        }
         Err(vec![Error::new(
             ErrorCode::S008, span.line, span.column,
             format!("operator `{op}` not applicable to `{}` and `{}`", type_name(l), type_name(r)),

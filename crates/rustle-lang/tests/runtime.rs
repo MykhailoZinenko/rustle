@@ -2592,11 +2592,9 @@ fn struct_as_state_field() {
         }
     "#);
     match rt.state().get("p") {
-        Some(Value::Object(rc)) => {
-            let obj = rc.borrow();
-            let val = obj.get_field("x").unwrap();
-            match val {
-                Value::Float(x) => assert_eq!(x, 99.0),
+        Some(Value::Object { fields, .. }) => {
+            match fields.get("x") {
+                Some(Value::Float(x)) => assert_eq!(*x, 99.0),
                 other => panic!("expected Float, got {other:?}"),
             }
         }
@@ -3098,9 +3096,11 @@ fn struct_persists_in_state() {
     tick(&mut rt);
     tick(&mut rt);
     match rt.state().get("c") {
-        Some(Value::Object(rc)) => {
-            let val = rc.borrow().get_field("n").unwrap().clone();
-            match val { Value::Float(x) => assert_eq!(x, 3.0), other => panic!("got {other:?}") }
+        Some(Value::Object { fields, .. }) => {
+            match fields.get("n") {
+                Some(Value::Float(x)) => assert_eq!(*x, 3.0),
+                other => panic!("got {other:?}"),
+            }
         }
         other => panic!("expected Object, got {other:?}"),
     }

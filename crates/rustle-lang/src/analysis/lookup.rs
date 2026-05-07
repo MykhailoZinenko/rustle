@@ -5,24 +5,22 @@
 //! 2. State block fields (s.t, s.speed)
 //! 3. `TypeRegistry`       (vec2.x, res.ok, transform.move, list.pop, …)
 //!
-//! `TypeRegistry` is the single source of truth for all built-in type info,
+//! `type_info` is the single source of truth for all built-in type info,
 //! including generic types like `res<T>` and `list<T>`.
 
 use crate::syntax::ast::{Program, Type};
 use crate::namespaces::NamespaceRegistry;
-use crate::types::registry::TypeRegistry;
 use super::collector::infer_literal_type;
 
 pub struct LookupContext<'a> {
     pub program:  Option<&'a Program>,
     pub registry: &'a NamespaceRegistry,
-    pub(super) type_registry: &'a TypeRegistry,
 }
 
 impl<'a> LookupContext<'a> {
     #[must_use]
-    pub fn new(program: Option<&'a Program>, registry: &'a NamespaceRegistry, type_registry: &'a TypeRegistry) -> Self {
-        Self { program, registry, type_registry }
+    pub fn new(program: Option<&'a Program>, registry: &'a NamespaceRegistry) -> Self {
+        Self { program, registry }
     }
 
     /// Resolve the type of `obj.field`.
@@ -60,8 +58,8 @@ impl<'a> LookupContext<'a> {
                 }
             }
         }
-        // 4. TypeRegistry — handles all built-in types including generics.
-        self.type_registry.resolve_field_type(obj_ty, field)
+        // 4. type_info — handles all built-in types including generics.
+        super::type_info::field_type(obj_ty, field)
     }
 
     /// Return all field names available on the given type.
@@ -85,7 +83,7 @@ impl<'a> LookupContext<'a> {
                 }
             }
         }
-        self.type_registry.field_names_for_type(obj_ty)
+        super::type_info::field_names(obj_ty).to_vec()
     }
 
     /// Return all method names available on the given type.
@@ -106,7 +104,7 @@ impl<'a> LookupContext<'a> {
                 }
             }
         }
-        self.type_registry.method_names_for_type(obj_ty)
+        super::type_info::method_names(obj_ty).to_vec()
     }
 
     /// Resolve the return type of `obj.method(args)`.
@@ -139,8 +137,8 @@ impl<'a> LookupContext<'a> {
                 }
             }
         }
-        // 3. TypeRegistry — handles all built-in types including generics.
-        let (params, ret) = self.type_registry.resolve_method_signature(obj_ty, method)?;
+        // 3. type_info — handles all built-in types including generics.
+        let (params, ret) = super::type_info::method_signature(obj_ty, method)?;
         Some(Type::Fn(params, ret.map(Box::new)))
     }
 }

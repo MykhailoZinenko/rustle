@@ -9,7 +9,7 @@
 
 use crate::syntax::ast::{Span, Program, Item, ImportDecl, Type, StateBlock, FnDef, Stmt, Expr};
 use crate::error::{Error, ErrorCode};
-use crate::namespaces::{NamespaceRegistry, core::core_exports};
+use crate::namespaces::{NamespaceRegistry, core_exports};
 use super::symbols::{Symbol, SymbolKind, SymbolTable};
 
 pub struct Collector<'a> {
