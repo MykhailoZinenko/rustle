@@ -350,6 +350,13 @@ pub enum Expr {
         span: Span,
     },
 
+    /// `expr(args)` — call on an expression (lambda, variable, etc.)
+    ExprCall {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+        span: Span,
+    },
+
     /// `expr[index]`
     Index {
         expr: Box<Expr>,
@@ -428,6 +435,7 @@ impl Expr {
             | Expr::Cast { span, .. }
             | Expr::Try { span, .. }
             | Expr::Call { span, .. }
+            | Expr::ExprCall { span, .. }
             | Expr::Index { span, .. }
             | Expr::Field { span, .. }
             | Expr::OptionalChain { span, .. }

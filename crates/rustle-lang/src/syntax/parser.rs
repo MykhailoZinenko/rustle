@@ -31,7 +31,17 @@ impl Parser {
                     Err(e) => { errors.push(e); self.recover(); }
                 },
                 TokenKind::State => match self.parse_state_block() {
-                    Ok(s) => state = Some(s),
+                    Ok(s) => {
+                        if state.is_some() {
+                            errors.push(Error::new(
+                                ErrorCode::S011,
+                                s.span.line, s.span.column,
+                                "duplicate state block".to_string(),
+                            ));
+                        } else {
+                            state = Some(s);
+                        }
+                    }
                     Err(e) => { errors.push(e); self.recover(); }
                 },
                 TokenKind::Fn => match self.parse_fn_item() {
@@ -795,6 +805,19 @@ impl Parser {
                     expr = Expr::Transform { expr: Box::new(expr), transforms, span };
                 }
 
+                // expression call: expr(args) — for lambda invocation
+                TokenKind::LParen if matches!(expr, Expr::Lambda { .. }) => {
+                    let span = *expr.span();
+                    self.advance();
+                    let mut args = Vec::new();
+                    while !self.check(TokenKind::RParen) && !self.is_at_end() {
+                        args.push(self.parse_expr()?);
+                        if !self.matches(TokenKind::Comma) { break; }
+                    }
+                    self.expect(TokenKind::RParen)?;
+                    expr = Expr::ExprCall { callee: Box::new(expr), args, span };
+                }
+
                 // cast: expr as Type
                 TokenKind::As => {
                     let span = *expr.span();
@@ -1088,6 +1111,7 @@ impl Parser {
                 "rect"      => Type::Rect,
                 "line"      => Type::Line,
                 "polygon"   => Type::Polygon,
+                "text_shape" => Type::TextShape,
                 "State"     => Type::State,
                 "Input"     => Type::Input,
                 _           => Type::Named(name),

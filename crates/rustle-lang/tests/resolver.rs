@@ -1083,7 +1083,7 @@ fn optional_to_non_optional_error() {
 #[test]
 fn bare_none_no_annotation() {
     let errs = err("let x = none");
-    assert!(has(&errs, ErrorCode::S002));
+    assert!(has(&errs, ErrorCode::S015));
 }
 
 #[test]

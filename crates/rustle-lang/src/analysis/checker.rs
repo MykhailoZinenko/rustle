@@ -71,13 +71,18 @@ impl<'a> TypeResolver<'a> {
                     self.expect_type(&ann.clone(), &inferred, &field.span);
                     ann.clone()
                 }
-                (Some(ann), Err(_)) => ann.clone(),
+                (Some(ann), Err(errs)) => {
+                    self.errors.extend(errs);
+                    ann.clone()
+                }
                 (None, Ok(inferred)) => {
-                    // Update the state field symbol
                     self.table.update_type(&format!("__state__{}", field.name), inferred.clone());
                     inferred
                 }
-                (None, Err(_)) => return,
+                (None, Err(errs)) => {
+                    self.errors.extend(errs);
+                    return;
+                }
             };
             self.table.update_type(&format!("__state__{}", field.name), resolved_ty);
         }
@@ -213,7 +218,7 @@ impl<'a> TypeResolver<'a> {
             // Bare `let x = none` — can't infer the inner type
             if init_ty == Type::Optional(Box::new(Type::Unit)) {
                 self.errors.push(Error::new(
-                    ErrorCode::S002, v.span.line, v.span.column,
+                    ErrorCode::S015, v.span.line, v.span.column,
                     "cannot infer type of `none` without a type annotation",
                 ));
                 return;
@@ -675,6 +680,35 @@ impl<'a> TypeResolver<'a> {
 
             Expr::Call { callee, args, named_args, span } => {
                 self.check_call(callee, args, named_args, span)
+            }
+
+            Expr::ExprCall { callee, args, span } => {
+                let callee_ty = self.infer_expr(callee)?;
+                match callee_ty {
+                    Type::Fn(param_tys, ret) => {
+                        if args.len() != param_tys.len() {
+                            self.errors.push(Error::new(
+                                ErrorCode::S007, span.line, span.column,
+                                format!("expected {} argument(s), found {}", param_tys.len(), args.len()),
+                            ));
+                        }
+                        for (arg, expected) in args.iter().zip(&param_tys) {
+                            if let Ok(arg_ty) = self.infer_expr(arg) {
+                                if !types_compatible(expected, &arg_ty) {
+                                    self.errors.push(Error::new(
+                                        ErrorCode::S002, span.line, span.column,
+                                        format!("expected `{}`, found `{}`", type_name(expected), type_name(&arg_ty)),
+                                    ));
+                                }
+                            }
+                        }
+                        Ok(ret.map_or(Type::Unit, |t| *t))
+                    }
+                    other => Err(vec![Error::new(
+                        ErrorCode::S010, span.line, span.column,
+                        format!("`{}` is not callable", type_name(&other)),
+                    )]),
+                }
             }
 
             Expr::Index { expr, index, span } => {

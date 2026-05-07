@@ -31,6 +31,7 @@ struct LoopContext {
     start_ip: usize,
     continue_ip: usize,
     break_patches: Vec<usize>,
+    continue_patches: Vec<usize>,
     scope_depth: u32,
 }
 
@@ -370,6 +371,11 @@ impl<'a> Compiler<'a> {
         self.current_chunk().patch_jump(jump_idx, offset);
     }
 
+    fn patch_jump_to(&mut self, jump_idx: usize, target: usize) {
+        let offset = (target as i32) - (jump_idx as i32) - 1;
+        self.current_chunk().patch_jump(jump_idx, offset);
+    }
+
     fn line_of(span: &Span) -> u32 {
         span.line as u32
     }
@@ -661,6 +667,15 @@ impl<'a> Compiler<'a> {
             Expr::Call { callee, args, named_args, span } => {
                 let line = Self::line_of(span);
                 self.compile_call(callee, args, named_args, line);
+            }
+
+            Expr::ExprCall { callee, args, span } => {
+                let line = Self::line_of(span);
+                self.compile_expr(callee);
+                for arg in args {
+                    self.compile_expr(arg);
+                }
+                self.emit(Op::CallClosure(args.len() as u8), line);
             }
 
             Expr::Index { expr, index, span } => {
@@ -1256,6 +1271,7 @@ impl<'a> Compiler<'a> {
                     start_ip: loop_start,
                     continue_ip: loop_start,
                     break_patches: Vec::new(),
+                    continue_patches: Vec::new(),
                     scope_depth,
                 });
 
@@ -1294,11 +1310,11 @@ impl<'a> Compiler<'a> {
                 let exit_jump = self.emit_jump(Op::JumpIfFalse(0), line);
 
                 let scope_depth = self.current().scope_depth;
-                // We'll set continue_ip after emitting the body, before the step
                 self.current().loop_stack.push(LoopContext {
                     start_ip: loop_start,
-                    continue_ip: 0, // placeholder, patched below
+                    continue_ip: 0, // deferred — patched after body
                     break_patches: Vec::new(),
+                    continue_patches: Vec::new(),
                     scope_depth,
                 });
 
@@ -1311,8 +1327,16 @@ impl<'a> Compiler<'a> {
 
                 // Continue target is HERE (before step)
                 let continue_target = self.current_chunk().len();
-                if let Some(ctx) = self.current().loop_stack.last_mut() {
-                    ctx.continue_ip = continue_target;
+
+                // Patch all deferred continue jumps to land here
+                let continue_patches: Vec<usize> = self.current().loop_stack.last_mut()
+                    .map(|ctx| {
+                        ctx.continue_ip = continue_target;
+                        std::mem::take(&mut ctx.continue_patches)
+                    })
+                    .unwrap_or_default();
+                for cp in continue_patches {
+                    self.patch_jump_to(cp, continue_target);
                 }
 
                 // Step
@@ -1357,6 +1381,7 @@ impl<'a> Compiler<'a> {
                     start_ip: loop_start,
                     continue_ip: loop_start,
                     break_patches: Vec::new(),
+                    continue_patches: Vec::new(),
                     scope_depth,
                 });
 
@@ -1504,7 +1529,6 @@ impl<'a> Compiler<'a> {
 
             Stmt::Continue(span) => {
                 let line = Self::line_of(span);
-                // Pop locals down to loop scope depth
                 if let Some(ctx) = self.current().loop_stack.last() {
                     let target_depth = ctx.scope_depth;
                     let continue_ip = ctx.continue_ip;
@@ -1519,9 +1543,16 @@ impl<'a> Compiler<'a> {
                     for _ in 0..pop_count {
                         self.emit(Op::Pop, line);
                     }
-                    let loop_offset =
-                        (continue_ip as i32) - (self.current_chunk().len() as i32) - 1;
-                    self.emit(Op::Loop(loop_offset), line);
+                    if continue_ip == 0 {
+                        // Deferred: target not known yet (for-loop step)
+                        let jp = self.emit_jump(Op::Jump(0), line);
+                        // Re-borrow mutably to push patch
+                        self.current().loop_stack.last_mut().unwrap().continue_patches.push(jp);
+                    } else {
+                        let loop_offset =
+                            (continue_ip as i32) - (self.current_chunk().len() as i32) - 1;
+                        self.emit(Op::Loop(loop_offset), line);
+                    }
                 }
             }
 
@@ -2918,7 +2949,7 @@ mod tests {
 
     #[test]
     fn integration_for_continue_runs_step() {
-        // Verify that continue in a for loop targets BEFORE the step expression
+        // Verify that continue in a for loop jumps to the step expression
         let prog = compile_source(
             "fn foo() -> float { let sum: float = 0.0\n for let i: float = 0.0; i < 5.0; i = i + 1.0 { if i == 2.0 { continue }\n sum = sum + i }\n return sum }",
         );
@@ -2928,13 +2959,19 @@ mod tests {
             .position(|c| c.name == "foo")
             .unwrap();
         let chunk = &prog.chunks[foo_idx];
-        // Should have Loop ops for both the for-loop back-edge and continue
+        // Should have a Loop op (for-loop back-edge) and a Jump op (continue → step)
         let loop_count = chunk
             .code
             .iter()
             .filter(|op| matches!(op, Op::Loop(_)))
             .count();
-        assert!(loop_count >= 2);
+        let jump_count = chunk
+            .code
+            .iter()
+            .filter(|op| matches!(op, Op::Jump(_)))
+            .count();
+        assert!(loop_count >= 1);
+        assert!(jump_count >= 1);
     }
 
     #[test]
