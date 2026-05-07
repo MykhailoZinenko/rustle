@@ -11,6 +11,7 @@ mod services;
 mod state;
 mod theme;
 mod ui;
+mod editor;
 
 use app::App;
 use renderer::wgpu_renderer::RustleRenderResources;
