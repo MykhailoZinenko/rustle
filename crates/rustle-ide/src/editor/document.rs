@@ -732,4 +732,86 @@ mod tests {
         let matching = doc.find_matching_bracket(0);
         assert_eq!(matching, None);
     }
+
+    #[test]
+    fn multi_cursor_insert_then_undo_roundtrip() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "aaa\nbbb\nccc");
+        doc.set_selections(vec![
+            Selection::cursor(0),
+            Selection::cursor(4),
+            Selection::cursor(8),
+        ]);
+
+        doc.insert_text(">> ");
+        assert_eq!(doc.to_string(), ">> aaa\n>> bbb\n>> ccc");
+
+        doc.undo();
+        assert_eq!(doc.to_string(), "aaa\nbbb\nccc");
+        assert_eq!(doc.selections(), &[
+            Selection::cursor(0),
+            Selection::cursor(4),
+            Selection::cursor(8),
+        ]);
+
+        doc.redo();
+        assert_eq!(doc.to_string(), ">> aaa\n>> bbb\n>> ccc");
+    }
+
+    #[test]
+    fn backspace_with_multi_cursor_then_undo() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "xax\nxbx\nxcx");
+        doc.set_selections(vec![
+            Selection::cursor(2),
+            Selection::cursor(6),
+            Selection::cursor(10),
+        ]);
+
+        doc.backspace();
+        assert_eq!(doc.to_string(), "xx\nxx\nxx");
+
+        doc.undo();
+        assert_eq!(doc.to_string(), "xax\nxbx\nxcx");
+    }
+
+    #[test]
+    fn find_replace_then_undo() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "foo bar foo baz foo");
+        let matches = doc.find_all("foo", true);
+        assert_eq!(matches.len(), 3);
+
+        for m in matches.into_iter().rev() {
+            doc.replace_range(m, "qux");
+        }
+        assert_eq!(doc.to_string(), "qux bar qux baz qux");
+
+        doc.undo();
+        doc.undo();
+        doc.undo();
+        assert_eq!(doc.to_string(), "foo bar foo baz foo");
+    }
+
+    #[test]
+    fn bracket_matching_with_markers() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "fn(a, (b, c))");
+        doc.set_selections(vec![Selection::cursor(2)]);
+
+        doc.markers.clear_category(MarkerCategory::BracketPair);
+        if let Some(matching) = doc.find_matching_bracket(2) {
+            doc.markers.add(Marker {
+                category: MarkerCategory::BracketPair,
+                start: 2,
+                end: 3,
+            });
+            doc.markers.add(Marker {
+                category: MarkerCategory::BracketPair,
+                start: matching,
+                end: matching + 1,
+            });
+        }
+
+        let markers = doc.markers.markers_on_line(&doc.text().clone(), 0);
+        assert_eq!(markers.len(), 2);
+        assert_eq!(markers[0].start, 2);
+        assert_eq!(markers[1].start, 12);
+    }
 }
