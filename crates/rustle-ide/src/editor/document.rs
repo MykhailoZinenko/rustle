@@ -209,6 +209,44 @@ impl Document {
         }
     }
 
+    pub fn undo(&mut self) {
+        if let Some(group) = self.history.undo() {
+            let selections = group.selections_before.clone();
+            let ops: Vec<EditOperation> = group.operations.iter().rev().map(|op| op.inverse()).collect();
+            for op in ops {
+                match &op {
+                    EditOperation::Insert { offset, text } => {
+                        self.rope.insert(*offset, text);
+                    }
+                    EditOperation::Delete { offset, deleted } => {
+                        self.rope.remove(*offset..*offset + deleted.len());
+                    }
+                }
+            }
+            self.selections = selections;
+            self.dirty = true;
+        }
+    }
+
+    pub fn redo(&mut self) {
+        if let Some(group) = self.history.redo() {
+            let selections = group.selections_after.clone();
+            let ops: Vec<EditOperation> = group.operations.clone();
+            for op in &ops {
+                match op {
+                    EditOperation::Insert { offset, text } => {
+                        self.rope.insert(*offset, text);
+                    }
+                    EditOperation::Delete { offset, deleted } => {
+                        self.rope.remove(*offset..*offset + deleted.len());
+                    }
+                }
+            }
+            self.selections = selections;
+            self.dirty = true;
+        }
+    }
+
     pub fn delete_forward(&mut self) {
         let selections_before = self.selections.clone();
         let mut operations = Vec::new();
@@ -438,5 +476,82 @@ mod tests {
         doc.set_selections(vec![Selection { anchor: 0, head: 6 }]);
         doc.delete_forward();
         assert_eq!(doc.to_string(), "world");
+    }
+
+    #[test]
+    fn undo_reverses_insert() {
+        let mut doc = Document::new();
+        doc.insert_text("hello");
+        assert_eq!(doc.to_string(), "hello");
+
+        doc.undo();
+        assert_eq!(doc.to_string(), "");
+        assert_eq!(doc.primary_selection(), Selection::cursor(0));
+    }
+
+    #[test]
+    fn redo_reapplies_insert() {
+        let mut doc = Document::new();
+        doc.insert_text("hello");
+        doc.undo();
+        assert_eq!(doc.to_string(), "");
+
+        doc.redo();
+        assert_eq!(doc.to_string(), "hello");
+        assert_eq!(doc.primary_selection(), Selection::cursor(5));
+    }
+
+    #[test]
+    fn undo_reverses_backspace() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "abc");
+        doc.set_selections(vec![Selection::cursor(3)]);
+        doc.backspace();
+        assert_eq!(doc.to_string(), "ab");
+
+        doc.undo();
+        assert_eq!(doc.to_string(), "abc");
+    }
+
+    #[test]
+    fn multiple_undo_redo_roundtrip() {
+        let mut doc = Document::new();
+        doc.insert_text("a");
+        doc.insert_text("b");
+        doc.insert_text("c");
+        assert_eq!(doc.to_string(), "abc");
+
+        doc.undo();
+        assert_eq!(doc.to_string(), "ab");
+        doc.undo();
+        assert_eq!(doc.to_string(), "a");
+        doc.undo();
+        assert_eq!(doc.to_string(), "");
+
+        doc.redo();
+        assert_eq!(doc.to_string(), "a");
+        doc.redo();
+        assert_eq!(doc.to_string(), "ab");
+        doc.redo();
+        assert_eq!(doc.to_string(), "abc");
+    }
+
+    #[test]
+    fn undo_on_clean_document_does_nothing() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "hello");
+        doc.undo();
+        assert_eq!(doc.to_string(), "hello");
+    }
+
+    #[test]
+    fn new_edit_after_undo_clears_redo() {
+        let mut doc = Document::new();
+        doc.insert_text("a");
+        doc.insert_text("b");
+        doc.undo();
+        doc.insert_text("c");
+        assert_eq!(doc.to_string(), "ac");
+
+        doc.redo();
+        assert_eq!(doc.to_string(), "ac");
     }
 }
