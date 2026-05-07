@@ -93,6 +93,179 @@ impl Document {
     pub fn to_string(&self) -> String {
         self.rope.to_string()
     }
+
+    pub fn insert_text(&mut self, text: &str) {
+        let text = text.to_string();
+        let selections_before = self.selections.clone();
+        let mut operations = Vec::new();
+        let mut new_selections = Vec::new();
+        let mut cumulative_delta: isize = 0;
+
+        let mut indexed: Vec<(usize, Selection)> = self.selections
+            .iter()
+            .copied()
+            .enumerate()
+            .collect();
+        indexed.sort_by_key(|(_, sel)| sel.min());
+
+        for (orig_index, sel) in indexed {
+            let adjusted_min = (sel.min() as isize + cumulative_delta) as usize;
+            let adjusted_max = (sel.max() as isize + cumulative_delta) as usize;
+
+            let old_len = adjusted_max - adjusted_min;
+            if old_len > 0 {
+                let old_text: String = self.rope.slice(adjusted_min..adjusted_max).chars().collect();
+                self.rope.remove(adjusted_min..adjusted_max);
+                operations.push(EditOperation::Delete {
+                    offset: adjusted_min,
+                    deleted: old_text,
+                });
+                self.markers.adjust(adjusted_min, old_len, 0);
+            }
+
+            let new_len = text.len();
+            if !text.is_empty() {
+                self.rope.insert(adjusted_min, &text);
+                operations.push(EditOperation::Insert {
+                    offset: adjusted_min,
+                    text: text.clone(),
+                });
+                self.markers.adjust(adjusted_min, 0, new_len);
+            }
+
+            let new_cursor = adjusted_min + new_len;
+            new_selections.push((orig_index, Selection::cursor(new_cursor)));
+            cumulative_delta += new_len as isize - old_len as isize;
+        }
+
+        new_selections.sort_by_key(|(idx, _)| *idx);
+        self.selections = new_selections.into_iter().map(|(_, sel)| sel).collect();
+
+        if !operations.is_empty() {
+            self.history.push(EditGroup {
+                operations,
+                selections_before,
+                selections_after: self.selections.clone(),
+            });
+            self.dirty = true;
+        }
+    }
+
+    pub fn backspace(&mut self) {
+        let selections_before = self.selections.clone();
+        let mut operations = Vec::new();
+        let mut new_selections = Vec::new();
+        let mut cumulative_delta: isize = 0;
+
+        let mut indexed: Vec<(usize, Selection)> = self.selections
+            .iter()
+            .copied()
+            .enumerate()
+            .collect();
+        indexed.sort_by_key(|(_, sel)| sel.min());
+
+        for (orig_index, sel) in indexed {
+            let adjusted_anchor = (sel.anchor as isize + cumulative_delta) as usize;
+            let adjusted_head = (sel.head as isize + cumulative_delta) as usize;
+            let adjusted = Selection { anchor: adjusted_anchor, head: adjusted_head };
+
+            if !adjusted.is_cursor() {
+                let min = adjusted.min();
+                let max = adjusted.max();
+                let old_text: String = self.rope.slice(min..max).chars().collect();
+                let old_len = max - min;
+                self.rope.remove(min..max);
+                operations.push(EditOperation::Delete { offset: min, deleted: old_text });
+                self.markers.adjust(min, old_len, 0);
+                new_selections.push((orig_index, Selection::cursor(min)));
+                cumulative_delta -= old_len as isize;
+            } else if adjusted.head > 0 {
+                let char_idx = self.rope.byte_to_char(adjusted.head);
+                let prev_char_byte = self.rope.char_to_byte(char_idx.saturating_sub(1));
+                let del_start = prev_char_byte;
+                let del_end = adjusted.head;
+                let old_text: String = self.rope.slice(del_start..del_end).chars().collect();
+                let old_len = del_end - del_start;
+                self.rope.remove(del_start..del_end);
+                operations.push(EditOperation::Delete { offset: del_start, deleted: old_text });
+                self.markers.adjust(del_start, old_len, 0);
+                new_selections.push((orig_index, Selection::cursor(del_start)));
+                cumulative_delta -= old_len as isize;
+            } else {
+                new_selections.push((orig_index, Selection::cursor(0)));
+            }
+        }
+
+        new_selections.sort_by_key(|(idx, _)| *idx);
+        self.selections = new_selections.into_iter().map(|(_, sel)| sel).collect();
+
+        if !operations.is_empty() {
+            self.history.push(EditGroup {
+                operations,
+                selections_before,
+                selections_after: self.selections.clone(),
+            });
+            self.dirty = true;
+        }
+    }
+
+    pub fn delete_forward(&mut self) {
+        let selections_before = self.selections.clone();
+        let mut operations = Vec::new();
+        let mut new_selections = Vec::new();
+        let mut cumulative_delta: isize = 0;
+
+        let mut indexed: Vec<(usize, Selection)> = self.selections
+            .iter()
+            .copied()
+            .enumerate()
+            .collect();
+        indexed.sort_by_key(|(_, sel)| sel.min());
+
+        for (orig_index, sel) in indexed {
+            let adjusted_anchor = (sel.anchor as isize + cumulative_delta) as usize;
+            let adjusted_head = (sel.head as isize + cumulative_delta) as usize;
+            let adjusted = Selection { anchor: adjusted_anchor, head: adjusted_head };
+
+            if !adjusted.is_cursor() {
+                let min = adjusted.min();
+                let max = adjusted.max();
+                let old_text: String = self.rope.slice(min..max).chars().collect();
+                let old_len = max - min;
+                self.rope.remove(min..max);
+                operations.push(EditOperation::Delete { offset: min, deleted: old_text });
+                self.markers.adjust(min, old_len, 0);
+                new_selections.push((orig_index, Selection::cursor(min)));
+                cumulative_delta -= old_len as isize;
+            } else if adjusted.head < self.rope.len_bytes() {
+                let char_idx = self.rope.byte_to_char(adjusted.head);
+                let next_char_byte = self.rope.char_to_byte((char_idx + 1).min(self.rope.len_chars()));
+                let del_start = adjusted.head;
+                let del_end = next_char_byte;
+                let old_text: String = self.rope.slice(del_start..del_end).chars().collect();
+                let old_len = del_end - del_start;
+                self.rope.remove(del_start..del_end);
+                operations.push(EditOperation::Delete { offset: del_start, deleted: old_text });
+                self.markers.adjust(del_start, old_len, 0);
+                new_selections.push((orig_index, Selection::cursor(del_start)));
+                cumulative_delta -= old_len as isize;
+            } else {
+                new_selections.push((orig_index, adjusted));
+            }
+        }
+
+        new_selections.sort_by_key(|(idx, _)| *idx);
+        self.selections = new_selections.into_iter().map(|(_, sel)| sel).collect();
+
+        if !operations.is_empty() {
+            self.history.push(EditGroup {
+                operations,
+                selections_before,
+                selections_after: self.selections.clone(),
+            });
+            self.dirty = true;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -184,5 +357,86 @@ mod tests {
     fn text_returns_rope_ref() {
         let doc = Document::from_file(PathBuf::from("t"), "hello");
         assert_eq!(doc.text().len_bytes(), 5);
+    }
+
+    #[test]
+    fn insert_text_at_cursor() {
+        let mut doc = Document::new();
+        doc.insert_text("hello");
+        assert_eq!(doc.to_string(), "hello");
+        assert_eq!(doc.primary_selection(), Selection::cursor(5));
+        assert!(doc.is_dirty());
+    }
+
+    #[test]
+    fn insert_text_replaces_selection() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "hello world");
+        doc.set_selections(vec![Selection { anchor: 5, head: 11 }]);
+        doc.insert_text("!");
+        assert_eq!(doc.to_string(), "hello!");
+        assert_eq!(doc.primary_selection(), Selection::cursor(6));
+    }
+
+    #[test]
+    fn insert_text_multiple_cursors() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "aa bb cc");
+        doc.set_selections(vec![
+            Selection::cursor(2),
+            Selection::cursor(5),
+            Selection::cursor(8),
+        ]);
+        doc.insert_text("X");
+        assert_eq!(doc.to_string(), "aaX bbX ccX");
+    }
+
+    #[test]
+    fn backspace_deletes_char_before_cursor() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "hello");
+        doc.set_selections(vec![Selection::cursor(5)]);
+        doc.backspace();
+        assert_eq!(doc.to_string(), "hell");
+        assert_eq!(doc.primary_selection(), Selection::cursor(4));
+    }
+
+    #[test]
+    fn backspace_deletes_selection() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "hello world");
+        doc.set_selections(vec![Selection { anchor: 2, head: 8 }]);
+        doc.backspace();
+        assert_eq!(doc.to_string(), "herld");
+        assert_eq!(doc.primary_selection(), Selection::cursor(2));
+    }
+
+    #[test]
+    fn backspace_at_start_does_nothing() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "hello");
+        doc.set_selections(vec![Selection::cursor(0)]);
+        doc.backspace();
+        assert_eq!(doc.to_string(), "hello");
+    }
+
+    #[test]
+    fn delete_forward_removes_char_after_cursor() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "hello");
+        doc.set_selections(vec![Selection::cursor(0)]);
+        doc.delete_forward();
+        assert_eq!(doc.to_string(), "ello");
+        assert_eq!(doc.primary_selection(), Selection::cursor(0));
+    }
+
+    #[test]
+    fn delete_forward_at_end_does_nothing() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "hi");
+        doc.set_selections(vec![Selection::cursor(2)]);
+        doc.delete_forward();
+        assert_eq!(doc.to_string(), "hi");
+    }
+
+    #[test]
+    fn delete_forward_with_selection_removes_selection() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "hello world");
+        doc.set_selections(vec![Selection { anchor: 0, head: 6 }]);
+        doc.delete_forward();
+        assert_eq!(doc.to_string(), "world");
     }
 }
