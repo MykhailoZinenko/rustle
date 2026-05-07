@@ -304,6 +304,91 @@ impl Document {
             self.dirty = true;
         }
     }
+
+    pub fn find_all(&self, query: &str, case_sensitive: bool) -> Vec<std::ops::Range<usize>> {
+        let text = self.rope.to_string();
+        let (search_text, search_query) = if case_sensitive {
+            (text.clone(), query.to_string())
+        } else {
+            (text.to_lowercase(), query.to_lowercase())
+        };
+        let mut results = Vec::new();
+        let mut start = 0;
+        while let Some(pos) = search_text[start..].find(&search_query) {
+            let abs_pos = start + pos;
+            results.push(abs_pos..abs_pos + query.len());
+            start = abs_pos + 1;
+        }
+        results
+    }
+
+    pub fn replace_range(&mut self, range: std::ops::Range<usize>, replacement: &str) {
+        let selections_before = self.selections.clone();
+        let old_text: String = self.rope.slice(range.start..range.end).chars().collect();
+        let old_len = range.end - range.start;
+        let new_len = replacement.len();
+
+        self.rope.remove(range.start..range.end);
+        if !replacement.is_empty() {
+            self.rope.insert(range.start, replacement);
+        }
+        self.markers.adjust(range.start, old_len, new_len);
+
+        let mut ops = Vec::new();
+        if !old_text.is_empty() {
+            ops.push(EditOperation::Delete { offset: range.start, deleted: old_text });
+        }
+        if !replacement.is_empty() {
+            ops.push(EditOperation::Insert { offset: range.start, text: replacement.to_string() });
+        }
+        if !ops.is_empty() {
+            self.history.push(EditGroup {
+                operations: ops,
+                selections_before,
+                selections_after: self.selections.clone(),
+            });
+            self.dirty = true;
+        }
+    }
+
+    pub fn find_matching_bracket(&self, byte_offset: usize) -> Option<usize> {
+        let char_idx = self.rope.byte_to_char(byte_offset);
+        if char_idx >= self.rope.len_chars() {
+            return None;
+        }
+        let c = self.rope.char(char_idx);
+        let (open, close, forward) = match c {
+            '(' => ('(', ')', true),
+            ')' => ('(', ')', false),
+            '[' => ('[', ']', true),
+            ']' => ('[', ']', false),
+            '{' => ('{', '}', true),
+            '}' => ('{', '}', false),
+            _ => return None,
+        };
+
+        let mut depth = 0i32;
+        if forward {
+            for i in char_idx..self.rope.len_chars() {
+                let current = self.rope.char(i);
+                if current == open { depth += 1; }
+                if current == close { depth -= 1; }
+                if depth == 0 {
+                    return Some(self.rope.char_to_byte(i));
+                }
+            }
+        } else {
+            for i in (0..=char_idx).rev() {
+                let current = self.rope.char(i);
+                if current == close { depth += 1; }
+                if current == open { depth -= 1; }
+                if depth == 0 {
+                    return Some(self.rope.char_to_byte(i));
+                }
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -553,5 +638,98 @@ mod tests {
 
         doc.redo();
         assert_eq!(doc.to_string(), "ac");
+    }
+
+    #[test]
+    fn find_all_returns_byte_ranges() {
+        let doc = Document::from_file(PathBuf::from("t"), "abcabc");
+        let matches = doc.find_all("abc", true);
+        assert_eq!(matches, vec![0..3, 3..6]);
+    }
+
+    #[test]
+    fn find_all_case_insensitive() {
+        let doc = Document::from_file(PathBuf::from("t"), "Hello hello HELLO");
+        let matches = doc.find_all("hello", false);
+        assert_eq!(matches.len(), 3);
+    }
+
+    #[test]
+    fn find_all_no_matches() {
+        let doc = Document::from_file(PathBuf::from("t"), "hello");
+        let matches = doc.find_all("xyz", true);
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn find_all_overlapping_positions() {
+        let doc = Document::from_file(PathBuf::from("t"), "aaa");
+        let matches = doc.find_all("aa", true);
+        assert_eq!(matches, vec![0..2, 1..3]);
+    }
+
+    #[test]
+    fn replace_range_basic() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "hello world");
+        doc.replace_range(5..11, "!");
+        assert_eq!(doc.to_string(), "hello!");
+        assert!(doc.is_dirty());
+    }
+
+    #[test]
+    fn replace_range_undo() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "hello world");
+        doc.replace_range(5..11, "!");
+        doc.undo();
+        assert_eq!(doc.to_string(), "hello world");
+    }
+
+    #[test]
+    fn find_matching_bracket_forward() {
+        let doc = Document::from_file(PathBuf::from("t"), "fn(a, b)");
+        let matching = doc.find_matching_bracket(2);
+        assert_eq!(matching, Some(7));
+    }
+
+    #[test]
+    fn find_matching_bracket_backward() {
+        let doc = Document::from_file(PathBuf::from("t"), "fn(a, b)");
+        let matching = doc.find_matching_bracket(7);
+        assert_eq!(matching, Some(2));
+    }
+
+    #[test]
+    fn find_matching_bracket_nested() {
+        let doc = Document::from_file(PathBuf::from("t"), "((a))");
+        let matching = doc.find_matching_bracket(0);
+        assert_eq!(matching, Some(4));
+    }
+
+    #[test]
+    fn find_matching_bracket_curly() {
+        let doc = Document::from_file(PathBuf::from("t"), "if { x }");
+        let matching = doc.find_matching_bracket(3);
+        assert_eq!(matching, Some(7));
+    }
+
+    #[test]
+    fn find_matching_bracket_square() {
+        let doc = Document::from_file(PathBuf::from("t"), "a[0]");
+        let matching = doc.find_matching_bracket(1);
+        assert_eq!(matching, Some(3));
+    }
+
+    #[test]
+    fn find_matching_bracket_no_match() {
+        let doc = Document::from_file(PathBuf::from("t"), "(unclosed");
+        let matching = doc.find_matching_bracket(0);
+        assert_eq!(matching, None);
+    }
+
+    #[test]
+    fn find_matching_bracket_not_a_bracket() {
+        let doc = Document::from_file(PathBuf::from("t"), "hello");
+        let matching = doc.find_matching_bracket(0);
+        assert_eq!(matching, None);
     }
 }
