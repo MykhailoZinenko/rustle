@@ -51,6 +51,7 @@ impl Document {
     }
 
     pub fn mark_saved(&mut self) {
+        self.history.mark_saved();
         self.dirty = false;
     }
 
@@ -74,18 +75,20 @@ impl Document {
         self.rope.line(line)
     }
 
-    pub fn byte_to_line_col(&self, byte_offset: usize) -> (usize, usize) {
-        let clamped = byte_offset.min(self.rope.len_bytes());
-        let line = self.rope.byte_to_line(clamped);
-        let line_start = self.rope.line_to_byte(line);
+    /// Convert a char offset to (line, col) where col is also in chars.
+    pub fn offset_to_line_col(&self, char_offset: usize) -> (usize, usize) {
+        let clamped = char_offset.min(self.rope.len_chars());
+        let line = self.rope.char_to_line(clamped);
+        let line_start = self.rope.line_to_char(line);
         let col = clamped - line_start;
         (line, col)
     }
 
-    pub fn line_col_to_byte(&self, line: usize, col: usize) -> usize {
+    /// Convert (line, col) in chars to a char offset.
+    pub fn line_col_to_offset(&self, line: usize, col: usize) -> usize {
         let line = line.min(self.rope.len_lines().saturating_sub(1));
-        let line_start = self.rope.line_to_byte(line);
-        let line_len = self.rope.line(line).len_bytes();
+        let line_start = self.rope.line_to_char(line);
+        let line_len = self.rope.line(line).len_chars();
         line_start + col.min(line_len)
     }
 
@@ -123,7 +126,7 @@ impl Document {
                 self.markers.adjust(adjusted_min, old_len, 0);
             }
 
-            let new_len = text.len();
+            let new_len = text.chars().count();
             if !text.is_empty() {
                 self.rope.insert(adjusted_min, &text);
                 operations.push(EditOperation::Insert {
@@ -147,7 +150,7 @@ impl Document {
                 selections_before,
                 selections_after: self.selections.clone(),
             });
-            self.dirty = true;
+            self.dirty = self.history.is_dirty();
         }
     }
 
@@ -180,17 +183,14 @@ impl Document {
                 new_selections.push((orig_index, Selection::cursor(min)));
                 cumulative_delta -= old_len as isize;
             } else if adjusted.head > 0 {
-                let char_idx = self.rope.byte_to_char(adjusted.head);
-                let prev_char_byte = self.rope.char_to_byte(char_idx.saturating_sub(1));
-                let del_start = prev_char_byte;
+                let del_start = adjusted.head - 1;
                 let del_end = adjusted.head;
                 let old_text: String = self.rope.slice(del_start..del_end).chars().collect();
-                let old_len = del_end - del_start;
                 self.rope.remove(del_start..del_end);
                 operations.push(EditOperation::Delete { offset: del_start, deleted: old_text });
-                self.markers.adjust(del_start, old_len, 0);
+                self.markers.adjust(del_start, 1, 0);
                 new_selections.push((orig_index, Selection::cursor(del_start)));
-                cumulative_delta -= old_len as isize;
+                cumulative_delta -= 1;
             } else {
                 new_selections.push((orig_index, Selection::cursor(0)));
             }
@@ -205,7 +205,7 @@ impl Document {
                 selections_before,
                 selections_after: self.selections.clone(),
             });
-            self.dirty = true;
+            self.dirty = self.history.is_dirty();
         }
     }
 
@@ -219,12 +219,13 @@ impl Document {
                         self.rope.insert(*offset, text);
                     }
                     EditOperation::Delete { offset, deleted } => {
-                        self.rope.remove(*offset..*offset + deleted.len());
+                        let char_count = deleted.chars().count();
+                        self.rope.remove(*offset..*offset + char_count);
                     }
                 }
             }
             self.selections = selections;
-            self.dirty = true;
+            self.dirty = self.history.is_dirty();
         }
     }
 
@@ -238,12 +239,13 @@ impl Document {
                         self.rope.insert(*offset, text);
                     }
                     EditOperation::Delete { offset, deleted } => {
-                        self.rope.remove(*offset..*offset + deleted.len());
+                        let char_count = deleted.chars().count();
+                        self.rope.remove(*offset..*offset + char_count);
                     }
                 }
             }
             self.selections = selections;
-            self.dirty = true;
+            self.dirty = self.history.is_dirty();
         }
     }
 
@@ -275,18 +277,15 @@ impl Document {
                 self.markers.adjust(min, old_len, 0);
                 new_selections.push((orig_index, Selection::cursor(min)));
                 cumulative_delta -= old_len as isize;
-            } else if adjusted.head < self.rope.len_bytes() {
-                let char_idx = self.rope.byte_to_char(adjusted.head);
-                let next_char_byte = self.rope.char_to_byte((char_idx + 1).min(self.rope.len_chars()));
+            } else if adjusted.head < self.rope.len_chars() {
                 let del_start = adjusted.head;
-                let del_end = next_char_byte;
+                let del_end = adjusted.head + 1;
                 let old_text: String = self.rope.slice(del_start..del_end).chars().collect();
-                let old_len = del_end - del_start;
                 self.rope.remove(del_start..del_end);
                 operations.push(EditOperation::Delete { offset: del_start, deleted: old_text });
-                self.markers.adjust(del_start, old_len, 0);
+                self.markers.adjust(del_start, 1, 0);
                 new_selections.push((orig_index, Selection::cursor(del_start)));
-                cumulative_delta -= old_len as isize;
+                cumulative_delta -= 1;
             } else {
                 new_selections.push((orig_index, adjusted));
             }
@@ -301,7 +300,7 @@ impl Document {
                 selections_before,
                 selections_after: self.selections.clone(),
             });
-            self.dirty = true;
+            self.dirty = self.history.is_dirty();
         }
     }
 
@@ -315,18 +314,23 @@ impl Document {
         let mut results = Vec::new();
         let mut start = 0;
         while let Some(pos) = search_text[start..].find(&search_query) {
-            let abs_pos = start + pos;
-            results.push(abs_pos..abs_pos + query.len());
-            start = abs_pos + 1;
+            let byte_start = start + pos;
+            let byte_end = byte_start + search_query.len();
+            // Convert byte positions to char offsets
+            let char_start = text[..byte_start].chars().count();
+            let char_end = char_start + text[byte_start..byte_end].chars().count();
+            results.push(char_start..char_end);
+            start = byte_start + 1;
         }
         results
     }
 
+    /// Replace a range of char offsets with new text.
     pub fn replace_range(&mut self, range: std::ops::Range<usize>, replacement: &str) {
         let selections_before = self.selections.clone();
         let old_text: String = self.rope.slice(range.start..range.end).chars().collect();
         let old_len = range.end - range.start;
-        let new_len = replacement.len();
+        let new_len = replacement.chars().count();
 
         self.rope.remove(range.start..range.end);
         if !replacement.is_empty() {
@@ -347,16 +351,17 @@ impl Document {
                 selections_before,
                 selections_after: self.selections.clone(),
             });
-            self.dirty = true;
+            self.dirty = self.history.is_dirty();
         }
     }
 
-    pub fn find_matching_bracket(&self, byte_offset: usize) -> Option<usize> {
-        let char_idx = self.rope.byte_to_char(byte_offset);
-        if char_idx >= self.rope.len_chars() {
+    /// Find the matching bracket for the character at `char_offset`.
+    /// Both input and output are char offsets.
+    pub fn find_matching_bracket(&self, char_offset: usize) -> Option<usize> {
+        if char_offset >= self.rope.len_chars() {
             return None;
         }
-        let c = self.rope.char(char_idx);
+        let c = self.rope.char(char_offset);
         let (open, close, forward) = match c {
             '(' => ('(', ')', true),
             ')' => ('(', ')', false),
@@ -369,21 +374,21 @@ impl Document {
 
         let mut depth = 0i32;
         if forward {
-            for i in char_idx..self.rope.len_chars() {
+            for i in char_offset..self.rope.len_chars() {
                 let current = self.rope.char(i);
                 if current == open { depth += 1; }
                 if current == close { depth -= 1; }
                 if depth == 0 {
-                    return Some(self.rope.char_to_byte(i));
+                    return Some(i);
                 }
             }
         } else {
-            for i in (0..=char_idx).rev() {
+            for i in (0..=char_offset).rev() {
                 let current = self.rope.char(i);
                 if current == close { depth += 1; }
                 if current == open { depth -= 1; }
                 if depth == 0 {
-                    return Some(self.rope.char_to_byte(i));
+                    return Some(i);
                 }
             }
         }
@@ -432,32 +437,32 @@ mod tests {
     }
 
     #[test]
-    fn byte_to_line_col_first_line() {
+    fn offset_to_line_col_first_line() {
         let doc = Document::from_file(PathBuf::from("t"), "hello\nworld");
-        assert_eq!(doc.byte_to_line_col(0), (0, 0));
-        assert_eq!(doc.byte_to_line_col(4), (0, 4));
+        assert_eq!(doc.offset_to_line_col(0), (0, 0));
+        assert_eq!(doc.offset_to_line_col(4), (0, 4));
     }
 
     #[test]
-    fn byte_to_line_col_second_line() {
+    fn offset_to_line_col_second_line() {
         let doc = Document::from_file(PathBuf::from("t"), "hello\nworld");
-        assert_eq!(doc.byte_to_line_col(6), (1, 0));
-        assert_eq!(doc.byte_to_line_col(9), (1, 3));
+        assert_eq!(doc.offset_to_line_col(6), (1, 0));
+        assert_eq!(doc.offset_to_line_col(9), (1, 3));
     }
 
     #[test]
-    fn line_col_to_byte_roundtrips() {
+    fn line_col_to_offset_roundtrips() {
         let doc = Document::from_file(PathBuf::from("t"), "hello\nworld\nfoo");
         for offset in [0, 3, 5, 6, 10, 12, 14] {
-            let (line, col) = doc.byte_to_line_col(offset);
-            assert_eq!(doc.line_col_to_byte(line, col), offset);
+            let (line, col) = doc.offset_to_line_col(offset);
+            assert_eq!(doc.line_col_to_offset(line, col), offset);
         }
     }
 
     #[test]
-    fn line_col_to_byte_clamps_column() {
+    fn line_col_to_offset_clamps_column() {
         let doc = Document::from_file(PathBuf::from("t"), "hi\nworld");
-        let result = doc.line_col_to_byte(0, 100);
+        let result = doc.line_col_to_offset(0, 100);
         assert!(result <= 3);
     }
 
@@ -641,7 +646,7 @@ mod tests {
     }
 
     #[test]
-    fn find_all_returns_byte_ranges() {
+    fn find_all_returns_char_ranges() {
         let doc = Document::from_file(PathBuf::from("t"), "abcabc");
         let matches = doc.find_all("abc", true);
         assert_eq!(matches, vec![0..3, 3..6]);
@@ -813,5 +818,72 @@ mod tests {
         assert_eq!(markers.len(), 2);
         assert_eq!(markers[0].start, 2);
         assert_eq!(markers[1].start, 12);
+    }
+
+    #[test]
+    fn undo_back_to_saved_clears_dirty() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "hello");
+        assert!(!doc.is_dirty());
+        doc.insert_text(" world");
+        assert!(doc.is_dirty());
+        doc.undo();
+        assert!(!doc.is_dirty());
+    }
+
+    #[test]
+    fn redo_after_save_is_dirty() {
+        let mut doc = Document::new();
+        doc.insert_text("a");
+        doc.mark_saved();
+        assert!(!doc.is_dirty());
+        doc.undo();
+        assert!(doc.is_dirty()); // before saved point
+        doc.redo();
+        assert!(!doc.is_dirty()); // back to saved point
+    }
+
+    #[test]
+    fn unicode_insert_and_backspace() {
+        let mut doc = Document::new();
+        doc.insert_text("héllo");
+        assert_eq!(doc.to_string(), "héllo");
+        assert_eq!(doc.primary_selection().head, 5); // 5 chars, not 6 bytes
+
+        doc.backspace();
+        assert_eq!(doc.to_string(), "héll");
+
+        doc.undo();
+        assert_eq!(doc.to_string(), "héllo");
+    }
+
+    #[test]
+    fn unicode_multi_cursor() {
+        let mut doc = Document::from_file(PathBuf::from("t"), "café résumé");
+        // "café " = 5 chars, "résumé" starts at char 5
+        doc.set_selections(vec![
+            Selection::cursor(4),  // after 'é' in café
+            Selection::cursor(11), // after 'é' in résumé
+        ]);
+        doc.insert_text("!");
+        assert_eq!(doc.to_string(), "café! résumé!");
+    }
+
+    #[test]
+    fn find_all_unicode() {
+        let doc = Document::from_file(PathBuf::from("t"), "café café café");
+        let matches = doc.find_all("café", true);
+        assert_eq!(matches.len(), 3);
+        // Ranges should be in char offsets
+        assert_eq!(matches[0], 0..4);  // 4 chars
+        assert_eq!(matches[1], 5..9);
+        assert_eq!(matches[2], 10..14);
+    }
+
+    #[test]
+    fn bracket_matching_unicode() {
+        let doc = Document::from_file(PathBuf::from("t"), "fn(café)");
+        // '(' is at char 2, ')' is at char 7
+        let matching = doc.find_matching_bracket(2);
+        assert_eq!(matching, Some(7));
     }
 }

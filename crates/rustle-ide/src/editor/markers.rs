@@ -8,6 +8,7 @@ pub enum MarkerCategory {
     SelectionOccurrence,
 }
 
+/// A marker in the document. `start` and `end` are **char** offsets.
 #[derive(Debug, Clone)]
 pub struct Marker {
     pub category: MarkerCategory,
@@ -33,11 +34,11 @@ impl MarkerSet {
     }
 
     pub fn markers_on_line(&self, rope: &Rope, line: usize) -> Vec<&Marker> {
-        let line_start = rope.line_to_byte(line);
+        let line_start = rope.line_to_char(line);
         let line_end = if line + 1 < rope.len_lines() {
-            rope.line_to_byte(line + 1)
+            rope.line_to_char(line + 1)
         } else {
-            rope.len_bytes()
+            rope.len_chars()
         };
         self.markers
             .iter()

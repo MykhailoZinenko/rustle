@@ -1,3 +1,5 @@
+/// A selection in the document. `anchor` and `head` are **char** offsets
+/// (not byte offsets). All rope interactions use char indices directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Selection {
     pub anchor: usize,

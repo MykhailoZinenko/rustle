@@ -30,6 +30,7 @@ pub struct EditGroup {
 pub struct EditHistory {
     undo_stack: Vec<EditGroup>,
     redo_stack: Vec<EditGroup>,
+    saved_at_depth: usize,
 }
 
 impl EditHistory {
@@ -37,7 +38,16 @@ impl EditHistory {
         Self {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            saved_at_depth: 0,
         }
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.undo_stack.len() != self.saved_at_depth
+    }
+
+    pub fn mark_saved(&mut self) {
+        self.saved_at_depth = self.undo_stack.len();
     }
 
     pub fn push(&mut self, group: EditGroup) {
