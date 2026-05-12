@@ -359,7 +359,7 @@ fn draw_shooting_stars(t: float) {
 
 fn draw_info_rings(t: float, frame: float) {
     // Slowly rotating measurement rings at edges
-    let n_ticks: float = 36
+    let n_ticks: float = 360
     let ring_r: float = 470.0
     for let i = 0.0; i < n_ticks; i++ {
         let angle: float = i / n_ticks * TAU + t * 0.03
@@ -381,7 +381,7 @@ fn draw_info_rings(t: float, frame: float) {
 
     // Second ring counter-rotating
     let ring2_r: float = 455.0
-    let n_ticks2: float = 60
+    let n_ticks2: float = 600
     for let i = 0.0; i < n_ticks2; i++ {
         let angle: float = i / n_ticks2 * TAU - t * 0.05
         let x1: float = cos(angle) * (ring2_r - 3.0)

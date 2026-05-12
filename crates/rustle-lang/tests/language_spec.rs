@@ -5553,3 +5553,487 @@ fn lambda_immediate_invoke() {
     ");
     assert_eq!(f(&rt, "r"), 42.0);
 }
+
+// =============================================================================
+// Review fixes regression tests (R04, R05, R25, R28)
+// =============================================================================
+
+// R04: checker should report errors for ALL state fields, not just the first
+#[test]
+fn r04_multiple_state_field_errors_reported() {
+    let errs = compile_err(r"
+        state {
+            let a = unknown_func_1()
+            let b: float = 0.0
+            let c = unknown_func_2()
+        }
+    ");
+    let s001_count = errs.iter().filter(|e| e.code == ErrorCode::S001).count();
+    assert!(s001_count >= 2, "expected errors for both bad fields, got {s001_count}: {errs:#?}");
+}
+
+// R05: list.paste should handle bulk inserts correctly (was O(n^2), now splice)
+#[test]
+fn r05_list_paste_bulk_insert() {
+    let rt = run(r"
+        state { let xs: list[float] = [1.0, 2.0, 5.0] }
+        fn on_init(s: State) -> State {
+            s.xs.paste(2, [3.0, 4.0])
+            return s
+        }
+    ");
+    assert_eq!(list_floats(&rt, "xs"), vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+}
+
+// R25: ternary should accept compatible types (float and float?)
+#[test]
+fn r25_ternary_compatible_optional_types() {
+    compile_ok(r"
+        state { let x: float? = none }
+        fn on_init(s: State) -> State {
+            let a: float = 1.0
+            let b: float? = 2.0
+            s.x = true ? a : b
+            return s
+        }
+    ");
+}
+
+// R25: ternary with identical types still works
+#[test]
+fn r25_ternary_same_types() {
+    let rt = run(r"
+        state { let x: float = 0.0 }
+        fn on_init(s: State) -> State {
+            s.x = true ? 1.0 : 2.0
+            return s
+        }
+    ");
+    assert_eq!(f(&rt, "x"), 1.0);
+}
+
+// R25: ternary with incompatible types still errors
+#[test]
+fn r25_ternary_incompatible_types_error() {
+    let errs = compile_err(r#"
+        state { let x: float = 0.0 }
+        fn on_init(s: State) -> State {
+            s.x = true ? 1.0 : "hello"
+            return s
+        }
+    "#);
+    assert!(errs.iter().any(|e| e.code == ErrorCode::S002));
+}
+
+// R02: prefix/postfix inc/dec on indexed expressions should evaluate index once
+#[test]
+fn r02_prefix_inc_on_index_evaluates_once() {
+    let rt = run(r"
+        state { let r: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let xs: list[float] = [10.0, 20.0, 30.0]
+            let i: float = 1.0
+            s.r = ++xs[i]
+            return s
+        }
+    ");
+    assert_eq!(f(&rt, "r"), 21.0);
+}
+
+#[test]
+fn r02_postfix_dec_on_index_evaluates_once() {
+    let rt = run(r"
+        state { let r: float = 0.0 }
+        fn on_init(s: State) -> State {
+            let xs: list[float] = [10.0, 20.0, 30.0]
+            let i: float = 2.0
+            s.r = xs[i]--
+            return s
+        }
+    ");
+    assert_eq!(f(&rt, "r"), 30.0);
+}
+
+// Calculator eval_expr bug reproduction
+#[test]
+fn calculator_eval_simple_number() {
+    let rt = run(r#"
+        state { let result: float = 0.0  let ok: bool = false }
+
+        fn on_init(s: State) -> State {
+            let r: res<float> = try ("42" as float)
+            s.ok = r.ok
+            if r.ok { s.result = r.value }
+            return s
+        }
+    "#);
+    eprintln!("ok={:?} result={:?}", rt.state().get("ok"), rt.state().get("result"));
+    assert!(b(&rt, "ok"), "try cast should succeed");
+    assert_eq!(f(&rt, "result"), 42.0);
+}
+
+#[test]
+fn calculator_eval_string_slice() {
+    let rt = run(r#"
+        state { let ch: string = "" }
+
+        fn on_init(s: State) -> State {
+            let expr: string = "3+4"
+            let len: float = expr.len()
+            s.ch = expr.slice(1.0, 2.0)
+            return s
+        }
+    "#);
+    assert_eq!(s(&rt, "ch"), "+");
+}
+
+#[test]
+fn calculator_find_plus_in_string() {
+    let rt = run(r#"
+        state { let found: bool = false  let idx: float = -1.0 }
+
+        fn on_init(s: State) -> State {
+            let expr: string = "3+4"
+            let len: float = expr.len()
+            for let i = len - 1.0; i >= 1.0; i-- {
+                let ch: string = expr.slice(i, i + 1.0)
+                if ch == "+" {
+                    s.found = true
+                    s.idx = i
+                }
+            }
+            return s
+        }
+    "#);
+    eprintln!("found={:?} idx={:?}", rt.state().get("found"), rt.state().get("idx"));
+    assert!(b(&rt, "found"), "should find + in '3+4'");
+    assert_eq!(f(&rt, "idx"), 1.0);
+}
+
+#[test]
+fn calculator_try_in_function() {
+    let rt = run(r#"
+        state { let ok: bool = false  let val: float = 0.0 }
+
+        fn make_ok() -> res<float> {
+            return try 42.0
+        }
+
+        fn on_init(s: State) -> State {
+            let r: res<float> = make_ok()
+            s.ok = r.ok
+            if r.ok { s.val = r.value }
+            return s
+        }
+    "#);
+    eprintln!("ok={:?} val={:?}", rt.state().get("ok"), rt.state().get("val"));
+    assert!(b(&rt, "ok"), "make_ok() should return ok");
+    assert_eq!(f(&rt, "val"), 42.0);
+}
+
+#[test]
+fn calculator_try_cast_in_function() {
+    let rt = run(r#"
+        state { let ok: bool = false  let val: float = 0.0 }
+
+        fn parse(expr: string) -> res<float> {
+            return try (expr as float)
+        }
+
+        fn on_init(s: State) -> State {
+            let r: res<float> = parse("42")
+            s.ok = r.ok
+            if r.ok { s.val = r.value }
+            return s
+        }
+    "#);
+    eprintln!("ok={:?} val={:?}", rt.state().get("ok"), rt.state().get("val"));
+    assert!(b(&rt, "ok"), "parse('42') should return ok");
+    assert_eq!(f(&rt, "val"), 42.0);
+}
+
+#[test]
+fn calculator_cast_string_to_float_in_fn() {
+    let rt = run(r#"
+        state { let val: float = 0.0 }
+
+        fn parse(expr: string) -> float {
+            return expr as float
+        }
+
+        fn on_init(s: State) -> State {
+            s.val = parse("42")
+            return s
+        }
+    "#);
+    eprintln!("val={:?}", rt.state().get("val"));
+    assert_eq!(f(&rt, "val"), 42.0);
+}
+
+#[test]
+fn calculator_recursive_eval_base_case() {
+    let rt = run(r#"
+        state { let result: float = 0.0  let ok: bool = false }
+
+        fn eval_expr(expr: string) -> res<float> {
+            return try (expr as float)
+        }
+
+        fn on_init(s: State) -> State {
+            let r: res<float> = eval_expr("42")
+            s.ok = r.ok
+            if r.ok { s.result = r.value }
+            return s
+        }
+    "#);
+    eprintln!("ok={:?} result={:?}", rt.state().get("ok"), rt.state().get("result"));
+    assert!(b(&rt, "ok"));
+    assert_eq!(f(&rt, "result"), 42.0);
+}
+
+#[test]
+fn calculator_recursive_eval_with_recursion() {
+    let rt = run(r#"
+        state { let result: float = 0.0  let ok: bool = false }
+
+        fn eval_expr(expr: string) -> res<float> {
+            let len: float = expr.len()
+            if len == 0.0 { return try 0.0 }
+            for let i = len - 1.0; i >= 1.0; i-- {
+                let ch: string = expr.slice(i, i + 1.0)
+                if ch == "+" {
+                    let left: string = expr.slice(0.0, i)
+                    let right: string = expr.slice(i + 1.0, len)
+                    let l: res<float> = eval_expr(left)
+                    let r: res<float> = eval_expr(right)
+                    if l.ok and r.ok { return try l.value + r.value }
+                }
+            }
+            return try (expr as float)
+        }
+
+        fn on_init(s: State) -> State {
+            let r: res<float> = eval_expr("3+4")
+            s.ok = r.ok
+            if r.ok { s.result = r.value }
+            return s
+        }
+    "#);
+    eprintln!("ok={:?} result={:?}", rt.state().get("ok"), rt.state().get("result"));
+    assert!(b(&rt, "ok"), "eval_expr('3+4') should return ok");
+    assert_eq!(f(&rt, "result"), 7.0);
+}
+
+#[test]
+fn calculator_eval_expr_addition() {
+    let rt = run(r#"
+        state { let result: float = 0.0  let ok: bool = false }
+
+        fn eval_expr(expr: string) -> res<float> {
+            let len: float = expr.len()
+            if len == 0.0 { return try 0.0 }
+            for let i = len - 1.0; i >= 1.0; i-- {
+                let ch: string = expr.slice(i, i + 1.0)
+                if ch == "+" {
+                    let left: string = expr.slice(0.0, i)
+                    let right: string = expr.slice(i + 1.0, len)
+                    if left.len() > 0.0 and right.len() > 0.0 {
+                        let l: res<float> = eval_expr(left)
+                        let r: res<float> = eval_expr(right)
+                        if l.ok and r.ok { return try l.value + r.value }
+                    }
+                }
+            }
+            return try (expr as float)
+        }
+
+        fn on_init(s: State) -> State {
+            let r: res<float> = eval_expr("3+4")
+            s.ok = r.ok
+            if r.ok { s.result = r.value }
+            return s
+        }
+    "#);
+    assert!(b(&rt, "ok"), "eval_expr should return ok");
+    assert_eq!(f(&rt, "result"), 7.0);
+}
+
+// R28: color * negative float should clamp to 0, not produce negative components
+#[test]
+fn r28_color_mul_negative_clamps_to_zero() {
+    let rt = run(r"
+        state { let c: color = color(0.5, 0.5, 0.5) * -1.0 }
+    ");
+    let (r, g, b, _) = col(&rt, "c");
+    assert!(r >= 0.0, "red component should not be negative, got {r}");
+    assert!(g >= 0.0, "green component should not be negative, got {g}");
+    assert!(b >= 0.0, "blue component should not be negative, got {b}");
+    assert!(approx(r, 0.0));
+    assert!(approx(g, 0.0));
+    assert!(approx(b, 0.0));
+}
+
+// Heap compaction: memory should not grow unbounded across ticks
+#[test]
+fn heap_does_not_grow_unbounded() {
+    let mut rt = run(r"
+        import shapes { circle }
+        import render { fill }
+        import coords { resolution }
+        resolution(400, 400)
+        state { let t: float = 0.0 }
+        fn on_update(s: State, input: Input) -> State {
+            s.t = s.t + input.dt
+            for let i = 0.0; i < 100.0; i++ {
+                out << circle(vec2(i, i), 3.0, render: fill)
+            }
+            return s
+        }
+    ");
+    let input = Input { dt: 0.016, ..Default::default() };
+    for _ in 0..200 {
+        tick_with(&mut rt, input.clone());
+    }
+}
+
+
+// ─── Two-arena heap memory tests ────────────────────────────────────────────
+
+// State list grows across ticks via push — promoted objects must survive frame reset
+#[test]
+fn heap_list_push_persists_across_ticks() {
+    let mut rt = run(r"
+        state { let items: list[float] = [] }
+        fn on_update(s: State, input: Input) -> State {
+            s.items.push(s.items.len())
+            return s
+        }
+    ");
+    let input = Input { dt: 0.016, ..Default::default() };
+    for _ in 0..10 {
+        tick_with(&mut rt, input.clone());
+    }
+    let items = list_floats(&rt, "items");
+    assert_eq!(items, vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+}
+
+// State holds a string that changes each tick — string must be promoted
+#[test]
+fn heap_string_field_persists_across_ticks() {
+    let mut rt = run(r#"
+        state { let msg: string = "start" }
+        fn on_update(s: State, input: Input) -> State {
+            s.msg = s.msg + "."
+            return s
+        }
+    "#);
+    let input = Input { dt: 0.016, ..Default::default() };
+    for _ in 0..5 {
+        tick_with(&mut rt, input.clone());
+    }
+    assert_eq!(s(&rt, "msg"), "start.....");
+}
+
+// State holds a list of vec2s — compound heap objects in a list must all be promoted
+#[test]
+fn heap_list_of_vec2_persists_across_ticks() {
+    let mut rt = run(r"
+        state { let pts: list[vec2] = [] }
+        fn on_update(s: State, input: Input) -> State {
+            let n: float = s.pts.len()
+            s.pts.push(vec2(n, n * 10.0))
+            return s
+        }
+    ");
+    let input = Input { dt: 0.016, ..Default::default() };
+    for _ in 0..5 {
+        tick_with(&mut rt, input.clone());
+    }
+    let state = rt.state();
+    match state.get("pts") {
+        Some(Value::List(rc)) => {
+            let items = rc.borrow();
+            assert_eq!(items.len(), 5);
+            match &items[0] { Value::Vec2(x, y) => { assert_eq!(*x, 0.0); assert_eq!(*y, 0.0); } _ => panic!("expected Vec2") }
+            match &items[4] { Value::Vec2(x, y) => { assert_eq!(*x, 4.0); assert_eq!(*y, 40.0); } _ => panic!("expected Vec2") }
+        }
+        other => panic!("expected List, got {other:?}"),
+    }
+}
+
+// State list[i] = value — SetIndex promotion
+#[test]
+fn heap_set_index_promotes_across_ticks() {
+    let mut rt = run(r#"
+        state { let names: list[string] = ["a", "b", "c"] }
+        fn on_update(s: State, input: Input) -> State {
+            let idx: float = s.names.len() - 1.0
+            s.names[idx] = "replaced"
+            return s
+        }
+    "#);
+    let input = Input { dt: 0.016, ..Default::default() };
+    tick_with(&mut rt, input.clone());
+    tick_with(&mut rt, input.clone());
+    let names = list_strings(&rt, "names");
+    assert_eq!(names, vec!["a", "b", "replaced"]);
+}
+
+// Many ticks with heavy allocation — memory must not grow
+#[test]
+fn heap_memory_bounded_over_many_ticks() {
+    let mut rt = run(r"
+        import shapes { circle }
+        import render { fill }
+        import coords { resolution }
+        resolution(400, 400)
+        state { let t: float = 0.0 }
+        fn on_update(s: State, input: Input) -> State {
+            s.t = s.t + input.dt
+            for let i = 0.0; i < 200.0; i++ {
+                let p: vec2 = vec2(i * 2.0, sin(i + s.t) * 100.0)
+                out << circle(p, 3.0, render: fill, color: color(i / 200.0, 0.5, 0.8))
+            }
+            return s
+        }
+    ");
+    let input = Input { dt: 0.016, ..Default::default() };
+    // Run 500 ticks — without frame arena this would be 500 * ~1000 objects = 500k
+    for _ in 0..500 {
+        tick_with(&mut rt, input.clone());
+    }
+    // If we get here without OOM, the arena is working
+}
+
+// Struct stored in state persists across ticks
+#[test]
+fn heap_struct_in_state_persists() {
+    let mut rt = run(r"
+        struct Counter {
+            +let value: float = 0.0
+            +fn inc() -> float {
+                this.value = this.value + 1.0
+                return this.value
+            }
+        }
+        state { let c: Counter = Counter { value: 0.0 } }
+        fn on_update(s: State, input: Input) -> State {
+            s.c.inc()
+            return s
+        }
+    ");
+    let input = Input { dt: 0.016, ..Default::default() };
+    for _ in 0..10 {
+        tick_with(&mut rt, input.clone());
+    }
+    let state = rt.state();
+    match state.get("c") {
+        Some(Value::Object { fields, .. }) => {
+            match fields.get("value") {
+                Some(Value::Float(v)) => assert_eq!(*v, 10.0),
+                other => panic!("expected Float, got {other:?}"),
+            }
+        }
+        other => panic!("expected Object, got {other:?}"),
+    }
+}

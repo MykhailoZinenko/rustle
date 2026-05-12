@@ -52,8 +52,11 @@ impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Float(v) => {
-                if v.fract() == 0.0 && v.abs() < 1e15 { write!(f, "{}", *v as i64) }
-                else { write!(f, "{v}") }
+                if v.fract() == 0.0 && v.abs() < 1e15 {
+                    #[expect(clippy::cast_possible_truncation, reason = "guarded by abs() < 1e15")]
+                    let i = *v as i64;
+                    write!(f, "{i}")
+                } else { write!(f, "{v}") }
             }
             Value::Bool(b) => write!(f, "{b}"),
             Value::Str(s) => write!(f, "{s}"),
@@ -96,9 +99,12 @@ impl std::fmt::Display for Value {
 pub struct State(pub(crate) HashMap<String, Value>);
 
 impl State {
+    #[must_use] 
     pub fn get(&self, key: &str) -> Option<&Value> { self.0.get(key) }
     pub fn iter(&self) -> impl Iterator<Item = (&String, &Value)> { self.0.iter() }
+    #[must_use] 
     pub fn len(&self) -> usize { self.0.len() }
+    #[must_use] 
     pub fn is_empty(&self) -> bool { self.0.is_empty() }
 }
 
@@ -247,6 +253,8 @@ impl Runtime {
         self.vm.frames_clear();
         self.vm.output.clear();
         self.vm.globals = self.cached_globals.clone();
+        self.vm.heap.reset_frame();
+        self.vm.heap.enter_frame_mode();
         if self.has_on_update {
             if let Some(update_chunk) = self.program.compiled.on_update_chunk {
                 let input_sv = self.vm.heap.alloc(vm::value::HeapObject::Input(vm::value::InputObj {
@@ -259,6 +267,7 @@ impl Runtime {
         } else {
             self.vm.run_chunk(0)?;
         }
+        self.vm.heap.exit_frame_mode();
         Ok(self.vm.take_output())
     }
 
