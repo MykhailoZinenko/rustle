@@ -198,6 +198,7 @@ impl std::error::Error for Error {}
 
 /// A single frame in the runtime call stack.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct StackFrame {
     pub function: String,
     pub line: usize,

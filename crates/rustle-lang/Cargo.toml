@@ -7,4 +7,3 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-thiserror = "2.0.18"

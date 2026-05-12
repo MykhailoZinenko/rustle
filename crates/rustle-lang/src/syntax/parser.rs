@@ -1097,25 +1097,7 @@ impl Parser {
                 Type::Fn(params, ret)
             }
 
-            TokenKind::Ident(name) => match name.as_str() {
-                "string"    => Type::String,
-                "vec2"      => Type::Vec2,
-                "vec3"      => Type::Vec3,
-                "vec4"      => Type::Vec4,
-                "color"     => Type::Color,
-                "mat3"      => Type::Mat3,
-                "mat4"      => Type::Mat4,
-                "transform" => Type::Transform,
-                "shape"     => Type::Shape,
-                "circle"    => Type::Circle,
-                "rect"      => Type::Rect,
-                "line"      => Type::Line,
-                "polygon"   => Type::Polygon,
-                "text_shape" => Type::TextShape,
-                "State"     => Type::State,
-                "Input"     => Type::Input,
-                _           => Type::Named(name),
-            },
+            TokenKind::Ident(name) => Type::from_name(&name),
 
             _ => return Err(self.error_at(&tok, "expected type")),
         };

@@ -1,9 +1,12 @@
+#![expect(clippy::cast_possible_truncation, reason = "VM indices are guaranteed small by construction")]
+#![expect(clippy::cast_sign_loss, reason = "float-to-usize casts are guarded by range checks")]
 //! Higher-order list operations for the bytecode VM.
 //!
 //! These functions need access to `Vm::call_closure_sync`, so they live in a
 //! separate module as free functions that take `&mut Vm`.
 
 use crate::error::{ErrorCode, RuntimeError};
+use super::util::check_arity;
 use super::value::{is_truthy, values_equal, HeapObject, StackValue};
 use super::vm::Vm;
 
@@ -332,30 +335,11 @@ fn list_paste(
         _ => return Err(expected_list(line)),
     };
     let idx = idx.min(items.len());
-    for (i, item) in insert_items.into_iter().enumerate() {
-        items.insert(idx + i, item);
-    }
+    items.splice(idx..idx, insert_items);
     Ok(StackValue::Float(0.0))
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-fn check_arity(
-    method: &str,
-    args: &[StackValue],
-    expected: usize,
-    line: usize,
-) -> Result<(), RuntimeError> {
-    if args.len() != expected {
-        return Err(RuntimeError::new(
-            ErrorCode::R008,
-            line,
-            0,
-            format!("`{method}` expects {expected} argument(s), got {}", args.len()),
-        ));
-    }
-    Ok(())
-}
 
 fn require_usize(sv: StackValue, line: usize) -> Result<usize, RuntimeError> {
     match sv {

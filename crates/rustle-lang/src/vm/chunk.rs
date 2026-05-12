@@ -40,7 +40,7 @@ impl Chunk {
     ///
     /// # Panics
     /// Panics if the opcode at `idx` is not a jump variant.
-    pub fn patch_jump(&mut self, idx: usize, offset: i32) {
+    pub fn patch_jump(&mut self, idx: usize, offset: i16) {
         self.code[idx] = match self.code[idx] {
             Op::Jump(_)         => Op::Jump(offset),
             Op::JumpIfFalse(_)  => Op::JumpIfFalse(offset),
@@ -50,8 +50,7 @@ impl Chunk {
             Op::OptChainJump(_) => Op::OptChainJump(offset),
             Op::IterNext(_)     => Op::IterNext(offset),
             other => panic!(
-                "patch_jump called on non-jump opcode {:?} at index {}",
-                other, idx
+                "patch_jump called on non-jump opcode {other:?} at index {idx}"
             ),
         };
     }
@@ -66,6 +65,28 @@ impl Chunk {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.code.is_empty()
+    }
+
+    /// Return a human-readable disassembly of this chunk.
+    ///
+    /// Each line shows: `offset | line | instruction`.
+    /// String-pool and constant-pool references show their raw indices;
+    /// the caller can resolve them using `CompiledProgram::strings` / `constants`.
+    #[must_use]
+    pub fn disassemble(&self) -> String {
+        use std::fmt::Write;
+        let mut out = String::new();
+        writeln!(out, "== {} (locals={}, params={}) ==", self.name, self.local_count, self.param_count).unwrap();
+        for (i, op) in self.code.iter().enumerate() {
+            let line = self.lines.get(i).copied().unwrap_or(0);
+            let line_str = if i > 0 && self.lines.get(i - 1).copied() == Some(line) {
+                "   |".to_string()
+            } else {
+                format!("{line:4}")
+            };
+            writeln!(out, "{i:4} {line_str} {op}").unwrap();
+        }
+        out
     }
 }
 
@@ -137,5 +158,37 @@ mod tests {
         let mut c = Chunk::new("f");
         let idx = c.emit(Op::Return, 1);
         c.patch_jump(idx, 0);
+    }
+
+    #[test]
+    fn disassemble_output() {
+        let mut c = Chunk::new("add");
+        c.param_count = 2;
+        c.local_count = 2;
+        c.emit(Op::LoadLocal(0), 1);
+        c.emit(Op::LoadLocal(1), 1);
+        c.emit(Op::Add, 1);
+        c.emit(Op::Return, 2);
+        let dis = c.disassemble();
+        assert!(dis.contains("== add (locals=2, params=2) =="));
+        assert!(dis.contains("LOAD_LOCAL 0"));
+        assert!(dis.contains("LOAD_LOCAL 1"));
+        assert!(dis.contains("ADD"));
+        assert!(dis.contains("RETURN"));
+    }
+
+    #[test]
+    fn disassemble_line_dedup() {
+        let mut c = Chunk::new("f");
+        c.emit(Op::Const(0), 5);
+        c.emit(Op::Const(1), 5);
+        c.emit(Op::Add, 5);
+        c.emit(Op::Return, 6);
+        let dis = c.disassemble();
+        let lines: Vec<&str> = dis.lines().skip(1).collect();
+        assert!(lines[0].contains("   5"));
+        assert!(lines[1].contains("   |"));
+        assert!(lines[2].contains("   |"));
+        assert!(lines[3].contains("   6"));
     }
 }

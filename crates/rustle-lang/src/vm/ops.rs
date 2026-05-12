@@ -1,3 +1,4 @@
+#![expect(clippy::many_single_char_names, reason = "x/y/z/w are standard math variable names")]
 //! Native operator dispatch for all StackValue/HeapObject type combinations.
 //!
 //! Each function takes operands as [`StackValue`], a mutable reference to the [`Heap`]
@@ -235,7 +236,7 @@ pub fn exec_mul(
                 return Err(type_err("*", line));
             }
             let s = scalar;
-            let (rr, rg, rb, ra) = ((r * s).min(1.0), (g * s).min(1.0), (b * s).min(1.0), (a * s).min(1.0));
+            let (rr, rg, rb, ra) = ((r * s).clamp(0.0, 1.0), (g * s).clamp(0.0, 1.0), (b * s).clamp(0.0, 1.0), (a * s).clamp(0.0, 1.0));
             Ok(heap.alloc(HeapObject::Color { r: rr, g: rg, b: rb, a: ra }))
         }
         HeapObject::Mat3(m) => {
@@ -430,7 +431,7 @@ fn cmp_op(
     match (a, b) {
         (StackValue::Float(fa), StackValue::Float(fb)) => {
             // partial_cmp on f64 returns None for NaN; treat as "not ordered" → false
-            let result = fa.partial_cmp(&fb).map_or(false, predicate);
+            let result = fa.partial_cmp(&fb).is_some_and(predicate);
             Ok(StackValue::Bool(result))
         }
         (StackValue::HeapRef(ai), StackValue::HeapRef(bi)) => {

@@ -1,17 +1,10 @@
+#![expect(clippy::cast_precision_loss, reason = "list lengths fit in f64 mantissa for practical sizes")]
 use super::value::{HeapObject, StackValue};
 use super::heap::Heap;
+use super::util::require_float;
 use super::CompiledStructDef;
 use crate::error::{ErrorCode, RuntimeError};
 use crate::types::draw::ShapeDesc;
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-fn require_float(sv: StackValue, line: usize) -> Result<f64, RuntimeError> {
-    match sv {
-        StackValue::Float(f) => Ok(f),
-        _ => Err(RuntimeError::new(ErrorCode::R001, line, 0, "expected float")),
-    }
-}
 
 fn field_not_found(field: &str, type_name: &str, available: &[&str], line: usize) -> RuntimeError {
     RuntimeError::new(
@@ -42,217 +35,142 @@ pub fn get_field(
     struct_defs: &[CompiledStructDef],
     line: usize,
 ) -> Result<StackValue, RuntimeError> {
-    // Snapshot the object kind so we don't hold a live borrow while we
-    // potentially call heap.alloc().
-    match heap.get(idx).clone() {
-        // ── Vec2 ─────────────────────────────────────────────────────────────
-        HeapObject::Vec2(x, y) => match field {
-            "x" => Ok(StackValue::Float(x)),
-            "y" => Ok(StackValue::Float(y)),
-            _ => Err(field_not_found(field, "vec2", &["x", "y"], line)),
-        },
-
-        // ── Vec3 ─────────────────────────────────────────────────────────────
-        HeapObject::Vec3(x, y, z) => match field {
-            "x" => Ok(StackValue::Float(x)),
-            "y" => Ok(StackValue::Float(y)),
-            "z" => Ok(StackValue::Float(z)),
-            _ => Err(field_not_found(field, "vec3", &["x", "y", "z"], line)),
-        },
-
-        // ── Vec4 ─────────────────────────────────────────────────────────────
-        HeapObject::Vec4(x, y, z, w) => match field {
-            "x" => Ok(StackValue::Float(x)),
-            "y" => Ok(StackValue::Float(y)),
-            "z" => Ok(StackValue::Float(z)),
-            "w" => Ok(StackValue::Float(w)),
-            _ => Err(field_not_found(field, "vec4", &["x", "y", "z", "w"], line)),
-        },
-
-        // ── Color ─────────────────────────────────────────────────────────────
-        HeapObject::Color { r, g, b, a } => match field {
-            "r" => Ok(StackValue::Float(r)),
-            "g" => Ok(StackValue::Float(g)),
-            "b" => Ok(StackValue::Float(b)),
-            "a" => Ok(StackValue::Float(a)),
-            _ => Err(field_not_found(field, "color", &["r", "g", "b", "a"], line)),
-        },
-
-        // ── Shape ─────────────────────────────────────────────────────────────
-        HeapObject::Shape(sd) => match &sd.desc {
-            ShapeDesc::Circle { center, radius } => {
-                let (cx, cy) = *center;
-                let r = *radius;
-                match field {
-                    "center" => Ok(heap.alloc(HeapObject::Vec2(cx, cy))),
-                    "radius" => Ok(StackValue::Float(r)),
-                    _ => Err(field_not_found(field, "circle", &["center", "radius"], line)),
-                }
-            }
-            ShapeDesc::Rect { center, size, .. } => {
-                let (cx, cy) = *center;
-                let (sw, sh) = *size;
-                match field {
-                    "center" => Ok(heap.alloc(HeapObject::Vec2(cx, cy))),
-                    "size"   => Ok(heap.alloc(HeapObject::Vec2(sw, sh))),
-                    _ => Err(field_not_found(field, "rect", &["center", "size"], line)),
-                }
-            }
-            ShapeDesc::Line { from, to } => {
-                let (fx, fy) = *from;
-                let (tx, ty) = *to;
-                match field {
-                    "from" => Ok(heap.alloc(HeapObject::Vec2(fx, fy))),
-                    "to"   => Ok(heap.alloc(HeapObject::Vec2(tx, ty))),
-                    _ => Err(field_not_found(field, "line", &["from", "to"], line)),
-                }
-            }
-            ShapeDesc::Polygon(_) => {
-                Err(field_not_found(field, "polygon", &[], line))
-            }
-            ShapeDesc::Text { pos, content, size } => {
-                let (px, py) = *pos;
-                let sz = *size;
-                let content = content.clone();
-                match field {
-                    "pos"     => Ok(heap.alloc(HeapObject::Vec2(px, py))),
-                    "content" => Ok(heap.alloc(HeapObject::Str(content))),
-                    "size"    => Ok(StackValue::Float(sz)),
-                    _ => Err(field_not_found(field, "text", &["pos", "content", "size"], line)),
-                }
-            }
-        },
-
-        // ── List ──────────────────────────────────────────────────────────────
-        HeapObject::List(items) => match field {
-            "len" => Ok(StackValue::Float(items.len() as f64)),
-            _ => Err(field_not_found(field, "list", &["len"], line)),
-        },
-
-        // ── ResOk ─────────────────────────────────────────────────────────────
-        HeapObject::ResOk(inner) => match field {
-            "ok"    => Ok(StackValue::Bool(true)),
-            "value" => Ok(inner),
-            "error" => Ok(heap.alloc(HeapObject::Str(String::new()))),
-            _ => Err(field_not_found(field, "res", &["ok", "value", "error"], line)),
-        },
-
-        // ── ResErr ────────────────────────────────────────────────────────────
-        HeapObject::ResErr(msg) => match field {
-            "ok"    => Ok(StackValue::Bool(false)),
-            "value" => Err(RuntimeError::new(
-                ErrorCode::R003,
-                line,
-                0,
-                "cannot access .value on failed result".to_string(),
-            )),
-            "error" => Ok(heap.alloc(HeapObject::Str(msg))),
-            _ => Err(field_not_found(field, "res", &["ok", "error"], line)),
-        },
-
-        // ── Input ─────────────────────────────────────────────────────────────
-        HeapObject::Input(io) => match field {
-            "dt"             => Ok(StackValue::Float(io.dt)),
-            "mouse_x"        => Ok(StackValue::Float(io.mouse_x)),
-            "mouse_y"        => Ok(StackValue::Float(io.mouse_y)),
-            "mouse_down"     => Ok(StackValue::Bool(io.mouse_down)),
-            "mouse_pressed"  => Ok(StackValue::Bool(io.mouse_pressed)),
-            "mouse_released" => Ok(StackValue::Bool(io.mouse_released)),
-            "key_pressed"    => Ok(heap.alloc(HeapObject::Str(io.key_pressed))),
-            "key_down"       => Ok(heap.alloc(HeapObject::Str(io.key_down))),
-            "key_released"   => Ok(heap.alloc(HeapObject::Str(io.key_released))),
-            _ => Err(field_not_found(
-                field,
-                "input",
-                &["dt", "mouse_x", "mouse_y", "mouse_down", "mouse_pressed",
-                  "mouse_released", "key_pressed", "key_down", "key_released"],
-                line,
-            )),
-        },
-
-        // ── State ─────────────────────────────────────────────────────────────
-        HeapObject::State(state) => {
-            let slot = state_fields
-                .iter()
-                .position(|n| n == field)
-                .ok_or_else(|| {
-                    let available: Vec<&str> = state_fields.iter().map(String::as_str).collect();
-                    RuntimeError::new(
-                        ErrorCode::R003,
-                        line,
-                        0,
-                        format!(
-                            "field '{}' not found on state; available: {}",
-                            field,
-                            available.join(", ")
-                        ),
-                    )
-                })?;
-            Ok(state.fields[slot])
-        }
-
-        // ── Object (struct instance) ───────────────────────────────────────────
-        HeapObject::Object(obj) => {
-            let def = struct_defs
-                .get(obj.struct_def_idx as usize)
-                .ok_or_else(|| RuntimeError::new(
-                    ErrorCode::R003,
+    // Phase 1: immutable borrow — handle non-allocating cases and extract
+    // data for allocating cases. This avoids cloning the entire HeapObject.
+    enum NeedsAlloc {
+        Vec2(f64, f64),
+        Str(String),
+    }
+    let needs_alloc: Option<NeedsAlloc> = {
+        let obj = heap.get(idx);
+        match obj {
+            HeapObject::Vec2(x, y) => return match field {
+                "x" => Ok(StackValue::Float(*x)),
+                "y" => Ok(StackValue::Float(*y)),
+                _ => Err(field_not_found(field, "vec2", &["x", "y"], line)),
+            },
+            HeapObject::Vec3(x, y, z) => return match field {
+                "x" => Ok(StackValue::Float(*x)),
+                "y" => Ok(StackValue::Float(*y)),
+                "z" => Ok(StackValue::Float(*z)),
+                _ => Err(field_not_found(field, "vec3", &["x", "y", "z"], line)),
+            },
+            HeapObject::Vec4(x, y, z, w) => return match field {
+                "x" => Ok(StackValue::Float(*x)),
+                "y" => Ok(StackValue::Float(*y)),
+                "z" => Ok(StackValue::Float(*z)),
+                "w" => Ok(StackValue::Float(*w)),
+                _ => Err(field_not_found(field, "vec4", &["x", "y", "z", "w"], line)),
+            },
+            HeapObject::Color { r, g, b, a } => return match field {
+                "r" => Ok(StackValue::Float(*r)),
+                "g" => Ok(StackValue::Float(*g)),
+                "b" => Ok(StackValue::Float(*b)),
+                "a" => Ok(StackValue::Float(*a)),
+                _ => Err(field_not_found(field, "color", &["r", "g", "b", "a"], line)),
+            },
+            HeapObject::Shape(sd) => match &sd.desc {
+                ShapeDesc::Circle { center, radius } => match field {
+                    "center" => Some(NeedsAlloc::Vec2(center.0, center.1)),
+                    "radius" => return Ok(StackValue::Float(*radius)),
+                    _ => return Err(field_not_found(field, "circle", &["center", "radius"], line)),
+                },
+                ShapeDesc::Rect { center, size, .. } => match field {
+                    "center" => Some(NeedsAlloc::Vec2(center.0, center.1)),
+                    "size"   => Some(NeedsAlloc::Vec2(size.0, size.1)),
+                    _ => return Err(field_not_found(field, "rect", &["center", "size"], line)),
+                },
+                ShapeDesc::Line { from, to } => match field {
+                    "from" => Some(NeedsAlloc::Vec2(from.0, from.1)),
+                    "to"   => Some(NeedsAlloc::Vec2(to.0, to.1)),
+                    _ => return Err(field_not_found(field, "line", &["from", "to"], line)),
+                },
+                ShapeDesc::Polygon(_) => return Err(field_not_found(field, "polygon", &[], line)),
+                ShapeDesc::Text { pos, content, size } => match field {
+                    "pos"     => Some(NeedsAlloc::Vec2(pos.0, pos.1)),
+                    "content" => Some(NeedsAlloc::Str(content.clone())),
+                    "size"    => return Ok(StackValue::Float(*size)),
+                    _ => return Err(field_not_found(field, "text", &["pos", "content", "size"], line)),
+                },
+            },
+            HeapObject::List(items) => return match field {
+                "len" => Ok(StackValue::Float(items.len() as f64)),
+                _ => Err(field_not_found(field, "list", &["len"], line)),
+            },
+            HeapObject::ResOk(inner) => match field {
+                "ok"    => return Ok(StackValue::Bool(true)),
+                "value" => return Ok(*inner),
+                "error" => Some(NeedsAlloc::Str(String::new())),
+                _ => return Err(field_not_found(field, "res", &["ok", "value", "error"], line)),
+            },
+            HeapObject::ResErr(msg) => match field {
+                "ok"    => return Ok(StackValue::Bool(false)),
+                "value" => return Err(RuntimeError::new(
+                    ErrorCode::R003, line, 0,
+                    "cannot access .value on failed result",
+                )),
+                "error" => Some(NeedsAlloc::Str(msg.clone())),
+                _ => return Err(field_not_found(field, "res", &["ok", "error"], line)),
+            },
+            HeapObject::Input(io) => match field {
+                "dt"             => return Ok(StackValue::Float(io.dt)),
+                "mouse_x"        => return Ok(StackValue::Float(io.mouse_x)),
+                "mouse_y"        => return Ok(StackValue::Float(io.mouse_y)),
+                "mouse_down"     => return Ok(StackValue::Bool(io.mouse_down)),
+                "mouse_pressed"  => return Ok(StackValue::Bool(io.mouse_pressed)),
+                "mouse_released" => return Ok(StackValue::Bool(io.mouse_released)),
+                "key_pressed"    => Some(NeedsAlloc::Str(io.key_pressed.clone())),
+                "key_down"       => Some(NeedsAlloc::Str(io.key_down.clone())),
+                "key_released"   => Some(NeedsAlloc::Str(io.key_released.clone())),
+                _ => return Err(field_not_found(
+                    field, "input",
+                    &["dt", "mouse_x", "mouse_y", "mouse_down", "mouse_pressed",
+                      "mouse_released", "key_pressed", "key_down", "key_released"],
                     line,
-                    0,
-                    format!("invalid struct_def_idx {} for type '{}'", obj.struct_def_idx, obj.type_name),
-                ))?;
-            let slot = def
-                .field_names
-                .iter()
-                .position(|n| n == field)
-                .ok_or_else(|| {
-                    let available: Vec<&str> = def.field_names.iter().map(String::as_str).collect();
-                    RuntimeError::new(
-                        ErrorCode::R003,
-                        line,
-                        0,
-                        format!(
-                            "field '{}' not found on {}; available: {}",
-                            field,
-                            obj.type_name,
-                            available.join(", ")
-                        ),
-                    )
-                })?;
-            Ok(obj.fields[slot])
+                )),
+            },
+            HeapObject::State(state) => {
+                let slot = state_fields.iter().position(|n| n == field)
+                    .ok_or_else(|| {
+                        let available: Vec<&str> = state_fields.iter().map(String::as_str).collect();
+                        RuntimeError::new(ErrorCode::R003, line, 0,
+                            format!("field '{}' not found on state; available: {}", field, available.join(", ")))
+                    })?;
+                return Ok(state.fields[slot]);
+            }
+            HeapObject::Object(obj) => {
+                let def = struct_defs.get(obj.struct_def_idx as usize)
+                    .ok_or_else(|| RuntimeError::new(ErrorCode::R003, line, 0,
+                        format!("invalid struct_def_idx {} for type '{}'", obj.struct_def_idx, obj.type_name)))?;
+                let slot = def.field_names.iter().position(|n| n == field)
+                    .ok_or_else(|| {
+                        let available: Vec<&str> = def.field_names.iter().map(String::as_str).collect();
+                        RuntimeError::new(ErrorCode::R003, line, 0,
+                            format!("field '{}' not found on {}; available: {}", field, obj.type_name, available.join(", ")))
+                    })?;
+                return Ok(obj.fields[slot]);
+            }
+            HeapObject::EnumVariant(ev) => {
+                let slot = ev.field_names.iter().position(|n| n == field)
+                    .ok_or_else(|| {
+                        let available: Vec<&str> = ev.field_names.iter().map(String::as_str).collect();
+                        RuntimeError::new(ErrorCode::R003, line, 0,
+                            format!("field '{}' not found on {}.{}; available: {}", field, ev.enum_name, ev.variant, available.join(", ")))
+                    })?;
+                return Ok(ev.field_values[slot]);
+            }
+            other => return Err(RuntimeError::new(
+                ErrorCode::R003, line, 0,
+                format!("field access not supported on {:?}", std::mem::discriminant(other)),
+            )),
         }
+    };
 
-        // ── EnumVariant ────────────────────────────────────────────────────────
-        HeapObject::EnumVariant(ev) => {
-            let slot = ev
-                .field_names
-                .iter()
-                .position(|n| n == field)
-                .ok_or_else(|| {
-                    let available: Vec<&str> = ev.field_names.iter().map(String::as_str).collect();
-                    RuntimeError::new(
-                        ErrorCode::R003,
-                        line,
-                        0,
-                        format!(
-                            "field '{}' not found on {}.{}; available: {}",
-                            field,
-                            ev.enum_name,
-                            ev.variant,
-                            available.join(", ")
-                        ),
-                    )
-                })?;
-            Ok(ev.field_values[slot])
-        }
-
-        // ── Everything else ───────────────────────────────────────────────────
-        other => Err(RuntimeError::new(
-            ErrorCode::R003,
-            line,
-            0,
-            format!("field access not supported on {:?}", std::mem::discriminant(&other)),
-        )),
+    // Phase 2: allocate from the extracted data (borrow on heap is now released)
+    match needs_alloc {
+        Some(NeedsAlloc::Vec2(x, y)) => Ok(heap.alloc(HeapObject::Vec2(x, y))),
+        Some(NeedsAlloc::Str(s)) => Ok(heap.alloc(HeapObject::Str(s))),
+        None => unreachable!(),
     }
 }
 
@@ -269,64 +187,44 @@ pub fn set_field_rebuild(
     val: StackValue,
     line: usize,
 ) -> Result<StackValue, RuntimeError> {
-    match heap.get(idx).clone() {
-        // ── Vec2 ─────────────────────────────────────────────────────────────
-        HeapObject::Vec2(x, y) => {
-            let f = require_float(val, line)?;
-            let new_obj = match field {
-                "x" => HeapObject::Vec2(f, y),
-                "y" => HeapObject::Vec2(x, f),
-                _ => return Err(field_not_found(field, "vec2", &["x", "y"], line)),
-            };
-            Ok(heap.alloc(new_obj))
+    let f = require_float(val, line)?;
+    // Phase 1: read scalars from immutable borrow
+    let new_obj = {
+        let obj = heap.get(idx);
+        match obj {
+            HeapObject::Vec2(x, y) => match field {
+                "x" => Ok(HeapObject::Vec2(f, *y)),
+                "y" => Ok(HeapObject::Vec2(*x, f)),
+                _ => Err(field_not_found(field, "vec2", &["x", "y"], line)),
+            },
+            HeapObject::Vec3(x, y, z) => match field {
+                "x" => Ok(HeapObject::Vec3(f, *y, *z)),
+                "y" => Ok(HeapObject::Vec3(*x, f, *z)),
+                "z" => Ok(HeapObject::Vec3(*x, *y, f)),
+                _ => Err(field_not_found(field, "vec3", &["x", "y", "z"], line)),
+            },
+            HeapObject::Vec4(x, y, z, w) => match field {
+                "x" => Ok(HeapObject::Vec4(f, *y, *z, *w)),
+                "y" => Ok(HeapObject::Vec4(*x, f, *z, *w)),
+                "z" => Ok(HeapObject::Vec4(*x, *y, f, *w)),
+                "w" => Ok(HeapObject::Vec4(*x, *y, *z, f)),
+                _ => Err(field_not_found(field, "vec4", &["x", "y", "z", "w"], line)),
+            },
+            HeapObject::Color { r, g, b, a } => match field {
+                "r" => Ok(HeapObject::Color { r: f, g: *g, b: *b, a: *a }),
+                "g" => Ok(HeapObject::Color { r: *r, g: f, b: *b, a: *a }),
+                "b" => Ok(HeapObject::Color { r: *r, g: *g, b: f, a: *a }),
+                "a" => Ok(HeapObject::Color { r: *r, g: *g, b: *b, a: f }),
+                _ => Err(field_not_found(field, "color", &["r", "g", "b", "a"], line)),
+            },
+            _ => Err(RuntimeError::new(
+                ErrorCode::R011, line, 0,
+                "set_field_rebuild is only valid for value types (vec2, vec3, vec4, color)",
+            )),
         }
-
-        // ── Vec3 ─────────────────────────────────────────────────────────────
-        HeapObject::Vec3(x, y, z) => {
-            let f = require_float(val, line)?;
-            let new_obj = match field {
-                "x" => HeapObject::Vec3(f, y, z),
-                "y" => HeapObject::Vec3(x, f, z),
-                "z" => HeapObject::Vec3(x, y, f),
-                _ => return Err(field_not_found(field, "vec3", &["x", "y", "z"], line)),
-            };
-            Ok(heap.alloc(new_obj))
-        }
-
-        // ── Vec4 ─────────────────────────────────────────────────────────────
-        HeapObject::Vec4(x, y, z, w) => {
-            let f = require_float(val, line)?;
-            let new_obj = match field {
-                "x" => HeapObject::Vec4(f, y, z, w),
-                "y" => HeapObject::Vec4(x, f, z, w),
-                "z" => HeapObject::Vec4(x, y, f, w),
-                "w" => HeapObject::Vec4(x, y, z, f),
-                _ => return Err(field_not_found(field, "vec4", &["x", "y", "z", "w"], line)),
-            };
-            Ok(heap.alloc(new_obj))
-        }
-
-        // ── Color ─────────────────────────────────────────────────────────────
-        HeapObject::Color { r, g, b, a } => {
-            let f = require_float(val, line)?;
-            let new_obj = match field {
-                "r" => HeapObject::Color { r: f, g, b, a },
-                "g" => HeapObject::Color { r, g: f, b, a },
-                "b" => HeapObject::Color { r, g, b: f, a },
-                "a" => HeapObject::Color { r, g, b, a: f },
-                _ => return Err(field_not_found(field, "color", &["r", "g", "b", "a"], line)),
-            };
-            Ok(heap.alloc(new_obj))
-        }
-
-        // ── Everything else is not a value type ───────────────────────────────
-        _ => Err(RuntimeError::new(
-            ErrorCode::R011,
-            line,
-            0,
-            "set_field_rebuild is only valid for value types (vec2, vec3, vec4, color)".to_string(),
-        )),
-    }
+    }?;
+    // Phase 2: allocate (borrow released)
+    Ok(heap.alloc(new_obj))
 }
 
 // ─── set_field_mutate ─────────────────────────────────────────────────────────
@@ -334,6 +232,8 @@ pub fn set_field_rebuild(
 /// In-place field write for REFERENCE types (State, Object).
 ///
 /// Mutates the heap object directly — callers do not need to write back.
+/// If the container is in the persistent heap and `val` is a frame-arena ref,
+/// `val` is promoted to the persistent heap first.
 pub fn set_field_mutate(
     heap: &mut Heap,
     idx: u32,
@@ -343,6 +243,7 @@ pub fn set_field_mutate(
     struct_defs: &[CompiledStructDef],
     line: usize,
 ) -> Result<(), RuntimeError> {
+    let val = if !Heap::is_frame_ref(idx) { heap.promote(val) } else { val };
     match heap.get_mut(idx) {
         HeapObject::State(state) => {
             let slot = state_fields
@@ -378,7 +279,7 @@ pub fn set_field_mutate(
                     ErrorCode::R003,
                     line,
                     0,
-                    format!("invalid struct_def_idx {} for type '{}'", def_idx, type_name),
+                    format!("invalid struct_def_idx {def_idx} for type '{type_name}'"),
                 ))?;
 
             let slot = def
@@ -898,11 +799,12 @@ mod tests {
     }
 
     #[test]
-    fn rebuild_non_float_value_error() {
+    fn rebuild_bool_coerces_to_float() {
         let mut heap = Heap::new();
         let orig = heap.alloc(HeapObject::Vec2(1.0, 2.0));
-        let err = rebuild(&mut heap, orig, "x", StackValue::Bool(true)).unwrap_err();
-        assert_eq!(err.code, ErrorCode::R001);
+        let result = rebuild(&mut heap, orig, "x", StackValue::Bool(true)).unwrap();
+        let idx = result.as_heap_ref().unwrap();
+        assert!(matches!(heap.get(idx), HeapObject::Vec2(x, _) if (*x - 1.0).abs() < 1e-10));
     }
 
     #[test]

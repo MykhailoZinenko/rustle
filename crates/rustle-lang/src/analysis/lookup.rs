@@ -42,11 +42,11 @@ impl<'a> LookupContext<'a> {
             return None;
         }
         // 3. Struct fields — look up from program AST.
-        if let Type::Named(name) = obj_ty {
-            if let Some(program) = self.program {
+        if let Type::Named(name) = obj_ty
+            && let Some(program) = self.program {
                 for item in &program.items {
-                    if let crate::syntax::ast::Item::Struct(def) = item {
-                        if def.name == *name {
+                    if let crate::syntax::ast::Item::Struct(def) = item
+                        && def.name == *name {
                             if let Some(f) = def.fields.iter().find(|f| f.name == field) {
                                 return f.ty.clone().or_else(|| {
                                     f.default.as_ref().and_then(infer_literal_type)
@@ -54,10 +54,8 @@ impl<'a> LookupContext<'a> {
                             }
                             return None; // struct found but field doesn't exist
                         }
-                    }
                 }
             }
-        }
         // 4. type_info — handles all built-in types including generics.
         super::type_info::field_type(obj_ty, field)
     }
@@ -72,38 +70,34 @@ impl<'a> LookupContext<'a> {
                 }
             return Vec::new();
         }
-        if let Type::Named(name) = obj_ty {
-            if let Some(program) = self.program {
+        if let Type::Named(name) = obj_ty
+            && let Some(program) = self.program {
                 for item in &program.items {
-                    if let crate::syntax::ast::Item::Struct(def) = item {
-                        if def.name == *name {
+                    if let crate::syntax::ast::Item::Struct(def) = item
+                        && def.name == *name {
                             return def.fields.iter().map(|f| f.name.as_str()).collect();
                         }
-                    }
                 }
             }
-        }
         super::type_info::field_names(obj_ty).to_vec()
     }
 
     /// Return all method names available on the given type.
     #[must_use]
     pub fn method_names(&self, obj_ty: &Type) -> Vec<&str> {
-        if let Type::Named(name) = obj_ty {
-            if let Some(program) = self.program {
+        if let Type::Named(name) = obj_ty
+            && let Some(program) = self.program {
                 for item in &program.items {
-                    if let crate::syntax::ast::Item::Struct(def) = item {
-                        if def.name == *name {
+                    if let crate::syntax::ast::Item::Struct(def) = item
+                        && def.name == *name {
                             let mut names: Vec<&str> = def.methods.iter()
                                 .map(|m| m.def.name.as_str())
                                 .collect();
                             names.push("clone");
                             return names;
                         }
-                    }
                 }
             }
-        }
         super::type_info::method_names(obj_ty).to_vec()
     }
 
@@ -117,11 +111,11 @@ impl<'a> LookupContext<'a> {
                     return Some(export.ty);
                 }
         // 2. Struct methods — look up from program AST.
-        if let Type::Named(name) = obj_ty {
-            if let Some(program) = self.program {
+        if let Type::Named(name) = obj_ty
+            && let Some(program) = self.program {
                 for item in &program.items {
-                    if let crate::syntax::ast::Item::Struct(def) = item {
-                        if def.name == *name {
+                    if let crate::syntax::ast::Item::Struct(def) = item
+                        && def.name == *name {
                             // Built-in clone method
                             if method == "clone" {
                                 return Some(Type::Fn(vec![], Some(Box::new(Type::Named(name.clone())))));
@@ -133,10 +127,8 @@ impl<'a> LookupContext<'a> {
                             }
                             return None;
                         }
-                    }
                 }
             }
-        }
         // 3. type_info — handles all built-in types including generics.
         let (params, ret) = super::type_info::method_signature(obj_ty, method)?;
         Some(Type::Fn(params, ret.map(Box::new)))

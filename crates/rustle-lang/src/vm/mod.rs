@@ -12,6 +12,7 @@ pub mod compiler;
 pub mod vm;
 
 pub mod list_ops;
+pub mod util;
 
 use std::collections::HashMap;
 

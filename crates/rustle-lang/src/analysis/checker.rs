@@ -24,7 +24,7 @@ pub struct TypeResolver<'a> {
     lookup: LookupContext<'a>,
     /// When inside a struct method, holds the struct name for `this` resolution.
     current_struct: Option<String>,
-    /// Type narrowing in match arms: maps variable name -> (enum_name, variant_name)
+    /// Type narrowing in match arms: maps variable name -> (`enum_name`, `variant_name`)
     narrowed_variants: std::collections::HashMap<String, (String, String)>,
 }
 
@@ -81,7 +81,7 @@ impl<'a> TypeResolver<'a> {
                 }
                 (None, Err(errs)) => {
                     self.errors.extend(errs);
-                    return;
+                    continue;
                 }
             };
             self.table.update_type(&format!("__state__{}", field.name), resolved_ty);
@@ -171,9 +171,8 @@ impl<'a> TypeResolver<'a> {
     fn find_struct_def(&self, name: &str) -> Option<&crate::syntax::ast::StructDef> {
         let program = self.program?;
         program.items.iter().find_map(|item| {
-            if let Item::Struct(def) = item {
-                if def.name == name { return Some(def); }
-            }
+            if let Item::Struct(def) = item
+                && def.name == name { return Some(def); }
             None
         })
     }
@@ -256,21 +255,18 @@ impl<'a> TypeResolver<'a> {
             let mut ty = sym.ty.clone();
             for segment in &path[1..] {
                 // Check private field visibility on assignment path
-                if let Some(Type::Named(ref struct_name)) = ty {
-                    if let Some(def) = self.find_struct_def(struct_name) {
-                        if let Some(f) = def.fields.iter().find(|f| f.name == *segment) {
-                            if f.visibility == crate::syntax::ast::Visibility::Private
+                if let Some(Type::Named(ref struct_name)) = ty
+                    && let Some(def) = self.find_struct_def(struct_name)
+                        && let Some(f) = def.fields.iter().find(|f| f.name == *segment)
+                            && f.visibility == crate::syntax::ast::Visibility::Private
                                 && self.current_struct.as_deref() != Some(struct_name.as_str())
                             {
                                 self.errors.push(Error::new(
                                     ErrorCode::S016, a.span.line, a.span.column,
-                                    format!("field '{}' is private in '{}'", segment, struct_name),
+                                    format!("field '{segment}' is private in '{struct_name}'"),
                                 ));
                                 return;
                             }
-                        }
-                    }
-                }
                 ty = ty.and_then(|t| self.lookup.resolve_field(&t, segment));
             }
             // For indexed target, drill down to element type and check index is float
@@ -363,9 +359,8 @@ impl<'a> TypeResolver<'a> {
                     // Validate: enum exists and variant exists
                     if let Some(program) = self.program {
                         let enum_found = program.items.iter().find_map(|item| {
-                            if let crate::syntax::ast::Item::Enum(def) = item {
-                                if def.name == *enum_name { return Some(def); }
-                            }
+                            if let crate::syntax::ast::Item::Enum(def) = item
+                                && def.name == *enum_name { return Some(def); }
                             None
                         });
                         if let Some(edef) = enum_found {
@@ -391,20 +386,18 @@ impl<'a> TypeResolver<'a> {
             }
             self.check_block(&arm.body);
             // Remove narrowing after checking arm body
-            if let crate::syntax::ast::MatchPattern::EnumVariant { .. } = &arm.pattern {
-                if let Expr::Ident(ref var_name, _) = m.expr {
+            if let crate::syntax::ast::MatchPattern::EnumVariant { .. } = &arm.pattern
+                && let Expr::Ident(ref var_name, _) = m.expr {
                     self.narrowed_variants.remove(var_name);
                 }
-            }
         }
 
         // Exhaustiveness check for enum matches
-        if let Type::Named(ref enum_name) = scrut_ty {
-            if let Some(program) = self.program {
+        if let Type::Named(ref enum_name) = scrut_ty
+            && let Some(program) = self.program {
                 let enum_def = program.items.iter().find_map(|item| {
-                    if let crate::syntax::ast::Item::Enum(def) = item {
-                        if def.name == *enum_name { return Some(def); }
-                    }
+                    if let crate::syntax::ast::Item::Enum(def) = item
+                        && def.name == *enum_name { return Some(def); }
                     None
                 });
                 if let Some(edef) = enum_def {
@@ -428,7 +421,6 @@ impl<'a> TypeResolver<'a> {
                     }
                 }
             }
-        }
     }
 
     fn check_if(&mut self, i: &IfStmt) {
@@ -644,16 +636,19 @@ impl<'a> TypeResolver<'a> {
                 }
                 let then_ty = self.infer_expr(then_expr)?;
                 let else_ty = self.infer_expr(else_expr)?;
-                if then_ty != else_ty {
-                    return Err(vec![Error::new(
+                if types_compatible(&then_ty, &else_ty) {
+                    Ok(then_ty)
+                } else if types_compatible(&else_ty, &then_ty) {
+                    Ok(else_ty)
+                } else {
+                    Err(vec![Error::new(
                         ErrorCode::S002, span.line, span.column,
                         format!(
                             "ternary branches have different types: `{}` and `{}`",
                             type_name(&then_ty), type_name(&else_ty)
                         ),
-                    )]);
+                    )])
                 }
-                Ok(then_ty)
             }
 
             Expr::Cast { expr, ty, span } => {
@@ -693,14 +688,13 @@ impl<'a> TypeResolver<'a> {
                             ));
                         }
                         for (arg, expected) in args.iter().zip(&param_tys) {
-                            if let Ok(arg_ty) = self.infer_expr(arg) {
-                                if !types_compatible(expected, &arg_ty) {
+                            if let Ok(arg_ty) = self.infer_expr(arg)
+                                && !types_compatible(expected, &arg_ty) {
                                     self.errors.push(Error::new(
                                         ErrorCode::S002, span.line, span.column,
                                         format!("expected `{}`, found `{}`", type_name(expected), type_name(&arg_ty)),
                                     ));
                                 }
-                            }
                         }
                         Ok(ret.map_or(Type::Unit, |t| *t))
                     }
@@ -732,17 +726,16 @@ impl<'a> TypeResolver<'a> {
             Expr::Field { expr, field, span } => {
                 let obj_ty = self.infer_expr(expr)?;
                 // Type narrowing: if the variable is narrowed to an enum variant, resolve variant fields
-                if let Expr::Ident(ref var_name, _) = **expr {
-                    if let Some((enum_name, variant_name)) = self.narrowed_variants.get(var_name) {
-                        if let Some(program) = self.program {
+                if let Expr::Ident(ref var_name, _) = **expr
+                    && let Some((enum_name, variant_name)) = self.narrowed_variants.get(var_name)
+                        && let Some(program) = self.program {
                             let field_ty = program.items.iter().find_map(|item| {
-                                if let crate::syntax::ast::Item::Enum(def) = item {
-                                    if def.name == *enum_name {
+                                if let crate::syntax::ast::Item::Enum(def) = item
+                                    && def.name == *enum_name {
                                         let var = def.variants.iter().find(|v| v.name == *variant_name)?;
                                         let f = var.fields.iter().find(|f| f.name == *field)?;
                                         return Some(f.ty.clone());
                                     }
-                                }
                                 None
                             });
                             if let Some(ty) = field_ty {
@@ -750,12 +743,11 @@ impl<'a> TypeResolver<'a> {
                             }
                             // Variant exists but field doesn't — give a nice error
                             let variant_fields: Vec<String> = program.items.iter().find_map(|item| {
-                                if let crate::syntax::ast::Item::Enum(def) = item {
-                                    if def.name == *enum_name {
+                                if let crate::syntax::ast::Item::Enum(def) = item
+                                    && def.name == *enum_name {
                                         let var = def.variants.iter().find(|v| v.name == *variant_name)?;
                                         return Some(var.fields.iter().map(|f| f.name.clone()).collect());
                                     }
-                                }
                                 None
                             }).unwrap_or_default();
                             if variant_fields.is_empty() {
@@ -763,32 +755,26 @@ impl<'a> TypeResolver<'a> {
                                     ErrorCode::S009, span.line, span.column,
                                     format!("`{enum_name}.{variant_name}` has no fields"),
                                 )]);
-                            } else {
-                                return Err(vec![Error::new(
-                                    ErrorCode::S009, span.line, span.column,
-                                    format!("`{enum_name}.{variant_name}` has no field `{field}` (available: {})", variant_fields.join(", ")),
-                                )]);
                             }
+                            return Err(vec![Error::new(
+                                ErrorCode::S009, span.line, span.column,
+                                format!("`{enum_name}.{variant_name}` has no field `{field}` (available: {})", variant_fields.join(", ")),
+                            )]);
                         }
-                    }
-                }
                 // Check private field visibility for struct types
-                if let Type::Named(ref struct_name) = obj_ty {
-                    if let Some(def) = self.find_struct_def(struct_name) {
-                        if let Some(f) = def.fields.iter().find(|f| f.name == *field) {
-                            if f.visibility == crate::syntax::ast::Visibility::Private
+                if let Type::Named(ref struct_name) = obj_ty
+                    && let Some(def) = self.find_struct_def(struct_name)
+                        && let Some(f) = def.fields.iter().find(|f| f.name == *field)
+                            && f.visibility == crate::syntax::ast::Visibility::Private
                                 && self.current_struct.as_deref() != Some(struct_name.as_str())
                             {
                                 return Err(vec![Error::new(
                                     ErrorCode::S016,
                                     span.line,
                                     span.column,
-                                    format!("field '{}' is private in '{}'", field, struct_name),
+                                    format!("field '{field}' is private in '{struct_name}'"),
                                 )]);
                             }
-                        }
-                    }
-                }
                 let ty = self.lookup.resolve_field(&obj_ty, field);
                 ty.ok_or_else(|| {
                     let mut err = Error::new(
@@ -838,22 +824,19 @@ impl<'a> TypeResolver<'a> {
                 let obj_ty = self.infer_expr(expr)?;
 
                 // Private method access check for struct types
-                if let Type::Named(ref struct_name) = obj_ty {
-                    if let Some(def) = self.find_struct_def(struct_name) {
-                        if let Some(m) = def.methods.iter().find(|m| m.def.name == *method) {
-                            if m.visibility == crate::syntax::ast::Visibility::Private
+                if let Type::Named(ref struct_name) = obj_ty
+                    && let Some(def) = self.find_struct_def(struct_name)
+                        && let Some(m) = def.methods.iter().find(|m| m.def.name == *method)
+                            && m.visibility == crate::syntax::ast::Visibility::Private
                                 && self.current_struct.as_deref() != Some(struct_name.as_str())
                             {
                                 return Err(vec![Error::new(
                                     ErrorCode::S016,
                                     span.line,
                                     span.column,
-                                    format!("method '{}' is private in '{}'", method, struct_name),
+                                    format!("method '{method}' is private in '{struct_name}'"),
                                 )]);
                             }
-                        }
-                    }
-                }
 
                 let ty = self.resolve_method_call(&obj_ty, method, args, span);
                 ty.ok_or_else(|| {
@@ -960,15 +943,14 @@ impl<'a> TypeResolver<'a> {
                     let field_def = field_def.clone();
 
                     let expr_ty = self.infer_expr(field_expr)?;
-                    if let Some(ref expected_ty) = field_def.ty {
-                        if !types_compatible(expected_ty, &expr_ty) {
+                    if let Some(ref expected_ty) = field_def.ty
+                        && !types_compatible(expected_ty, &expr_ty) {
                             return Err(vec![Error::new(
                                 ErrorCode::S002, span.line, span.column,
                                 format!("field '{field_name}' expects `{}`, got `{}`",
                                     type_name(expected_ty), type_name(&expr_ty)),
                             )]);
                         }
-                    }
                 }
 
                 // Check that all required fields (no default) are provided
@@ -989,19 +971,17 @@ impl<'a> TypeResolver<'a> {
                 // Validate enum and variant exist
                 if let Some(program) = self.program {
                     let enum_def = program.items.iter().find_map(|item| {
-                        if let crate::syntax::ast::Item::Enum(def) = item {
-                            if def.name == *enum_name { return Some(def); }
-                        }
+                        if let crate::syntax::ast::Item::Enum(def) = item
+                            && def.name == *enum_name { return Some(def); }
                         None
                     });
-                    if let Some(edef) = enum_def {
-                        if !edef.variants.iter().any(|v| v.name == *variant) {
+                    if let Some(edef) = enum_def
+                        && !edef.variants.iter().any(|v| v.name == *variant) {
                             return Err(vec![Error::new(
                                 ErrorCode::S009, span.line, span.column,
                                 format!("enum `{enum_name}` has no variant `{variant}`"),
                             )]);
                         }
-                    }
                 }
                 // Type-check field expressions
                 for (_field_name, field_expr) in fields {
@@ -1134,11 +1114,10 @@ impl<'a> TypeResolver<'a> {
                 return Ok(Type::Bool);
             }
             // == / != on Named types (enums, structs) — both sides must be same type
-            if let (Type::Named(ln), Type::Named(rn)) = (l, r) {
-                if ln == rn {
+            if let (Type::Named(ln), Type::Named(rn)) = (l, r)
+                && ln == rn {
                     return Ok(Type::Bool);
                 }
-            }
         }
 
         // and / or with truthy types → bool

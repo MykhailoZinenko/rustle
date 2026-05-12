@@ -1,3 +1,5 @@
+#![expect(clippy::cast_possible_truncation, reason = "VM indices are guaranteed small by construction")]
+#![expect(clippy::match_same_arms, reason = "each shape type handled separately for clarity")]
 use std::io::Write as IoWrite;
 use std::str::FromStr;
 
@@ -9,6 +11,7 @@ use crate::types::mat::{
 };
 
 use super::heap::Heap;
+use super::util::lookup_color;
 use super::value::{HeapObject, StackValue, display};
 
 // ─── Native function type ─────────────────────────────────────────────────────
@@ -35,6 +38,7 @@ impl Clone for NativeFunc {
 
 /// Build the full native-function dispatch table.
 /// The compiler maps names to indices; the VM dispatches by index.
+#[must_use] 
 pub fn native_table() -> Vec<NativeFunc> {
     vec![
         // Core math — 1-arg
@@ -108,27 +112,18 @@ pub fn resolve_constant(name: &str, heap: &mut Heap) -> Option<StackValue> {
     match name {
         "PI"  => Some(StackValue::Float(std::f64::consts::PI)),
         "TAU" => Some(StackValue::Float(std::f64::consts::TAU)),
-        "red"  => Some(heap.alloc(HeapObject::Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 })),
-        "green" => Some(heap.alloc(HeapObject::Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 })),
-        "blue"  => Some(heap.alloc(HeapObject::Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 })),
-        "white" => Some(heap.alloc(HeapObject::Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 })),
-        "black" => Some(heap.alloc(HeapObject::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 })),
-        "transparent" => Some(heap.alloc(HeapObject::Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 })),
         "sdf"     => Some(heap.alloc(HeapObject::RenderMode(RenderMode::Sdf))),
         "fill"    => Some(heap.alloc(HeapObject::RenderMode(RenderMode::Fill))),
         "outline" => Some(heap.alloc(HeapObject::RenderMode(RenderMode::Outline))),
-        _ => None,
+        _ => {
+            lookup_color(name).map(|c| heap.alloc(HeapObject::Color { r: c.r, g: c.g, b: c.b, a: c.a }))
+        }
     }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-fn require_float(sv: StackValue, line: usize) -> Result<f64, RuntimeError> {
-    match sv {
-        StackValue::Float(f) => Ok(f),
-        _ => Err(RuntimeError::new(ErrorCode::R001, line, 0, "expected float")),
-    }
-}
+use super::util::require_float;
 
 fn require_vec2(sv: StackValue, heap: &Heap, line: usize) -> Result<(f64, f64), RuntimeError> {
     match sv {
@@ -469,7 +464,7 @@ fn native_line(heap: &mut Heap, args: &[StackValue], cm: &mut CoordMeta, line: u
 }
 
 /// polygon(vertices [, color, render])
-/// vertices is a HeapRef to a List whose items are HeapRefs to Vec2.
+/// vertices is a `HeapRef` to a List whose items are `HeapRefs` to Vec2.
 fn native_polygon(heap: &mut Heap, args: &[StackValue], cm: &mut CoordMeta, line: usize) -> Result<StackValue, RuntimeError> {
     // Extract vertex list first (snapshot before mutating heap).
     let verts = extract_vec2_list(args[0], heap, line)?;

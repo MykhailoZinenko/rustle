@@ -1,6 +1,7 @@
+#![expect(clippy::match_same_arms, reason = "each type variant has its own arm for clarity and future divergence")]
 //! Static compile-time type information for the resolver.
 //!
-//! Pure functions only — no runtime types, no Value, no RuntimeError, no closures.
+//! Pure functions only — no runtime types, no Value, no `RuntimeError`, no closures.
 //! Depends only on `crate::syntax::ast::{Type, BinOp}`.
 //!
 //! These replace all `TypeRegistry` and `BinopRegistry` queries in the resolver.
@@ -248,12 +249,12 @@ pub fn method_signature(ty: &Type, method: &str) -> Option<(Vec<Type>, Option<Ty
                 }
                 "filter" => {
                     let fn_ty =
-                        Type::Fn(vec![elem_ty.clone()], Some(Box::new(Type::Bool)));
+                        Type::Fn(vec![elem_ty], Some(Box::new(Type::Bool)));
                     Some((vec![fn_ty], Some(ty.clone())))
                 }
                 "any" | "all" => {
                     let fn_ty =
-                        Type::Fn(vec![elem_ty.clone()], Some(Box::new(Type::Bool)));
+                        Type::Fn(vec![elem_ty], Some(Box::new(Type::Bool)));
                     Some((vec![fn_ty], Some(Type::Bool)))
                 }
                 "search" | "bsearch" => Some((vec![elem_ty], Some(Type::Float))),

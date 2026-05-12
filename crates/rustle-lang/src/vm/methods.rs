@@ -1,3 +1,6 @@
+#![expect(clippy::cast_possible_truncation, reason = "VM indices are guaranteed small by construction")]
+#![expect(clippy::cast_sign_loss, reason = "VM indices are non-negative by construction")]
+#![expect(clippy::cast_precision_loss, reason = "list lengths fit in f64 mantissa for practical sizes")]
 //! Native method dispatch for all built-in heap types.
 //!
 //! This module implements non-HOF methods for String, Vec2/3/4, Color, Mat3/4,
@@ -18,6 +21,7 @@ use crate::{
 
 use super::{
     heap::Heap,
+    util::{check_arity, require_float, require_heap_ref},
     value::{deep_clone, HeapObject, StackValue},
 };
 
@@ -71,40 +75,6 @@ pub fn call_method(
         HeapObject::List(_)      => call_list_method(heap, receiver_idx, method, args, line),
         HeapObject::State(_)     => call_state_method(heap, receiver_idx, method, args, state_fields, line),
         _ => Err(method_not_found(method, "value", line)),
-    }
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-fn check_arity(
-    method: &str,
-    args: &[StackValue],
-    expected: usize,
-    line: usize,
-) -> Result<(), RuntimeError> {
-    if args.len() != expected {
-        return Err(RuntimeError::new(
-            ErrorCode::R008,
-            line,
-            0,
-            format!("`{method}` expects {expected} argument(s), got {}", args.len()),
-        ));
-    }
-    Ok(())
-}
-
-fn require_float(sv: StackValue, line: usize) -> Result<f64, RuntimeError> {
-    match sv {
-        StackValue::Float(f) => Ok(f),
-        StackValue::Bool(b) => Ok(if b { 1.0 } else { 0.0 }),
-        _ => Err(RuntimeError::new(ErrorCode::R001, line, 0, "expected float")),
-    }
-}
-
-fn require_heap_ref(sv: StackValue, line: usize) -> Result<u32, RuntimeError> {
-    match sv {
-        StackValue::HeapRef(idx) => Ok(idx),
-        _ => Err(RuntimeError::new(ErrorCode::R001, line, 0, "expected heap object")),
     }
 }
 
@@ -198,7 +168,7 @@ fn call_str_method(
     }
 }
 
-/// Resolve a string argument: it must be a HeapRef pointing to a Str.
+/// Resolve a string argument: it must be a `HeapRef` pointing to a Str.
 fn get_str_arg(heap: &Heap, sv: StackValue, method: &str, line: usize) -> Result<String, RuntimeError> {
     let idx = require_heap_ref(sv, line)?;
     match heap.get(idx) {
@@ -704,7 +674,11 @@ fn call_list_method(
         }
         "push" => {
             check_arity(method, args, 1, line)?;
-            let val = args[0];
+            let val = if !Heap::is_frame_ref(receiver_idx) {
+                heap.promote(args[0])
+            } else {
+                args[0]
+            };
             match heap.get_mut(receiver_idx) {
                 HeapObject::List(v) => v.push(val),
                 _ => unreachable!(),

@@ -1,3 +1,7 @@
+#![expect(clippy::cast_possible_truncation, reason = "VM indices are guaranteed small by construction")]
+#![expect(clippy::cast_possible_wrap, reason = "jump offsets within chunk bounds")]
+#![expect(clippy::match_same_arms, reason = "opcode dispatch arms kept separate for clarity")]
+
 use std::collections::HashMap;
 
 use crate::namespaces::{ExportKind, NamespaceRegistry};
@@ -9,6 +13,7 @@ use crate::syntax::ast::{
 use super::chunk::Chunk;
 use super::natives::{self, NativeFunc};
 use super::opcode::Op;
+use super::util::lookup_color;
 use super::value::StackValue;
 use super::{CompiledEnumDef, CompiledEnumVariant, CompiledMethodDef, CompiledProgram, CompiledStructDef};
 
@@ -133,6 +138,7 @@ pub struct Compiler<'a> {
 }
 
 impl<'a> Compiler<'a> {
+    #[must_use] 
     pub fn new(program: &'a ast::Program, registry: &'a NamespaceRegistry) -> Self {
         let table = natives::native_table();
         let mut native_map = HashMap::new();
@@ -225,18 +231,16 @@ impl<'a> Compiler<'a> {
         let fn_depth = self.fn_stack.len();
 
         // 1. Local in current function
-        if fn_depth > 0 {
-            if let Some(slot) = self.fn_stack[fn_depth - 1].resolve_local(name) {
+        if fn_depth > 0
+            && let Some(slot) = self.fn_stack[fn_depth - 1].resolve_local(name) {
                 return VarLocation::Local(slot);
             }
-        }
 
         // 2. Upvalue (closure capture)
-        if fn_depth > 1 {
-            if let Some(uv) = self.resolve_upvalue(fn_depth - 1, name) {
+        if fn_depth > 1
+            && let Some(uv) = self.resolve_upvalue(fn_depth - 1, name) {
                 return VarLocation::Upvalue(uv);
             }
-        }
 
         // 3. Global
         if let Some(&idx) = self.global_map.get(name) {
@@ -300,51 +304,17 @@ impl<'a> Compiler<'a> {
 
     /// Emit opcodes to construct a named constant value (PI, TAU, colors, render modes, origins).
     fn emit_constant_value(&mut self, name: &str, line: u32) {
+        if let Some(c) = lookup_color(name) {
+            self.emit_constant(StackValue::Float(c.r), line);
+            self.emit_constant(StackValue::Float(c.g), line);
+            self.emit_constant(StackValue::Float(c.b), line);
+            self.emit_constant(StackValue::Float(c.a), line);
+            self.emit(Op::MakeColor(4), line);
+            return;
+        }
         match name {
             "PI" => self.emit_constant(StackValue::Float(std::f64::consts::PI), line),
             "TAU" => self.emit_constant(StackValue::Float(std::f64::consts::TAU), line),
-            "red" => {
-                self.emit_constant(StackValue::Float(1.0), line);
-                self.emit_constant(StackValue::Float(0.0), line);
-                self.emit_constant(StackValue::Float(0.0), line);
-                self.emit_constant(StackValue::Float(1.0), line);
-                self.emit(Op::MakeColor(4), line);
-            }
-            "green" => {
-                self.emit_constant(StackValue::Float(0.0), line);
-                self.emit_constant(StackValue::Float(1.0), line);
-                self.emit_constant(StackValue::Float(0.0), line);
-                self.emit_constant(StackValue::Float(1.0), line);
-                self.emit(Op::MakeColor(4), line);
-            }
-            "blue" => {
-                self.emit_constant(StackValue::Float(0.0), line);
-                self.emit_constant(StackValue::Float(0.0), line);
-                self.emit_constant(StackValue::Float(1.0), line);
-                self.emit_constant(StackValue::Float(1.0), line);
-                self.emit(Op::MakeColor(4), line);
-            }
-            "white" => {
-                self.emit_constant(StackValue::Float(1.0), line);
-                self.emit_constant(StackValue::Float(1.0), line);
-                self.emit_constant(StackValue::Float(1.0), line);
-                self.emit_constant(StackValue::Float(1.0), line);
-                self.emit(Op::MakeColor(4), line);
-            }
-            "black" => {
-                self.emit_constant(StackValue::Float(0.0), line);
-                self.emit_constant(StackValue::Float(0.0), line);
-                self.emit_constant(StackValue::Float(0.0), line);
-                self.emit_constant(StackValue::Float(1.0), line);
-                self.emit(Op::MakeColor(4), line);
-            }
-            "transparent" => {
-                self.emit_constant(StackValue::Float(0.0), line);
-                self.emit_constant(StackValue::Float(0.0), line);
-                self.emit_constant(StackValue::Float(0.0), line);
-                self.emit_constant(StackValue::Float(0.0), line);
-                self.emit(Op::MakeColor(4), line);
-            }
             "sdf" => { self.emit(Op::MakeRenderMode(0), line); }
             "fill" => { self.emit(Op::MakeRenderMode(1), line); }
             "outline" => { self.emit(Op::MakeRenderMode(2), line); }
@@ -367,12 +337,12 @@ impl<'a> Compiler<'a> {
 
     pub fn patch_jump_here(&mut self, jump_idx: usize) {
         let current_ip = self.current_chunk().len();
-        let offset = (current_ip as i32) - (jump_idx as i32) - 1;
+        let offset = (current_ip as i16) - (jump_idx as i16) - 1;
         self.current_chunk().patch_jump(jump_idx, offset);
     }
 
     fn patch_jump_to(&mut self, jump_idx: usize, target: usize) {
-        let offset = (target as i32) - (jump_idx as i32) - 1;
+        let offset = (target as i16) - (jump_idx as i16) - 1;
         self.current_chunk().patch_jump(jump_idx, offset);
     }
 
@@ -552,70 +522,79 @@ impl<'a> Compiler<'a> {
                     }
                     UnOp::PrefixInc | UnOp::PrefixDec => {
                         let is_inc = *op == UnOp::PrefixInc;
+                        let add_or_sub = if is_inc { Op::Add } else { Op::Sub };
                         match operand.as_ref() {
                             Expr::Ident(_, _) => {
                                 self.compile_expr(operand);
                                 self.emit_constant(StackValue::Float(1.0), line);
-                                self.emit(if is_inc { Op::Add } else { Op::Sub }, line);
+                                self.emit(add_or_sub, line);
                                 self.emit(Op::Dup, line);
                                 self.compile_store_from_expr(operand, line);
                             }
                             Expr::Index { expr: container, index, .. } => {
-                                self.compile_expr(operand);
+                                // Evaluate container and index exactly once
+                                self.compile_expr(container);   // [arr]
+                                self.compile_expr(index);       // [arr, i]
+                                self.emit(Op::DupAt(1), line);  // [arr, i, arr]
+                                self.emit(Op::DupAt(1), line);  // [arr, i, arr, i]
+                                self.emit(Op::GetIndex, line);  // [arr, i, old]
                                 self.emit_constant(StackValue::Float(1.0), line);
-                                self.emit(if is_inc { Op::Add } else { Op::Sub }, line);
-                                self.compile_expr(container);
-                                self.compile_expr(index);
-                                self.compile_expr(operand);
-                                self.emit_constant(StackValue::Float(1.0), line);
-                                self.emit(if is_inc { Op::Add } else { Op::Sub }, line);
-                                self.emit(Op::SetIndex, line);
+                                self.emit(add_or_sub, line);    // [arr, i, new]
+                                self.emit(Op::Dup, line);       // [arr, i, new, new]
+                                self.emit(Op::Rot(4), line);    // [new, arr, i, new]
+                                self.emit(Op::SetIndex, line);  // [new]
                             }
                             Expr::Field { expr: obj, field, .. } => {
-                                self.compile_expr(operand);
-                                self.emit_constant(StackValue::Float(1.0), line);
-                                self.emit(if is_inc { Op::Add } else { Op::Sub }, line);
-                                self.compile_expr(obj);
-                                self.compile_expr(operand);
-                                self.emit_constant(StackValue::Float(1.0), line);
-                                self.emit(if is_inc { Op::Add } else { Op::Sub }, line);
                                 let str_idx = self.add_string(field);
-                                self.emit(Op::SetField(str_idx), line);
+                                self.compile_expr(obj);         // [obj]
+                                self.emit(Op::Dup, line);       // [obj, obj]
+                                self.emit(Op::GetField(str_idx), line); // [obj, old]
+                                self.emit_constant(StackValue::Float(1.0), line);
+                                self.emit(add_or_sub, line);    // [obj, new]
+                                self.emit(Op::Dup, line);       // [obj, new, new]
+                                self.emit(Op::Rot(3), line);    // [new, obj, new]
+                                self.emit(Op::SetField(str_idx), line); // [new]
                             }
                             _ => {
                                 self.compile_expr(operand);
                                 self.emit_constant(StackValue::Float(1.0), line);
-                                self.emit(if is_inc { Op::Add } else { Op::Sub }, line);
+                                self.emit(add_or_sub, line);
                             }
                         }
                     }
                     UnOp::PostfixInc | UnOp::PostfixDec => {
                         let is_inc = *op == UnOp::PostfixInc;
+                        let add_or_sub = if is_inc { Op::Add } else { Op::Sub };
                         match operand.as_ref() {
                             Expr::Ident(_, _) => {
                                 self.compile_expr(operand);
                                 self.emit(Op::Dup, line);
                                 self.emit_constant(StackValue::Float(1.0), line);
-                                self.emit(if is_inc { Op::Add } else { Op::Sub }, line);
+                                self.emit(add_or_sub, line);
                                 self.compile_store_from_expr(operand, line);
                             }
                             Expr::Index { expr: container, index, .. } => {
-                                self.compile_expr(operand);
-                                self.compile_expr(container);
-                                self.compile_expr(index);
-                                self.compile_expr(operand);
+                                self.compile_expr(container);   // [arr]
+                                self.compile_expr(index);       // [arr, i]
+                                self.emit(Op::DupAt(1), line);  // [arr, i, arr]
+                                self.emit(Op::DupAt(1), line);  // [arr, i, arr, i]
+                                self.emit(Op::GetIndex, line);  // [arr, i, old]
+                                self.emit(Op::Dup, line);       // [arr, i, old, old]
+                                self.emit(Op::Rot(4), line);    // [old, arr, i, old]
                                 self.emit_constant(StackValue::Float(1.0), line);
-                                self.emit(if is_inc { Op::Add } else { Op::Sub }, line);
-                                self.emit(Op::SetIndex, line);
+                                self.emit(add_or_sub, line);    // [old, arr, i, new]
+                                self.emit(Op::SetIndex, line);  // [old]
                             }
                             Expr::Field { expr: obj, field, .. } => {
-                                self.compile_expr(operand);
-                                self.compile_expr(obj);
-                                self.compile_expr(operand);
-                                self.emit_constant(StackValue::Float(1.0), line);
-                                self.emit(if is_inc { Op::Add } else { Op::Sub }, line);
                                 let str_idx = self.add_string(field);
-                                self.emit(Op::SetField(str_idx), line);
+                                self.compile_expr(obj);         // [obj]
+                                self.emit(Op::Dup, line);       // [obj, obj]
+                                self.emit(Op::GetField(str_idx), line); // [obj, old]
+                                self.emit(Op::Dup, line);       // [obj, old, old]
+                                self.emit(Op::Rot(3), line);    // [old, obj, old]
+                                self.emit_constant(StackValue::Float(1.0), line);
+                                self.emit(add_or_sub, line);    // [old, obj, new]
+                                self.emit(Op::SetField(str_idx), line); // [old]
                             }
                             _ => {
                                 self.compile_expr(operand);
@@ -650,7 +629,8 @@ impl<'a> Compiler<'a> {
 
             Expr::Try { expr, span } => {
                 let line = Self::line_of(span);
-                // Compile the expression into a mini-chunk (zero-param lambda)
+                // Compile the expression into a closure that captures upvalues,
+                // so variables from the enclosing scope are accessible.
                 let mut try_compiler = FnCompiler::new("<try>");
                 try_compiler.chunk.param_count = 0;
                 self.fn_stack.push(try_compiler);
@@ -659,9 +639,28 @@ impl<'a> Compiler<'a> {
                 self.emit(Op::Return, line);
 
                 let fc = self.fn_stack.pop().unwrap();
+                let upvalue_count = fc.upvalues.len() as u8;
+                let upvalues: Vec<Upvalue> = fc.upvalues.clone();
+                let mut chunk = fc.chunk;
+                chunk.local_count = fc.locals.len() as u16;
                 let chunk_idx = self.chunks.len() as u16;
-                self.chunks.push(fc.chunk);
-                self.emit(Op::TryCall(chunk_idx), line);
+                self.chunks.push(chunk);
+
+                if upvalue_count == 0 {
+                    // No captures — use the fast path (bare chunk call)
+                    self.emit(Op::TryCall(chunk_idx), line);
+                } else {
+                    // Has captures — build a closure and call it
+                    for uv in &upvalues {
+                        if uv.is_local {
+                            self.emit(Op::LoadLocal(uv.index), line);
+                        } else {
+                            self.emit(Op::LoadUpvalue(uv.index), line);
+                        }
+                    }
+                    self.emit(Op::MakeClosure(chunk_idx, upvalue_count), line);
+                    self.emit(Op::TryCallClosure, line);
+                }
             }
 
             Expr::Call { callee, args, named_args, span } => {
@@ -842,7 +841,13 @@ impl<'a> Compiler<'a> {
     ) {
         // Check if callee is a native function
         if let Some(&native_idx) = self.native_map.get(callee) {
-            if !named_args.is_empty() {
+            if named_args.is_empty() {
+                // Pure positional call
+                for arg in args {
+                    self.compile_expr(arg);
+                }
+                self.emit(Op::CallNative(native_idx, args.len() as u8), line);
+            } else {
                 // Shape constructors or functions with named args
                 if let Some(total) = Self::native_total_params(callee) {
                     let positional_count = args.len();
@@ -889,12 +894,6 @@ impl<'a> Compiler<'a> {
                     let total = args.len() + named_args.len();
                     self.emit(Op::CallNative(native_idx, total as u8), line);
                 }
-            } else {
-                // Pure positional call
-                for arg in args {
-                    self.compile_expr(arg);
-                }
-                self.emit(Op::CallNative(native_idx, args.len() as u8), line);
             }
             return;
         }
@@ -925,12 +924,12 @@ impl<'a> Compiler<'a> {
         line: u32,
     ) {
         // Check if expr is a namespace identifier
-        if let Expr::Ident(ns_name, _) = expr {
-            if self.registry.get(ns_name).is_some() {
+        if let Expr::Ident(ns_name, _) = expr
+            && self.registry.get(ns_name).is_some() {
                 // It's a namespace call → resolve method as native
                 // Build full name for lookup (e.g., "file.read" → "file.read")
                 let full_name = if ns_name == "file" {
-                    format!("{}.{}", ns_name, method)
+                    format!("{ns_name}.{method}")
                 } else {
                     method.to_string()
                 };
@@ -941,7 +940,6 @@ impl<'a> Compiler<'a> {
                     return;
                 }
             }
-        }
 
         // Regular method call: compile receiver, args, then CallMethod
         self.compile_expr(expr);
@@ -972,11 +970,10 @@ impl<'a> Compiler<'a> {
 
         // Look up the AST struct definition for field ordering and defaults
         let ast_struct = self.program.items.iter().find_map(|item| {
-            if let Item::Struct(sd) = item {
-                if sd.name == name {
+            if let Item::Struct(sd) = item
+                && sd.name == name {
                     return Some(sd.clone());
                 }
-            }
             None
         });
 
@@ -1043,14 +1040,21 @@ impl<'a> Compiler<'a> {
             }
         }
 
-        let enum_str = self.add_string(enum_name);
-        let variant_str = self.add_string(variant);
-        let field_count = if let Some(ref fnames) = variant_field_names {
-            fnames.len() as u8
-        } else {
-            fields.len() as u8
-        };
-        self.emit(Op::MakeEnum(enum_str, variant_str, field_count), line);
+        let (enum_def_idx, variant_idx) = self.enum_defs.iter().enumerate()
+            .find_map(|(ei, ed)| {
+                if ed.name == enum_name {
+                    ed.variants.iter().enumerate()
+                        .find(|(_, v)| v.name == variant)
+                        .map(|(vi, _)| (ei as u16, vi as u8))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| {
+                let ei = self.enum_defs.len() as u16;
+                (ei, 0)
+            });
+        self.emit(Op::MakeEnum(enum_def_idx, variant_idx), line);
     }
 
     // ── Statement compilation ──────────────────────────────────────────────
@@ -1283,7 +1287,7 @@ impl<'a> Compiler<'a> {
 
                 // Loop back
                 let loop_offset =
-                    (loop_start as i32) - (self.current_chunk().len() as i32) - 1;
+                    (loop_start as i16) - (self.current_chunk().len() as i16) - 1;
                 self.emit(Op::Loop(loop_offset), line);
 
                 self.patch_jump_here(exit_jump);
@@ -1344,7 +1348,7 @@ impl<'a> Compiler<'a> {
 
                 // Loop back to condition
                 let loop_offset =
-                    (loop_start as i32) - (self.current_chunk().len() as i32) - 1;
+                    (loop_start as i16) - (self.current_chunk().len() as i16) - 1;
                 self.emit(Op::Loop(loop_offset), line);
 
                 self.patch_jump_here(exit_jump);
@@ -1395,7 +1399,7 @@ impl<'a> Compiler<'a> {
 
                 // Loop back
                 let loop_offset =
-                    (loop_start as i32) - (self.current_chunk().len() as i32) - 1;
+                    (loop_start as i16) - (self.current_chunk().len() as i16) - 1;
                 self.emit(Op::Loop(loop_offset), line);
 
                 self.patch_jump_here(exit_jump);
@@ -1550,7 +1554,7 @@ impl<'a> Compiler<'a> {
                         self.current().loop_stack.last_mut().unwrap().continue_patches.push(jp);
                     } else {
                         let loop_offset =
-                            (continue_ip as i32) - (self.current_chunk().len() as i32) - 1;
+                            (continue_ip as i16) - (self.current_chunk().len() as i16) - 1;
                         self.emit(Op::Loop(loop_offset), line);
                     }
                 }
@@ -1577,6 +1581,7 @@ impl<'a> Compiler<'a> {
 
     // ── Compile entry point ─────────────────────────────────────────────────
 
+    #[must_use] 
     pub fn compile(
         program: &'a ast::Program,
         registry: &'a NamespaceRegistry,
@@ -1763,7 +1768,7 @@ impl<'a> Compiler<'a> {
                         match export.kind {
                             ExportKind::Function => {
                                 let lookup_name = if ns_name == "file" {
-                                    format!("{}.{}", ns_name, member_name)
+                                    format!("{ns_name}.{member_name}")
                                 } else {
                                     member_name.clone()
                                 };
@@ -1931,7 +1936,7 @@ fn is_known_constant(name: &str) -> bool {
         | "top" | "bottom" | "left" | "right")
 }
 
-/// Convert a StackValue into a u64 key for deduplication.
+/// Convert a `StackValue` into a u64 key for deduplication.
 fn const_dedup_key(val: StackValue) -> u64 {
     match val {
         StackValue::Float(f) => f.to_bits(),
@@ -1943,18 +1948,18 @@ fn const_dedup_key(val: StackValue) -> u64 {
         StackValue::HeapRef(i) => {
             // HeapRefs shouldn't appear in the constant pool,
             // but handle gracefully
-            u64::MAX - 3 - (i as u64)
+            u64::MAX - 3 - u64::from(i)
         }
     }
 }
 
 fn parse_hex_color(hex: &str) -> (f64, f64, f64, f64) {
     let h = hex.trim_start_matches('#');
-    let r = u8::from_str_radix(&h[0..2], 16).unwrap_or(0) as f64 / 255.0;
-    let g = u8::from_str_radix(&h[2..4], 16).unwrap_or(0) as f64 / 255.0;
-    let b = u8::from_str_radix(&h[4..6], 16).unwrap_or(0) as f64 / 255.0;
+    let r = f64::from(u8::from_str_radix(&h[0..2], 16).unwrap_or(0)) / 255.0;
+    let g = f64::from(u8::from_str_radix(&h[2..4], 16).unwrap_or(0)) / 255.0;
+    let b = f64::from(u8::from_str_radix(&h[4..6], 16).unwrap_or(0)) / 255.0;
     let a = if h.len() >= 8 {
-        u8::from_str_radix(&h[6..8], 16).unwrap_or(255) as f64 / 255.0
+        f64::from(u8::from_str_radix(&h[6..8], 16).unwrap_or(255)) / 255.0
     } else {
         1.0
     };
@@ -1982,6 +1987,8 @@ mod tests {
     }
 
     fn make_compiler(program: &ast::Program) -> Compiler<'_> {
+        // Leak is intentional: tests need a &'static reference and the small
+        // allocation is reclaimed when the process exits.
         let registry = Box::leak(Box::new(NamespaceRegistry::standard()));
         let mut c = Compiler::new(program, registry);
         c.fn_stack.push(FnCompiler::new("<test>"));

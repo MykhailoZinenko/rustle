@@ -10,6 +10,14 @@ pub enum Op {
     Pop,
     /// Duplicate the top-of-stack value.
     Dup,
+    /// Duplicate the value at `depth` positions below TOS (0 = Dup).
+    DupAt(u8),
+    /// Swap the top two stack values.
+    Swap,
+    /// Rotate: move TOS to `depth` positions down, shifting everything above it up.
+    /// `Rot(2)` on `[a, b, c]` → `[a, c, b]` (same as Swap).
+    /// `Rot(3)` on `[a, b, c, d]` → `[a, d, b, c]` (TOS goes 3 deep).
+    Rot(u8),
 
     // ── Variables ────────────────────────────────────────────────────────────
     /// Push the value of local variable slot[idx].
@@ -54,23 +62,23 @@ pub enum Op {
     Neq,
 
     // ── Logical ──────────────────────────────────────────────────────────────
-    /// Pop TOS, push bool(!is_truthy(TOS)).
+    /// Pop TOS, push `bool(!is_truthy(TOS))`.
     Not,
 
     // ── Control flow ─────────────────────────────────────────────────────────
     /// Unconditional jump. Offset is relative to the instruction *after* this one.
-    Jump(i32),
+    Jump(i16),
     /// Pop TOS; jump if it is falsy. Offset relative to next instruction.
-    JumpIfFalse(i32),
+    JumpIfFalse(i16),
     /// Pop TOS; jump if it is truthy. Offset relative to next instruction.
-    JumpIfTrue(i32),
+    JumpIfTrue(i16),
     /// Backward jump for loop bodies. Offset is negative, relative to next instruction.
-    Loop(i32),
+    Loop(i16),
 
     // ── Functions ────────────────────────────────────────────────────────────
-    /// Call the function at chunk_index with argc arguments on the stack.
+    /// Call the function at `chunk_index` with argc arguments on the stack.
     Call(u16, u8),
-    /// Call native function native_table[index] with argc arguments.
+    /// Call native function `native_table`[index] with argc arguments.
     CallNative(u16, u8),
     /// Call the closure that sits below argc arguments on the stack.
     CallClosure(u8),
@@ -78,15 +86,15 @@ pub enum Op {
     Return,
 
     // ── Methods ──────────────────────────────────────────────────────────────
-    /// Call a method: receiver sits below argc args. method_name is a string-pool index.
+    /// Call a method: receiver sits below argc args. `method_name` is a string-pool index.
     CallMethod(u16, u8),
 
     // ── Fields + indexing ────────────────────────────────────────────────────
-    /// Push the named field of TOS. field_name is a string-pool index.
+    /// Push the named field of TOS. `field_name` is a string-pool index.
     GetField(u16),
     /// Pop a value and set the named field on the object below it (ref types only).
     SetField(u16),
-    /// Pop new_val and a value-type object, rebuild the object with the field replaced, push result.
+    /// Pop `new_val` and a value-type object, rebuild the object with the field replaced, push result.
     SetFieldRebuild(u16),
     /// Pop index, pop object, push object[index].
     GetIndex,
@@ -100,34 +108,36 @@ pub enum Op {
     MakeVec3,
     /// Pop four floats, push a Vec4.
     MakeVec4,
-    /// Pop 3 or 4 floats (component_count), push a Color.
+    /// Pop 3 or 4 floats (`component_count`), push a Color.
     MakeColor(u8),
-    /// Pop element_count values, push a List.
+    /// Pop `element_count` values, push a List.
     MakeList(u16),
-    /// Create a closure from chunk_index, capturing upvalue_count upvalues from the stack.
+    /// Create a closure from `chunk_index`, capturing `upvalue_count` upvalues from the stack.
     MakeClosure(u16, u8),
-    /// Create a struct instance: struct_def_idx identifies the type, field_count values are on the stack.
+    /// Create a struct instance: `struct_def_idx` identifies the type, `field_count` values are on the stack.
     MakeStruct(u16, u8),
-    /// Create an enum variant. Indices into the string pool for enum and variant names.
-    MakeEnum(u16, u16, u8),
+    /// Create an enum variant. `enum_def_idx` indexes into `CompiledProgram::enum_defs`,
+    /// `variant_idx` indexes into that enum's `variants` list.
+    /// Field count is derived from the `CompiledEnumVariant`.
+    MakeEnum(u16, u8),
 
     // ── Output ───────────────────────────────────────────────────────────────
-    /// Pop a shape value and emit it as a DrawCommand::DrawShape.
+    /// Pop a shape value and emit it as a `DrawCommand::DrawShape`.
     Emit,
-    /// Pop value_count values and emit a console message at the given level.
+    /// Pop `value_count` values and emit a console message at the given level.
     /// level: 0 = log, 1 = warn, 2 = error.
     Print(u8, u8),
 
     // ── Optionals ────────────────────────────────────────────────────────────
     /// Null-coalescing short-circuit: if TOS is not None, jump (keeping TOS); if None, pop and fall through.
-    CoalesceJump(i32),
+    CoalesceJump(i16),
     /// Optional chaining: if TOS is None, jump (keeping None); if not None, fall through.
-    OptChainJump(i32),
+    OptChainJump(i16),
     /// Push bool(TOS is None) without consuming TOS.
     IsNone,
 
     // ── Casts ────────────────────────────────────────────────────────────────
-    /// Pop TOS, push bool(is_truthy(TOS)).
+    /// Pop TOS, push `bool(is_truthy(TOS))`.
     Truthy,
     /// Pop TOS, push float conversion.
     CastFloat,
@@ -138,7 +148,7 @@ pub enum Op {
     /// Pop a list, push a heap-allocated Iterator.
     IterInit,
     /// Advance the iterator on TOS; if exhausted, jump by offset, else push next element.
-    IterNext(i32),
+    IterNext(i16),
 
     // ── Pattern matching ─────────────────────────────────────────────────────
     /// Check whether TOS enum variant name matches string pool[idx]; push bool, don't consume TOS.
@@ -155,21 +165,100 @@ pub enum Op {
     ApplyTransform(u8),
 
     // ── Try / Result ─────────────────────────────────────────────────────────
-    /// Run chunk_idx in a protected frame; push ResOk(value) or ResErr(msg).
+    /// Run `chunk_idx` in a protected frame; push ResOk(value) or ResErr(msg).
     TryCall(u16),
+    /// Pop a closure from TOS, call it in a protected frame; push ResOk(value) or ResErr(msg).
+    TryCallClosure,
 
     // ── Cancellation ─────────────────────────────────────────────────────────
     /// Check the cancellation flag; abort execution if set.
     CheckCancel,
 
     // ── Value construction for imports ───────────────────────────────────────
-    /// Push a HeapRef to a NativeFnRef(idx). Used when importing native functions as values.
+    /// Push a `HeapRef` to a NativeFnRef(idx). Used when importing native functions as values.
     MakeNativeFnRef(u16),
-    /// Push a HeapRef to a RenderMode. 0=Sdf, 1=Fill, 2=Outline.
+    /// Push a `HeapRef` to a `RenderMode`. 0=Sdf, 1=Fill, 2=Outline.
     MakeRenderMode(u8),
 
     /// No-operation.
     Nop,
+}
+
+const _: () = assert!(std::mem::size_of::<Op>() == 4);
+
+impl std::fmt::Display for Op {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Op::Const(idx)          => write!(f, "CONST {idx}"),
+            Op::ConstStr(idx)       => write!(f, "CONST_STR {idx}"),
+            Op::Pop                 => write!(f, "POP"),
+            Op::Dup                 => write!(f, "DUP"),
+            Op::DupAt(d)            => write!(f, "DUP_AT {d}"),
+            Op::Swap                => write!(f, "SWAP"),
+            Op::Rot(d)              => write!(f, "ROT {d}"),
+            Op::LoadLocal(s)        => write!(f, "LOAD_LOCAL {s}"),
+            Op::StoreLocal(s)       => write!(f, "STORE_LOCAL {s}"),
+            Op::LoadUpvalue(s)      => write!(f, "LOAD_UPVAL {s}"),
+            Op::StoreUpvalue(s)     => write!(f, "STORE_UPVAL {s}"),
+            Op::LoadGlobal(s)       => write!(f, "LOAD_GLOBAL {s}"),
+            Op::StoreGlobal(s)      => write!(f, "STORE_GLOBAL {s}"),
+            Op::Add                 => write!(f, "ADD"),
+            Op::Sub                 => write!(f, "SUB"),
+            Op::Mul                 => write!(f, "MUL"),
+            Op::Div                 => write!(f, "DIV"),
+            Op::Mod                 => write!(f, "MOD"),
+            Op::Neg                 => write!(f, "NEG"),
+            Op::Gt                  => write!(f, "GT"),
+            Op::Lt                  => write!(f, "LT"),
+            Op::Gte                 => write!(f, "GTE"),
+            Op::Lte                 => write!(f, "LTE"),
+            Op::Eq                  => write!(f, "EQ"),
+            Op::Neq                 => write!(f, "NEQ"),
+            Op::Not                 => write!(f, "NOT"),
+            Op::Jump(off)           => write!(f, "JUMP {off:+}"),
+            Op::JumpIfFalse(off)    => write!(f, "JUMP_IF_FALSE {off:+}"),
+            Op::JumpIfTrue(off)     => write!(f, "JUMP_IF_TRUE {off:+}"),
+            Op::Loop(off)           => write!(f, "LOOP {off:+}"),
+            Op::Call(c, a)          => write!(f, "CALL chunk={c} argc={a}"),
+            Op::CallNative(n, a)    => write!(f, "CALL_NATIVE {n} argc={a}"),
+            Op::CallClosure(a)      => write!(f, "CALL_CLOSURE argc={a}"),
+            Op::Return              => write!(f, "RETURN"),
+            Op::CallMethod(s, a)    => write!(f, "CALL_METHOD str={s} argc={a}"),
+            Op::GetField(s)         => write!(f, "GET_FIELD str={s}"),
+            Op::SetField(s)         => write!(f, "SET_FIELD str={s}"),
+            Op::SetFieldRebuild(s)  => write!(f, "SET_FIELD_REBUILD str={s}"),
+            Op::GetIndex            => write!(f, "GET_INDEX"),
+            Op::SetIndex            => write!(f, "SET_INDEX"),
+            Op::MakeVec2            => write!(f, "MAKE_VEC2"),
+            Op::MakeVec3            => write!(f, "MAKE_VEC3"),
+            Op::MakeVec4            => write!(f, "MAKE_VEC4"),
+            Op::MakeColor(n)        => write!(f, "MAKE_COLOR {n}"),
+            Op::MakeList(n)         => write!(f, "MAKE_LIST {n}"),
+            Op::MakeClosure(c, u)   => write!(f, "MAKE_CLOSURE chunk={c} upvals={u}"),
+            Op::MakeStruct(d, n)    => write!(f, "MAKE_STRUCT def={d} fields={n}"),
+            Op::MakeEnum(d, v)      => write!(f, "MAKE_ENUM def={d} variant={v}"),
+            Op::Emit                => write!(f, "EMIT"),
+            Op::Print(lvl, n)       => write!(f, "PRINT level={lvl} count={n}"),
+            Op::CoalesceJump(off)   => write!(f, "COALESCE_JUMP {off:+}"),
+            Op::OptChainJump(off)   => write!(f, "OPT_CHAIN_JUMP {off:+}"),
+            Op::IsNone              => write!(f, "IS_NONE"),
+            Op::Truthy              => write!(f, "TRUTHY"),
+            Op::CastFloat           => write!(f, "CAST_FLOAT"),
+            Op::CastString          => write!(f, "CAST_STRING"),
+            Op::IterInit            => write!(f, "ITER_INIT"),
+            Op::IterNext(off)       => write!(f, "ITER_NEXT {off:+}"),
+            Op::MatchEnum(s)        => write!(f, "MATCH_ENUM str={s}"),
+            Op::GetEnumField(s)     => write!(f, "GET_ENUM_FIELD str={s}"),
+            Op::Concat(n)           => write!(f, "CONCAT {n}"),
+            Op::ApplyTransform(n)   => write!(f, "APPLY_TRANSFORM {n}"),
+            Op::TryCall(c)          => write!(f, "TRY_CALL chunk={c}"),
+            Op::TryCallClosure      => write!(f, "TRY_CALL_CLOSURE"),
+            Op::CheckCancel         => write!(f, "CHECK_CANCEL"),
+            Op::MakeNativeFnRef(i)  => write!(f, "MAKE_NATIVE_FN_REF {i}"),
+            Op::MakeRenderMode(m)   => write!(f, "MAKE_RENDER_MODE {m}"),
+            Op::Nop                 => write!(f, "NOP"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -177,10 +266,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn op_size() {
+        let size = std::mem::size_of::<Op>();
+        eprintln!("size_of::<Op>() = {size} bytes");
+        eprintln!("size_of::<Op>() * 1000 instructions = {} bytes", size * 1000);
+    }
+
+    #[test]
     fn op_is_copy() {
         let op = Op::Add;
         let _copy = op;
         let _still_original = op; // confirms Copy
+    }
+
+    #[test]
+    fn display_parameterless_ops() {
+        assert_eq!(format!("{}", Op::Add), "ADD");
+        assert_eq!(format!("{}", Op::Return), "RETURN");
+        assert_eq!(format!("{}", Op::Pop), "POP");
+        assert_eq!(format!("{}", Op::Dup), "DUP");
+        assert_eq!(format!("{}", Op::Swap), "SWAP");
+        assert_eq!(format!("{}", Op::Nop), "NOP");
+        assert_eq!(format!("{}", Op::GetIndex), "GET_INDEX");
+        assert_eq!(format!("{}", Op::Emit), "EMIT");
+    }
+
+    #[test]
+    fn display_ops_with_operands() {
+        assert_eq!(format!("{}", Op::Const(42)), "CONST 42");
+        assert_eq!(format!("{}", Op::LoadLocal(3)), "LOAD_LOCAL 3");
+        assert_eq!(format!("{}", Op::Call(1, 2)), "CALL chunk=1 argc=2");
+        assert_eq!(format!("{}", Op::MakeList(5)), "MAKE_LIST 5");
+        assert_eq!(format!("{}", Op::MakeEnum(0, 1)), "MAKE_ENUM def=0 variant=1");
+        assert_eq!(format!("{}", Op::Print(1, 2)), "PRINT level=1 count=2");
+    }
+
+    #[test]
+    fn display_jump_ops_show_signed_offset() {
+        assert_eq!(format!("{}", Op::Jump(10)), "JUMP +10");
+        assert_eq!(format!("{}", Op::Jump(-5)), "JUMP -5");
+        assert_eq!(format!("{}", Op::JumpIfFalse(0)), "JUMP_IF_FALSE +0");
+        assert_eq!(format!("{}", Op::Loop(-8)), "LOOP -8");
     }
 
     #[test]
@@ -199,7 +325,7 @@ mod tests {
         let _mk_list    = Op::MakeList(3);
         let _mk_closure = Op::MakeClosure(0, 2);
         let _mk_struct  = Op::MakeStruct(1, 4);
-        let _mk_enum    = Op::MakeEnum(0, 1, 2);
+        let _mk_enum    = Op::MakeEnum(0, 1);
         let _mk_color   = Op::MakeColor(4);
     }
 }

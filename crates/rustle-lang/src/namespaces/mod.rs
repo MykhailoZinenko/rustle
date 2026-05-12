@@ -1,5 +1,4 @@
 use crate::syntax::ast::Type;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ExportKind { Function, Constant }

@@ -1,3 +1,8 @@
+#![expect(clippy::cast_possible_truncation, reason = "VM indices are guaranteed small by construction")]
+#![expect(clippy::cast_sign_loss, reason = "VM indices are non-negative by construction")]
+#![expect(clippy::cast_possible_wrap, reason = "jump offsets within chunk bounds")]
+#![expect(clippy::match_same_arms, reason = "opcode dispatch arms kept separate for clarity")]
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -5,7 +10,7 @@ use crate::error::{ErrorCode, RuntimeError};
 use crate::types::draw::{DrawCommand, CoordMeta, RenderMode};
 
 use super::opcode::Op;
-use super::value::*;
+use super::value::{StackValue, HeapObject, StateObj, values_equal, is_truthy, ClosureObj, StructObj, EnumVariantObj, display, IteratorObj, deep_clone};
 use super::heap::Heap;
 use super::CompiledProgram;
 use super::natives::NativeFunc;
@@ -22,16 +27,21 @@ struct CallFrame {
 pub struct Vm {
     program: Arc<CompiledProgram>,
     native_table: Vec<NativeFunc>,
-    pub stack: Vec<StackValue>,
-    pub heap: Heap,
+    pub(crate) stack: Vec<StackValue>,
+    pub(crate) heap: Heap,
     frames: Vec<CallFrame>,
-    pub globals: Vec<StackValue>,
-    pub output: Vec<DrawCommand>,
-    pub coord_meta: CoordMeta,
+    pub(crate) globals: Vec<StackValue>,
+    pub(crate) output: Vec<DrawCommand>,
+    pub(crate) coord_meta: CoordMeta,
     cancel: Option<Arc<AtomicBool>>,
+    ip: usize,
+    current_chunk: u16,
+    current_stack_base: usize,
+    current_closure_ref: Option<u32>,
 }
 
 impl Vm {
+    #[must_use] 
     pub fn new(program: Arc<CompiledProgram>, native_table: Vec<NativeFunc>) -> Self {
         let global_count = program.global_count.max(256) as usize;
         Self {
@@ -44,6 +54,10 @@ impl Vm {
             output: Vec::new(),
             coord_meta: CoordMeta::default(),
             cancel: None,
+            ip: 0,
+            current_chunk: 0,
+            current_stack_base: 0,
+            current_closure_ref: None,
         }
     }
 
@@ -57,18 +71,44 @@ impl Vm {
 
     pub fn frames_clear(&mut self) {
         self.frames.clear();
+        self.ip = 0;
+        self.current_chunk = 0;
+        self.current_stack_base = 0;
+        self.current_closure_ref = None;
+    }
+
+    fn push_frame(&mut self, chunk_idx: u16, stack_base: usize, closure_ref: Option<u32>) {
+        // Sync current cached state back to the top frame before pushing
+        if let Some(top) = self.frames.last_mut() {
+            top.ip = self.ip;
+        }
+        self.frames.push(CallFrame {
+            chunk_idx,
+            ip: 0,
+            stack_base,
+            closure_ref,
+        });
+        self.ip = 0;
+        self.current_chunk = chunk_idx;
+        self.current_stack_base = stack_base;
+        self.current_closure_ref = closure_ref;
+    }
+
+    fn pop_frame(&mut self) {
+        self.frames.pop();
+        if let Some(prev) = self.frames.last() {
+            self.ip = prev.ip;
+            self.current_chunk = prev.chunk_idx;
+            self.current_stack_base = prev.stack_base;
+            self.current_closure_ref = prev.closure_ref;
+        }
     }
 
     // ── Main entry points ───────────────────────────────────────────────────
 
     pub fn run_chunk(&mut self, chunk_idx: u16) -> Result<StackValue, RuntimeError> {
         let base = self.stack.len();
-        self.frames.push(CallFrame {
-            chunk_idx,
-            ip: 0,
-            stack_base: base,
-            closure_ref: None,
-        });
+        self.push_frame(chunk_idx, base, None);
         self.run()?;
         Ok(self.stack.pop().unwrap_or(StackValue::None))
     }
@@ -82,12 +122,7 @@ impl Vm {
         for arg in args {
             self.stack.push(*arg);
         }
-        self.frames.push(CallFrame {
-            chunk_idx,
-            ip: 0,
-            stack_base: base,
-            closure_ref: None,
-        });
+        self.push_frame(chunk_idx, base, None);
         self.run()?;
         Ok(self.stack.pop().unwrap_or(StackValue::None))
     }
@@ -151,12 +186,7 @@ impl Vm {
         for arg in args {
             self.stack.push(*arg);
         }
-        self.frames.push(CallFrame {
-            chunk_idx: chunk_index,
-            ip: 0,
-            stack_base: base,
-            closure_ref: Some(closure_idx),
-        });
+        self.push_frame(chunk_index, base, Some(closure_idx));
         self.run_until_frame(saved_frames)?;
         let result = self.stack.pop().unwrap_or(StackValue::None);
         self.stack.truncate(saved_stack);
@@ -171,24 +201,20 @@ impl Vm {
 
     fn run_until_frame(&mut self, stop_at_depth: usize) -> Result<(), RuntimeError> {
         loop {
-            let frame = match self.frames.last() {
-                Some(f) => f,
-                None => return Ok(()),
-            };
+            if self.frames.is_empty() {
+                return Ok(());
+            }
             if self.frames.len() <= stop_at_depth {
                 return Ok(());
             }
-            let chunk_idx = frame.chunk_idx;
-            let ip = frame.ip;
-            let chunk = &self.program.chunks[chunk_idx as usize];
-            if ip >= chunk.code.len() {
-                // Fell off the end of a chunk — implicit return None
-                self.frames.pop();
+            let chunk = &self.program.chunks[self.current_chunk as usize];
+            if self.ip >= chunk.code.len() {
+                self.pop_frame();
                 continue;
             }
-            let op = chunk.code[ip];
-            let line = chunk.lines[ip] as usize;
-            self.frames.last_mut().unwrap().ip += 1;
+            let op = chunk.code[self.ip];
+            let line = chunk.lines[self.ip] as usize;
+            self.ip += 1;
 
             match self.execute_op(op, line) {
                 Ok(false) => {}
@@ -199,11 +225,12 @@ impl Vm {
                 }
                 Err(mut e) => {
                     while self.frames.len() > stop_at_depth {
-                        let frame = self.frames.pop().unwrap();
-                        let name = &self.program.chunks[frame.chunk_idx as usize].name;
-                        let frame_line = if frame.ip > 0 {
-                            self.program.chunks[frame.chunk_idx as usize].lines[frame.ip - 1]
-                                as usize
+                        let ip = self.ip;
+                        let cidx = self.current_chunk;
+                        self.pop_frame();
+                        let name = &self.program.chunks[cidx as usize].name;
+                        let frame_line = if ip > 0 {
+                            self.program.chunks[cidx as usize].lines[ip - 1] as usize
                         } else {
                             0
                         };
@@ -237,21 +264,34 @@ impl Vm {
                 let val = *self.stack.last().unwrap();
                 self.stack.push(val);
             }
+            Op::DupAt(depth) => {
+                let idx = self.stack.len() - 1 - depth as usize;
+                let val = self.stack[idx];
+                self.stack.push(val);
+            }
+            Op::Swap => {
+                let len = self.stack.len();
+                self.stack.swap(len - 1, len - 2);
+            }
+            Op::Rot(depth) => {
+                let len = self.stack.len();
+                let top = self.stack[len - 1];
+                let dest = len - depth as usize;
+                self.stack.copy_within(dest..len - 1, dest + 1);
+                self.stack[dest] = top;
+            }
 
             // ── Variables ───────────────────────────────────────────────────
             Op::LoadLocal(slot) => {
-                let base = self.frames.last().unwrap().stack_base;
-                let val = self.stack[base + slot as usize];
+                let val = self.stack[self.current_stack_base + slot as usize];
                 self.stack.push(val);
             }
             Op::StoreLocal(slot) => {
                 let val = self.stack.pop().unwrap();
-                let base = self.frames.last().unwrap().stack_base;
-                self.stack[base + slot as usize] = val;
+                self.stack[self.current_stack_base + slot as usize] = val;
             }
             Op::LoadUpvalue(idx) => {
-                let closure_ref = self.frames.last().unwrap().closure_ref;
-                let val = match closure_ref {
+                let val = match self.current_closure_ref {
                     Some(ci) => match self.heap.get(ci) {
                         HeapObject::Closure(co) => co.upvalues[idx as usize],
                         _ => StackValue::None,
@@ -262,12 +302,10 @@ impl Vm {
             }
             Op::StoreUpvalue(idx) => {
                 let val = self.stack.pop().unwrap();
-                let closure_ref = self.frames.last().unwrap().closure_ref;
-                if let Some(ci) = closure_ref {
-                    if let HeapObject::Closure(co) = self.heap.get_mut(ci) {
+                if let Some(ci) = self.current_closure_ref
+                    && let HeapObject::Closure(co) = self.heap.get_mut(ci) {
                         co.upvalues[idx as usize] = val;
                     }
-                }
             }
             Op::LoadGlobal(idx) => {
                 let val = if (idx as usize) < self.globals.len() {
@@ -370,26 +408,22 @@ impl Vm {
 
             // ── Control flow ────────────────────────────────────────────────
             Op::Jump(offset) => {
-                let frame = self.frames.last_mut().unwrap();
-                frame.ip = (frame.ip as i64 + offset as i64) as usize;
+                self.ip = (self.ip as i64 + i64::from(offset)) as usize;
             }
             Op::JumpIfFalse(offset) => {
                 let v = self.stack.pop().unwrap();
                 if !is_truthy(v, &self.heap) {
-                    let frame = self.frames.last_mut().unwrap();
-                    frame.ip = (frame.ip as i64 + offset as i64) as usize;
+                    self.ip = (self.ip as i64 + i64::from(offset)) as usize;
                 }
             }
             Op::JumpIfTrue(offset) => {
                 let v = self.stack.pop().unwrap();
                 if is_truthy(v, &self.heap) {
-                    let frame = self.frames.last_mut().unwrap();
-                    frame.ip = (frame.ip as i64 + offset as i64) as usize;
+                    self.ip = (self.ip as i64 + i64::from(offset)) as usize;
                 }
             }
             Op::Loop(offset) => {
-                let frame = self.frames.last_mut().unwrap();
-                frame.ip = (frame.ip as i64 + offset as i64) as usize;
+                self.ip = (self.ip as i64 + i64::from(offset)) as usize;
             }
 
             // ── Functions ───────────────────────────────────────────────────
@@ -404,17 +438,13 @@ impl Vm {
                 }
                 let argc = argc as usize;
                 let base = self.stack.len() - argc;
-                self.frames.push(CallFrame {
-                    chunk_idx,
-                    ip: 0,
-                    stack_base: base,
-                    closure_ref: None,
-                });
+                self.push_frame(chunk_idx, base, None);
             }
             Op::Return => {
                 let result = self.stack.pop().unwrap_or(StackValue::None);
-                let frame = self.frames.pop().unwrap();
-                self.stack.truncate(frame.stack_base);
+                let old_base = self.current_stack_base;
+                self.pop_frame();
+                self.stack.truncate(old_base);
                 self.stack.push(result);
                 if self.frames.is_empty() {
                     return Ok(true);
@@ -439,17 +469,9 @@ impl Vm {
                                 ));
                             }
                             let chunk_index = co.chunk_index;
-                            // Remove the closure from the stack, keeping args in place.
-                            // Stack: [... closure, arg0, arg1, ...]
-                            // We want: [... arg0, arg1, ...] with base at closure_pos
                             self.stack.remove(closure_pos);
                             let base = closure_pos;
-                            self.frames.push(CallFrame {
-                                chunk_idx: chunk_index,
-                                ip: 0,
-                                stack_base: base,
-                                closure_ref: Some(idx),
-                            });
+                            self.push_frame(chunk_index, base, Some(idx));
                         }
                         HeapObject::NativeFnRef(native_idx) => {
                             let native_idx = *native_idx as usize;
@@ -552,7 +574,7 @@ impl Vm {
                             ErrorCode::R004,
                             line,
                             0,
-                            format!("cannot call method `{}` on non-object", method_name),
+                            format!("cannot call method `{method_name}` on non-object"),
                         ));
                     }
                 }
@@ -579,7 +601,7 @@ impl Vm {
                             ErrorCode::R003,
                             line,
                             0,
-                            format!("cannot access field `{}` on non-object", field),
+                            format!("cannot access field `{field}` on non-object"),
                         ));
                     }
                 }
@@ -714,6 +736,11 @@ impl Vm {
                 let obj = self.stack.pop().unwrap();
                 match (obj, index) {
                     (StackValue::HeapRef(list_idx), StackValue::Float(f)) => {
+                        let val = if !Heap::is_frame_ref(list_idx) {
+                            self.heap.promote(val)
+                        } else {
+                            val
+                        };
                         let i = f as usize;
                         match self.heap.get_mut(list_idx) {
                             HeapObject::List(items) => {
@@ -816,23 +843,16 @@ impl Vm {
                 }));
                 self.stack.push(sv);
             }
-            Op::MakeEnum(enum_str, variant_str, field_count) => {
-                let fc = field_count as usize;
+            Op::MakeEnum(enum_def_idx, variant_idx) => {
+                let enum_def = &self.program.enum_defs[enum_def_idx as usize];
+                let variant_def = &enum_def.variants[variant_idx as usize];
+                let fc = variant_def.field_names.len();
+                let enum_name = enum_def.name.clone();
+                let variant_name = variant_def.name.clone();
+                let field_names = variant_def.field_names.clone();
+
                 let start = self.stack.len() - fc;
                 let field_values: Vec<StackValue> = self.stack.drain(start..).collect();
-
-                let enum_name = self.program.strings[enum_str as usize].clone();
-                let variant_name = self.program.strings[variant_str as usize].clone();
-
-                // Look up field names from enum_defs
-                let field_names = self
-                    .program
-                    .enum_defs
-                    .iter()
-                    .find(|e| e.name == enum_name)
-                    .and_then(|e| e.variants.iter().find(|v| v.name == variant_name))
-                    .map(|v| v.field_names.clone())
-                    .unwrap_or_default();
 
                 let sv =
                     self.heap
@@ -862,11 +882,10 @@ impl Vm {
             // ── Output ──────────────────────────────────────────────────────
             Op::Emit => {
                 let val = self.stack.pop().unwrap();
-                if let StackValue::HeapRef(idx) = val {
-                    if let HeapObject::Shape(sd) = self.heap.get(idx) {
+                if let StackValue::HeapRef(idx) = val
+                    && let HeapObject::Shape(sd) = self.heap.get(idx) {
                         self.output.push(DrawCommand::DrawShape(sd.clone()));
                     }
-                }
             }
             Op::Print(count, level) => {
                 let count = count as usize;
@@ -888,21 +907,17 @@ impl Vm {
             // ── Optionals ───────────────────────────────────────────────────
             Op::CoalesceJump(offset) => {
                 let top = *self.stack.last().unwrap();
-                if !matches!(top, StackValue::None) {
-                    let frame = self.frames.last_mut().unwrap();
-                    frame.ip = (frame.ip as i64 + offset as i64) as usize;
-                } else {
+                if matches!(top, StackValue::None) {
                     // Is None — fall through. The compiler emits Pop next.
+                } else {
+                    self.ip = (self.ip as i64 + i64::from(offset)) as usize;
                 }
             }
             Op::OptChainJump(offset) => {
                 let top = *self.stack.last().unwrap();
                 if matches!(top, StackValue::None) {
-                    // Is None — jump (keep None on stack)
-                    let frame = self.frames.last_mut().unwrap();
-                    frame.ip = (frame.ip as i64 + offset as i64) as usize;
+                    self.ip = (self.ip as i64 + i64::from(offset)) as usize;
                 }
-                // Not None — fall through
             }
             Op::IsNone => {
                 let top = *self.stack.last().unwrap();
@@ -933,7 +948,7 @@ impl Vm {
                                 ErrorCode::R001,
                                 line,
                                 0,
-                                format!("cannot convert string '{}' to float", s),
+                                format!("cannot convert string '{s}' to float"),
                             )
                         })?,
                         _ => {
@@ -1021,9 +1036,7 @@ impl Vm {
                             }
                         };
                         if exhausted {
-                            // Jump past loop body
-                            let frame = self.frames.last_mut().unwrap();
-                            frame.ip = (frame.ip as i64 + offset as i64) as usize;
+                            self.ip = (self.ip as i64 + i64::from(offset)) as usize;
                         } else {
                             // Push next value only; iterator stays in its local slot
                             // (it was mutated in-place on the heap via get_mut)
@@ -1071,8 +1084,7 @@ impl Vm {
                                             line,
                                             0,
                                             format!(
-                                                "field '{}' not found on enum variant",
-                                                field_name
+                                                "field '{field_name}' not found on enum variant"
                                             ),
                                         )
                                     })?;
@@ -1137,11 +1149,10 @@ impl Vm {
                             }
                         };
                         for t_sv in transforms {
-                            if let StackValue::HeapRef(ti) = t_sv {
-                                if let HeapObject::Transform(td) = self.heap.get(ti) {
+                            if let StackValue::HeapRef(ti) = t_sv
+                                && let HeapObject::Transform(td) = self.heap.get(ti) {
                                     sd.transforms.push(td.clone());
                                 }
-                            }
                         }
                         let sv = self.heap.alloc(HeapObject::Shape(sd));
                         self.stack.push(sv);
@@ -1162,12 +1173,7 @@ impl Vm {
                 let saved_stack = self.stack.len();
                 let saved_frames = self.frames.len();
                 let base = self.stack.len();
-                self.frames.push(CallFrame {
-                    chunk_idx,
-                    ip: 0,
-                    stack_base: base,
-                    closure_ref: None,
-                });
+                self.push_frame(chunk_idx, base, None);
                 match self.run_until_frame(saved_frames) {
                     Ok(()) => {
                         let result = self.stack.pop().unwrap_or(StackValue::None);
@@ -1177,7 +1183,30 @@ impl Vm {
                     }
                     Err(e) => {
                         self.stack.truncate(saved_stack);
-                        self.frames.truncate(saved_frames);
+                        while self.frames.len() > saved_frames {
+                            self.pop_frame();
+                        }
+                        let sv = self.heap.alloc(HeapObject::ResErr(e.message));
+                        self.stack.push(sv);
+                    }
+                }
+            }
+            Op::TryCallClosure => {
+                let closure_sv = self.stack.pop().unwrap();
+                let saved_stack = self.stack.len();
+                let saved_frames = self.frames.len();
+                let result = self.call_closure_sync(closure_sv, &[], line);
+                match result {
+                    Ok(val) => {
+                        self.stack.truncate(saved_stack);
+                        let sv = self.heap.alloc(HeapObject::ResOk(val));
+                        self.stack.push(sv);
+                    }
+                    Err(e) => {
+                        self.stack.truncate(saved_stack);
+                        while self.frames.len() > saved_frames {
+                            self.pop_frame();
+                        }
                         let sv = self.heap.alloc(HeapObject::ResErr(e.message));
                         self.stack.push(sv);
                     }
@@ -1186,8 +1215,8 @@ impl Vm {
 
             // ── Cancellation ────────────────────────────────────────────────
             Op::CheckCancel => {
-                if let Some(ref cancel) = self.cancel {
-                    if cancel.load(Ordering::Relaxed) {
+                if let Some(ref cancel) = self.cancel
+                    && cancel.load(Ordering::Relaxed) {
                         return Err(RuntimeError::new(
                             ErrorCode::R010,
                             line,
@@ -1195,7 +1224,6 @@ impl Vm {
                             "script cancelled",
                         ));
                     }
-                }
             }
 
             // ── Nop ─────────────────────────────────────────────────────────
@@ -1211,7 +1239,7 @@ impl Vm {
         &mut self,
         recv_idx: u32,
         method_name: &str,
-        argc: usize,
+        _argc: usize,
         receiver_pos: usize,
         line: usize,
     ) -> Result<(), RuntimeError> {
@@ -1240,15 +1268,8 @@ impl Vm {
                 ));
             }
             let chunk_idx = method_def.chunk_index;
-            // Stack layout: [... receiver, arg0, arg1, ...]
-            // receiver IS local 0 (this), args are local 1+
             let base = receiver_pos;
-            self.frames.push(CallFrame {
-                chunk_idx,
-                ip: 0,
-                stack_base: base,
-                closure_ref: None,
-            });
+            self.push_frame(chunk_idx, base, None);
             Ok(())
         } else {
             // Try methods::call_method as fallback (for built-in object methods)
@@ -1832,7 +1853,7 @@ mod tests {
             "test",
             vec![
                 (Op::Const(0), 1),
-                (Op::MakeEnum(0, 1, 1), 1),    // enum_str=0, variant_str=1, 1 field
+                (Op::MakeEnum(0, 0), 1),       // enum_def=0, variant=0 (Circle)
                 (Op::Return, 1),
             ],
             0,
@@ -2034,7 +2055,7 @@ mod tests {
             "test",
             vec![
                 (Op::Const(0), 1),
-                (Op::MakeEnum(0, 1, 1), 1),    // Shape.Circle(5.0)
+                (Op::MakeEnum(0, 0), 1),       // enum_def=0, variant=0 (Circle)
                 (Op::MatchEnum(1), 1),          // match "Circle"
                 (Op::Return, 1),
             ],

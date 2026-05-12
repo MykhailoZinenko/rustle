@@ -16,6 +16,8 @@ pub enum StackValue {
     HeapRef(u32),
 }
 
+const _: () = assert!(std::mem::size_of::<StackValue>() == 16);
+
 impl StackValue {
     /// Extract the inner `f64`, if this is `Float`.
     #[must_use]
@@ -225,7 +227,9 @@ pub fn display(sv: StackValue, heap: &Heap) -> String {
 
 fn format_float(f: f64) -> String {
     if f.fract() == 0.0 && f.abs() < 1e15 {
-        format!("{}", f as i64)
+        #[expect(clippy::cast_possible_truncation, reason = "guarded by f.abs() < 1e15 which is within i64 range")]
+        let i = f as i64;
+        format!("{i}")
     } else {
         format!("{f}")
     }
@@ -291,59 +295,60 @@ pub fn deep_clone(sv: StackValue, heap: &mut Heap) -> StackValue {
 
 /// Clone a heap object by index, recursing into sub-values.
 ///
-/// The snapshot-then-recurse pattern ensures we don't hold a reference
-/// into `heap` while also mutating it.
+/// Phase 1 reads the object immutably and extracts only the child StackValues
+/// that need recursive cloning. Phase 2 recurses and allocates with the borrow
+/// released — avoiding a full clone of the source object.
 fn deep_clone_heap_object(idx: u32, heap: &mut Heap) -> HeapObject {
-    match heap.get(idx).clone() {
-        HeapObject::List(items) => {
-            let cloned: Vec<StackValue> = items
-                .iter()
-                .map(|&item| deep_clone(item, heap))
-                .collect();
+    enum Recursive {
+        List(Vec<StackValue>),
+        Object { type_name: String, struct_def_idx: u16, fields: Vec<StackValue> },
+        State(Vec<StackValue>),
+        Enum { enum_name: String, variant: String, field_names: Vec<String>, field_values: Vec<StackValue> },
+        Closure { chunk_index: u16, upvalues: Vec<StackValue> },
+        ResOk(StackValue),
+        Shallow,
+    }
+    let action = match heap.get(idx) {
+        HeapObject::List(items) => Recursive::List(items.clone()),
+        HeapObject::Object(s) => Recursive::Object {
+            type_name: s.type_name.clone(), struct_def_idx: s.struct_def_idx, fields: s.fields.clone(),
+        },
+        HeapObject::State(s) => Recursive::State(s.fields.clone()),
+        HeapObject::EnumVariant(e) => Recursive::Enum {
+            enum_name: e.enum_name.clone(), variant: e.variant.clone(),
+            field_names: e.field_names.clone(), field_values: e.field_values.clone(),
+        },
+        HeapObject::Closure(c) => Recursive::Closure {
+            chunk_index: c.chunk_index, upvalues: c.upvalues.clone(),
+        },
+        HeapObject::ResOk(inner) => Recursive::ResOk(*inner),
+        _ => Recursive::Shallow,
+    };
+    match action {
+        Recursive::List(items) => {
+            let cloned: Vec<StackValue> = items.iter().map(|&item| deep_clone(item, heap)).collect();
             HeapObject::List(cloned)
         }
-        HeapObject::Object(s) => {
-            let StructObj { type_name, struct_def_idx, fields } = s;
-            let cloned_fields: Vec<StackValue> = fields
-                .iter()
-                .map(|&f| deep_clone(f, heap))
-                .collect();
-            HeapObject::Object(StructObj { type_name, struct_def_idx, fields: cloned_fields })
+        Recursive::Object { type_name, struct_def_idx, fields } => {
+            let cloned: Vec<StackValue> = fields.iter().map(|&f| deep_clone(f, heap)).collect();
+            HeapObject::Object(StructObj { type_name, struct_def_idx, fields: cloned })
         }
-        HeapObject::State(s) => {
-            let cloned_fields: Vec<StackValue> = s.fields
-                .iter()
-                .map(|&f| deep_clone(f, heap))
-                .collect();
-            HeapObject::State(StateObj { fields: cloned_fields })
+        Recursive::State(fields) => {
+            let cloned: Vec<StackValue> = fields.iter().map(|&f| deep_clone(f, heap)).collect();
+            HeapObject::State(StateObj { fields: cloned })
         }
-        HeapObject::EnumVariant(e) => {
-            let EnumVariantObj { enum_name, variant, field_names, field_values } = e;
-            let cloned_values: Vec<StackValue> = field_values
-                .iter()
-                .map(|&f| deep_clone(f, heap))
-                .collect();
-            HeapObject::EnumVariant(EnumVariantObj {
-                enum_name,
-                variant,
-                field_names,
-                field_values: cloned_values,
-            })
+        Recursive::Enum { enum_name, variant, field_names, field_values } => {
+            let cloned: Vec<StackValue> = field_values.iter().map(|&f| deep_clone(f, heap)).collect();
+            HeapObject::EnumVariant(EnumVariantObj { enum_name, variant, field_names, field_values: cloned })
         }
-        HeapObject::Closure(c) => {
-            let ClosureObj { chunk_index, upvalues } = c;
-            let cloned_upvalues: Vec<StackValue> = upvalues
-                .iter()
-                .map(|&u| deep_clone(u, heap))
-                .collect();
-            HeapObject::Closure(ClosureObj { chunk_index, upvalues: cloned_upvalues })
+        Recursive::Closure { chunk_index, upvalues } => {
+            let cloned: Vec<StackValue> = upvalues.iter().map(|&u| deep_clone(u, heap)).collect();
+            HeapObject::Closure(ClosureObj { chunk_index, upvalues: cloned })
         }
-        HeapObject::ResOk(inner) => {
-            let cloned_inner = deep_clone(inner, heap);
-            HeapObject::ResOk(cloned_inner)
+        Recursive::ResOk(inner) => {
+            HeapObject::ResOk(deep_clone(inner, heap))
         }
-        // Shallow-clone everything else (strings, primitives, shapes, etc.)
-        other => other,
+        Recursive::Shallow => heap.get(idx).clone(),
     }
 }
 
